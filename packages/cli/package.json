@@ -1,6 +1,6 @@
 {
   "name": "skillx-sh",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "The Only Skill That Your AI Agent Needs.",
   "type": "module",
   "bin": {
