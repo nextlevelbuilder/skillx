@@ -6,6 +6,7 @@
 ### Features
 
 * **cli,api:** add skillx publish command with auth and ownership validation ([#4](https://github.com/nextlevelbuilder/skillx/issues/4)) ([eae3f53](https://github.com/nextlevelbuilder/skillx/commit/eae3f534cabf68806342308f9be6e8b9357c9f7e))
+* **leaderboard:** add votes, sort/filter, preview modal, scoring updates ([#7](https://github.com/nextlevelbuilder/skillx/issues/7)) ([1636137](https://github.com/nextlevelbuilder/skillx/commit/16361374c1d9c1f2c78e0b54a066ad9d3550df63))
 * **security:** add content scanning for SKILL.md files ([#6](https://github.com/nextlevelbuilder/skillx/issues/6)) ([ef47ca4](https://github.com/nextlevelbuilder/skillx/commit/ef47ca4a404ce8b3333b979eb096e77c907050a5))
 
 ## [0.2.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.1.3...skillx-sh-v0.2.0) (2026-02-13)
