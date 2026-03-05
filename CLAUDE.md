@@ -86,6 +86,7 @@ pnpm db:migrate:remote    # Apply migrations to remote D1
 | `/api/auth/*` | auth-catchall.tsx | Better Auth |
 | `/api/search` | api.search.ts | None |
 | `/api/skills/:slug` | api.skill-detail.ts | None |
+| `/api/skills/:slug/references` | api.skill-references.ts | None (GET), Session/Key (POST) |
 | `/api/skills/:slug/rate` | api.skill-rate.ts | Session/Key |
 | `/api/skills/:slug/review` | api.skill-review.ts | Session/Key |
 | `/api/skills/:slug/favorite` | api.skill-favorite.ts | Session/Key |
@@ -99,7 +100,7 @@ pnpm db:migrate:remote    # Apply migrations to remote D1
 
 ## Database Tables (Drizzle schema)
 
-`skills`, `ratings`, `reviews`, `favorites`, `votes`, `usageStats`, `apiKeys`, `installs`
+`skills`, `skill_references`, `ratings`, `reviews`, `favorites`, `votes`, `usageStats`, `apiKeys`, `installs`
 Plus Better Auth tables: `user`, `session`, `account`, `verification`
 
 ## Key Patterns
@@ -117,9 +118,13 @@ Search algorithm: `./docs/search-algorithm.md`
 
 **Leaderboard**: 7-signal composite scoring (rating 30%, installs 20%, stars 15%, votes 10%, success 10%, recency 10%, favorites 5%). Sort tabs (best/rating/installs/trending/newest), category filter, preview modal. Client-side interaction overlay (votes + favorites) on KV-cached data.
 
+**Skill Detail API**: Returns skill metadata + `references` array (title, url, type) + `scripts` array (name, description, language, url). References indexed in Vectorize for search.
+
+**References & Scripts**: Stored separately — `skill_references` table for external docs/links/examples (title, filename, url, type enum, content). Scripts stored as JSON in `skills.scripts` (name, description, language, url). CLI flags: `skillx use --include-refs --include-scripts` to display.
+
 **Vote API**: POST `/api/skills/:slug/vote` with `{ type: 'up'|'down'|'none' }`. Rate limited 10 votes/min per user. Atomic count update via SQL subquery.
 
-**CLI `skillx use` resolution**: `author/skill` (two-part → DB slug `author-skill`) | `org/repo/skill` (three-part → DB slug `org-skill`, fallback register from GitHub) | `slug` (direct lookup, fallback search) | `"keywords"` (search mode)
+**CLI `skillx use` resolution**: `author/skill` (two-part → DB slug `author-skill`) | `org/repo/skill` (three-part → DB slug `org-skill`, fallback register from GitHub) | `slug` (direct lookup, fallback search) | `"keywords"` (search mode). Display logic split into `use-display.ts` module.
 
 **Register API**: POST `/api/skills/register` with `{ owner, repo, skill_path?, scan? }`. Modes: single skill (`skill_path`), scan all SKILL.md files (`scan: true`), or backward-compat fallback (try root, then scan).
 

@@ -98,6 +98,8 @@ skillx/
 | `auth-button.tsx` | 41 | GitHub sign in/out |
 | `review-form.tsx` | 65 | Text input for writing reviews |
 | `review-list.tsx` | 60 | Display reviews from DB |
+| `skill-references-section.tsx` | ? | Display external references (docs, links, examples) |
+| `skill-scripts-section.tsx` | ? | Display scripts array with execution details |
 | `filter-tabs.tsx` | 31 | Category + price filters |
 | `rating-badge.tsx` | 36 | S/A/B/C tier display |
 | `command-box.tsx` | 32 | Copyable code block |
