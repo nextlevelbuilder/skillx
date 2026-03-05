@@ -7,6 +7,7 @@ effort: 16h
 branch: feat/skill-references-scripts
 tags: [feature, backend, frontend, cli, search, database]
 created: 2026-02-13
+notes: "Publish plan (260305) completed — blocker resolved. This plan's Phase 4 also touches register flow (now auth-gated)."
 ---
 
 # Phase 3.4: Skill References & Scripts

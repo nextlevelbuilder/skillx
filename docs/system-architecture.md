@@ -281,6 +281,7 @@ Response:
 | POST | `/api/skills/:slug/review` | Write review |
 | POST | `/api/skills/:slug/favorite` | Add/remove favorite |
 | POST | `/api/skills/:slug/install` | Track install (fire-and-forget) |
+| POST | `/api/skills/register` | Register/publish skills from GitHub repo (validates write access) |
 | POST | `/api/report` | Report usage |
 
 ### User Endpoints (Session Only)
@@ -298,8 +299,6 @@ Response:
 |--------|------|---------|
 | POST | `/api/admin/seed` | Load demo data (dev only) |
 
-<<<<<<< Updated upstream
-=======
 ## Skill Registration & Content Scanning
 
 ### Register API
@@ -383,7 +382,6 @@ Lazy-fetch (skill-detail API) also scans + sanitizes before returning
 - 403: No write access to GitHub repo
 - 404: No SKILL.md files found
 
->>>>>>> Stashed changes
 ## Deployment Architecture
 
 ```
