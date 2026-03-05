@@ -21,7 +21,7 @@ import {
 } from "~/lib/db/skill-detail-queries";
 import { useState } from "react";
 import { useFetcher } from "react-router";
-import { FileText } from "lucide-react";
+import { FileText, ShieldAlert } from "lucide-react";
 
 export async function loader({ params, request, context }: LoaderFunctionArgs) {
   const slug = params.slug;
@@ -118,6 +118,20 @@ export default function SkillDetail() {
             )}
           </div>
 
+          {/* Risk warning banner */}
+          {data.skill.risk_label === "danger" && (
+            <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+              <ShieldAlert className="mr-2 inline h-4 w-4" />
+              Suspicious content patterns detected. Review carefully before use.
+            </div>
+          )}
+          {data.skill.risk_label === "caution" && (
+            <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
+              <ShieldAlert className="mr-2 inline h-4 w-4" />
+              Some content patterns flagged for review.
+            </div>
+          )}
+
           {/* Use this skill */}
           <div className="mb-8 space-y-3">
             <p className="text-xs font-medium uppercase tracking-wider text-sx-fg-subtle">Use this skill</p>
@@ -149,7 +163,7 @@ export default function SkillDetail() {
           {/* Description / Content (rendered as markdown) */}
           <div className="mb-10">
             {data.skill.content && data.skill.content !== data.skill.description ? (
-              <SkillContentRenderer content={data.skill.content} />
+              <SkillContentRenderer content={data.skill.content} riskLabel={data.skill.risk_label ?? undefined} />
             ) : (
               <p className="text-sx-fg-muted leading-relaxed">{data.skill.description}</p>
             )}

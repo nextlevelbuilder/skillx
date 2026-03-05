@@ -96,11 +96,11 @@ skillx/
 
 ### Database Layer (apps/web/app/lib/db)
 
-**schema.ts** (124 LOC) — Drizzle ORM schema:
+**schema.ts** — Drizzle ORM schema:
 
 | Table | Columns | Purpose |
 |-------|---------|---------|
-| `skills` | id, name, slug, description, content, author, source_url, category, version, is_paid, price_cents, avg_rating, rating_count, install_count, timestamps | Core skill metadata |
+| `skills` | id, name, slug, description, content, author, source_url, category, version, is_paid, price_cents, avg_rating, rating_count, install_count, risk_label, timestamps | Core skill metadata + security risk classification |
 | `ratings` | id, skill_id, user_id, score, is_agent, timestamps | 0-10 scores |
 | `reviews` | id, skill_id, user_id, content, is_agent, created_at | Text feedback |
 | `favorites` | user_id, skill_id, created_at | Many-to-many bookmarks |
@@ -140,6 +140,12 @@ skillx/
 | `auth-client.ts` | React client for sessions (getSession, signIn, signOut) |
 | `session-helpers.ts` | `getSession(request, env)`, `requireAuth()` — request-level auth |
 | `api-key-utils.ts` | Hash/verify API keys (SHA-256), generate prefixes |
+
+### Security Scanning (apps/web/app/lib/security)
+
+| Module | Purpose |
+|--------|---------|
+| `content-scanner.ts` | Scan SKILL.md for prompt injection, invisible chars, ANSI escapes, shell injection. Returns RiskLabel + findings. |
 
 **Flow:**
 1. User clicks "Sign in with GitHub"

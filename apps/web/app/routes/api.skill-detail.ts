@@ -3,6 +3,7 @@ import { getDb } from "~/lib/db";
 import { skills, ratings, reviews, favorites } from "~/lib/db/schema";
 import { eq, desc, count, avg } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
+import { scanContent, sanitizeContent } from "~/lib/security/content-scanner";
 
 /** Detect stub content: short + ends with "## Author\n{author}" */
 function isStubContent(content: string, author: string): boolean {
@@ -59,11 +60,15 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
     if (skill.source_url && isStubContent(skill.content, skill.author)) {
       const realContent = await fetchRealContent(skill.source_url);
       if (realContent) {
-        skill.content = realContent;
+        const cleanContent = sanitizeContent(realContent);
+        const scanResult = scanContent(cleanContent);
+        skill.content = cleanContent;
+        skill.risk_label = scanResult.label;
         // Persist to DB so future requests are fast (fire-and-forget)
         db.update(skills)
-          .set({ content: realContent, updated_at: new Date() })
+          .set({ content: cleanContent, risk_label: scanResult.label, updated_at: new Date() })
           .where(eq(skills.id, skill.id))
+          .execute()
           .catch(() => {});
       }
     }

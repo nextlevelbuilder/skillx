@@ -90,7 +90,7 @@ pnpm db:migrate:remote    # Apply migrations to remote D1
 | `/api/skills/:slug/install` | api.skill-install.ts | Optional (API key or X-Device-Id) |
 | `/api/report` | api.usage-report.ts | Session/Key |
 | `/api/user/api-keys` | api.user-api-keys.ts | Session |
-| `/api/skills/register` | api.skill-register.ts | None |
+| `/api/skills/register` | api.skill-register.ts | Session/Key |
 | `/api/admin/seed` | api.admin.seed.ts | Admin secret |
 
 ## Database Tables (Drizzle schema)
@@ -125,6 +125,7 @@ Search algorithm: `./docs/search-algorithm.md`
 - **Env vars** in `apps/web/.dev.vars` (local) or Cloudflare Secrets (production). Never commit `.dev.vars`.
 - **Max 200 LOC per file** — split into focused modules if exceeded.
 - **Seed data** in `scripts/seed-data.json` (30 real skills from skills.sh). Seed via `ADMIN_SECRET=... pnpm seed`.
+- **Content security scanning** — all SKILL.md content scanned for prompt injection, invisible chars, ANSI escapes, shell injection. `risk_label` column stores result ("safe"/"caution"/"danger"/"unknown"). Sanitization strips zero-width Unicode + ANSI escapes before storage.
 
 ## Deployment
 

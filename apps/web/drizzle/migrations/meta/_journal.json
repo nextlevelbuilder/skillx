@@ -43,6 +43,13 @@
       "when": 1770888486129,
       "tag": "0005_crazy_kate_bishop",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1772700411636,
+      "tag": "0006_same_mikhail_rasputin",
+      "breakpoints": true
     }
   ]
 }

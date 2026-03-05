@@ -26,6 +26,7 @@ export const skills = sqliteTable(
     bayesian_rating: real("bayesian_rating").default(0),
     trending_score: real("trending_score").default(0),
     favorite_count: integer("favorite_count").default(0),
+    risk_label: text("risk_label").default("unknown"),
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updated_at: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },

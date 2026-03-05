@@ -1,0 +1,1 @@
+ALTER TABLE `skills` ADD `risk_label` text DEFAULT 'unknown';

@@ -14,6 +14,12 @@ import { eq } from "drizzle-orm";
 import { fetchGitHubSkill } from "~/lib/github/fetch-github-skill";
 import { scanGitHubRepo } from "~/lib/github/scan-github-repo";
 import { indexSkill } from "~/lib/vectorize/index-skill";
+<<<<<<< Updated upstream
+=======
+import { authenticateRequest } from "~/lib/auth/authenticate-request";
+import { validateRepoOwnership } from "~/lib/github/validate-repo-ownership";
+import { scanContent, sanitizeContent } from "~/lib/security/content-scanner";
+>>>>>>> Stashed changes
 
 const GITHUB_REPO_PATTERN = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
 
@@ -169,12 +175,16 @@ async function insertAndIndexSkill(
   const skillId = crypto.randomUUID();
   const now = new Date();
 
+  // Sanitize first, then scan the clean version so label reflects stored content
+  const cleanContent = sanitizeContent(ghSkill.content);
+  const scanResult = scanContent(cleanContent);
+
   await db.insert(skills).values({
     id: skillId,
     name: ghSkill.name,
     slug: ghSkill.slug,
     description: ghSkill.description,
-    content: ghSkill.content,
+    content: cleanContent,
     author: ghSkill.author,
     source_url: ghSkill.source_url,
     category: ghSkill.category,
@@ -186,6 +196,7 @@ async function insertAndIndexSkill(
     rating_count: 0,
     github_stars: ghSkill.github_stars,
     install_count: 0,
+    risk_label: scanResult.label,
     created_at: now,
     updated_at: now,
   });
@@ -196,7 +207,7 @@ async function insertAndIndexSkill(
       id: skillId,
       name: ghSkill.name,
       description: ghSkill.description,
-      content: ghSkill.content,
+      content: cleanContent,
       category: ghSkill.category,
       is_paid: false,
       avg_rating: 0,

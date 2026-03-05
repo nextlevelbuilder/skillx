@@ -13,6 +13,8 @@ interface SkillDetails {
   avg_rating: number | null;
   install_command?: string;
   content: string;
+  risk_label?: string;
+  source_url?: string;
 }
 
 interface RegisterResponse {
@@ -168,8 +170,20 @@ function displaySkill(skill: SkillDetails, displayId: string, options: { raw: bo
   trackInstall(skill.slug);
 
   if (options.raw) {
+    console.log(`--- BEGIN EXTERNAL SKILL CONTENT (untrusted, risk: ${skill.risk_label || 'unknown'}) ---`);
     console.log(skill.content);
+    console.log('--- END EXTERNAL SKILL CONTENT ---');
     return;
+  }
+
+  // Risk warning banner
+  if (skill.risk_label === 'danger') {
+    console.log(chalk.bgRed.white.bold(' WARNING ') +
+      chalk.red(' This skill has suspicious content patterns detected.'));
+    console.log(chalk.red('  Review carefully before pasting into AI tools.\n'));
+  } else if (skill.risk_label === 'caution') {
+    console.log(chalk.bgYellow.black.bold(' CAUTION ') +
+      chalk.yellow(' Some content patterns flagged for review.\n'));
   }
 
   const rating = skill.avg_rating ?? 0;
@@ -193,7 +207,10 @@ function displaySkill(skill: SkillDetails, displayId: string, options: { raw: bo
   console.log(chalk.dim('─'.repeat(80)));
   console.log(skill.content);
   console.log(chalk.dim('─'.repeat(80)));
-  console.log(chalk.dim(`\nUse ${chalk.cyan(`skillx use ${displayId} --raw`)} to output raw content (for piping)`));
+
+  console.log(chalk.dim(`\nSource: ${skill.source_url || 'unknown'}`));
+  console.log(chalk.dim('Tip: Review content before pasting into AI tools.'));
+  console.log(chalk.dim(`Use ${chalk.cyan(`skillx use ${displayId} --raw`)} to output raw content (for piping)`));
   console.log(chalk.dim(`View online at: ${chalk.underline(`https://skillx.sh/skills/${skill.slug}`)}`));
 }
 

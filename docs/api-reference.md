@@ -478,6 +478,75 @@ Revoke an API key (soft delete — sets `revoked_at` timestamp).
 
 ---
 
+### Skill Registration
+
+#### `POST /api/skills/register`
+
+Register and publish skills from a GitHub repository. Scans for SKILL.md files, validates ownership, and stores with content security scanning.
+
+**Auth**: Required (session or API key)
+
+**Request Body**:
+
+```json
+{
+  "owner": "github-username",
+  "repo": "repo-name",
+  "skill_path": "path/to/skill",    // optional: specific skill subfolder
+  "scan": true                       // optional: scan entire repo
+}
+```
+
+**Fields:**
+- `owner` (string, required): GitHub username or org
+- `repo` (string, required): Repository name
+- `skill_path` (string, optional): Specific skill subfolder path
+- `scan` (boolean, optional): Scan entire repo for SKILL.md files
+
+**Response** `200` (single skill):
+
+```json
+{
+  "skill": {
+    "slug": "owner-skill-name",
+    "name": "Skill Name",
+    "author": "github-username",
+    "description": "..."
+  },
+  "created": true
+}
+```
+
+**Response** `200` (multiple skills):
+
+```json
+{
+  "skills": [
+    { "slug": "owner-skill-1", "name": "...", "author": "..." },
+    { "slug": "owner-skill-2", "name": "...", "author": "..." }
+  ],
+  "registered": 2,
+  "skipped": 1
+}
+```
+
+**Features**:
+- Content scanned for prompt injection, invisible chars, ANSI escapes, shell injection
+- Risk label assigned: `"safe"`, `"caution"`, `"danger"`, or `"unknown"`
+- Suspicious content sanitized before storage (zero-width chars + ANSI escapes removed)
+- GitHub write access validated before publishing
+
+**Errors**:
+
+| Status | Body | Cause |
+|--------|------|-------|
+| 400 | `{ "error": "..." }` | Invalid input or validation failure |
+| 401 | `{ "error": "Authentication required" }` | Not logged in |
+| 403 | `{ "error": "No write access to GitHub repo" }` | Insufficient repo permissions |
+| 404 | `{ "error": "No SKILL.md files found" }` | Repo doesn't contain skills |
+
+---
+
 ### Auth (Better Auth)
 
 #### `* /api/auth/*`
