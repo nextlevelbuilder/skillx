@@ -366,6 +366,7 @@ Check existing vote: SELECT * FROM votes WHERE user_id = ? AND skill_id = ?
 - Higher `net_votes` = better leaderboard ranking
 - Negative votes penalize skills but don't remove them
 
+
 ## Skill Registration & Content Scanning
 
 ### Register API

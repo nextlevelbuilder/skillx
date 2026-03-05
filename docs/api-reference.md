@@ -207,6 +207,50 @@ Rate a skill (0-10 scale). Upserts — re-rating updates existing score.
 
 ---
 
+### Votes
+
+#### `POST /api/skills/:slug/vote`
+
+Upvote or downvote a skill. Vote is toggled off if same direction already exists.
+
+**Auth**: Required (session)
+
+**URL Params**: `slug` — skill URL slug
+
+**Request Body**:
+
+```json
+{
+  "direction": "up"
+}
+```
+
+| Field | Type | Required | Validation |
+|-------|------|----------|------------|
+| `direction` | string | Yes | `"up"` or `"down"` |
+
+**Response** `200`:
+
+```json
+{
+  "success": true,
+  "direction": "up",
+  "upvote_count": 42,
+  "downvote_count": 3,
+  "net_votes": 39
+}
+```
+
+**Errors**:
+
+| Status | Body | Cause |
+|--------|------|-------|
+| 400 | `{ "error": "Invalid direction" }` | Direction not `up` or `down` |
+| 401 | `{ "error": "Authentication required" }` | Not logged in |
+| 404 | `{ "error": "Skill not found" }` | Invalid slug |
+
+---
+
 ### Reviews
 
 #### `GET /api/skills/:slug/review`
@@ -306,6 +350,47 @@ Toggle favorite status for a skill. Adds if not favorited, removes if already fa
 
 ---
 
+### User Interactions
+
+#### `GET /api/user/interactions`
+
+Fetch current user's ratings, reviews, votes, and favorites in one call.
+
+**Auth**: Required (session)
+
+**Query Parameters**:
+
+| Param | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `limit` | number | No | 50 | Max results per category (max 100) |
+
+**Response** `200`:
+
+```json
+{
+  "ratings": [
+    { "skill_slug": "skill-1", "score": 8 }
+  ],
+  "reviews": [
+    { "skill_slug": "skill-1", "content": "Great skill!" }
+  ],
+  "votes": [
+    { "skill_slug": "skill-2", "direction": "up" }
+  ],
+  "favorites": [
+    { "skill_slug": "skill-3" }
+  ]
+}
+```
+
+**Errors**:
+
+| Status | Body | Cause |
+|--------|------|-------|
+| 401 | `{ "error": "Authentication required" }` | Not logged in |
+
+---
+
 ### Usage Reports
 
 #### `POST /api/report`
@@ -363,7 +448,8 @@ Paginated skill leaderboard with composite scoring and signal badges. KV cached 
 
 | Param | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `sort` | string | No | `"best"` | `"best"`, `"rating"`, `"installs"`, `"trending"`, or `"newest"` |
+| `sort` | string | No | `"best"` | `"best"`, `"rating"`, `"votes"`, `"installs"`, `"trending"`, or `"newest"` (NEW: `"votes"`) |
+| `category` | string | No | — | Filter by category (e.g., `"data"`, `"analytics"`) (NEW) |
 | `offset` | number | No | 0 | Pagination offset |
 | `limit` | number | No | 20 | Results per page (max 50) |
 
@@ -377,8 +463,13 @@ Paginated skill leaderboard with composite scoring and signal badges. KV cached 
       "slug": "skill-name",
       "name": "Skill Name",
       "author": "author",
+      "description": "Brief description",
+      "category": "data",
       "installs": 1200,
       "rating": 8.5,
+      "upvotes": 42,
+      "downvotes": 3,
+      "netVotes": 39,
       "badges": ["top-rated", "popular"]
     }
   ],
