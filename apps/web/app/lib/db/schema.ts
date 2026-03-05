@@ -26,6 +26,9 @@ export const skills = sqliteTable(
     bayesian_rating: real("bayesian_rating").default(0),
     trending_score: real("trending_score").default(0),
     favorite_count: integer("favorite_count").default(0),
+    upvote_count: integer("upvote_count").default(0),
+    downvote_count: integer("downvote_count").default(0),
+    net_votes: integer("net_votes").default(0),
     risk_label: text("risk_label").default("unknown"),
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updated_at: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
@@ -36,6 +39,26 @@ export const skills = sqliteTable(
     index("idx_skills_avg_rating").on(table.avg_rating),
     index("idx_skills_composite_score").on(table.composite_score),
     index("idx_skills_trending_score").on(table.trending_score),
+    index("idx_skills_net_votes").on(table.net_votes),
+  ]
+);
+
+// Votes - Reddit-style upvote/downvote
+export const votes = sqliteTable(
+  "votes",
+  {
+    id: text("id").primaryKey(),
+    user_id: text("user_id").notNull(),
+    skill_id: text("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    vote_type: text("vote_type").notNull(), // 'up' | 'down'
+    created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    updated_at: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [
+    uniqueIndex("idx_votes_user_skill").on(table.user_id, table.skill_id),
+    index("idx_votes_skill").on(table.skill_id),
   ]
 );
 

@@ -19,7 +19,9 @@ export default [
   route("api/skills/:slug/review", "routes/api.skill-review.ts"),
   route("api/skills/:slug/favorite", "routes/api.skill-favorite.ts"),
   route("api/skills/:slug/install", "routes/api.skill-install.ts"),
+  route("api/skills/:slug/vote", "routes/api.skill-vote.ts"),
   route("api/report", "routes/api.usage-report.ts"),
   route("api/user/api-keys", "routes/api.user-api-keys.ts"),
+  route("api/user/interactions", "routes/api.user-interactions.ts"),
   route("*", "routes/$.tsx"),
 ] satisfies RouteConfig;

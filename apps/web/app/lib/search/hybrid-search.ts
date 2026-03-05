@@ -54,7 +54,7 @@ async function fetchSkillStats(
     return new Map();
   }
 
-  // Fetch skill data with expanded fields for 7-signal boost
+  // Fetch skill data with expanded fields for 8-signal boost
   const [skillData, successRates, favResults] = await Promise.all([
     db
       .select({
@@ -62,6 +62,7 @@ async function fetchSkillStats(
         avg_rating: skills.avg_rating,
         install_count: skills.install_count,
         github_stars: skills.github_stars,
+        net_votes: skills.net_votes,
         updated_at: skills.updated_at,
       })
       .from(skills)
@@ -99,7 +100,7 @@ async function fetchSkillStats(
   );
   const userFavorites = new Set(favResults.map((f) => f.skill_id));
 
-  // Build stats map with all 7 signals
+  // Build stats map with all 8 signals
   const statsMap = new Map<string, SkillStats>();
   for (const skill of skillData) {
     statsMap.set(skill.id, {
@@ -109,6 +110,7 @@ async function fetchSkillStats(
       success_rate: successMap.get(skill.id) ?? 0.5,
       updated_at: skill.updated_at,
       is_favorited: userFavorites.has(skill.id),
+      net_votes: skill.net_votes || 0,
     });
   }
 

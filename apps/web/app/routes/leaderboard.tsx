@@ -64,6 +64,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
           author: skills.author,
           installs: skills.install_count,
           rating: skills.bayesian_rating,
+          netVotes: skills.net_votes,
           trendingScore: skills.trending_score,
           favoriteCount: skills.favorite_count,
           updatedAt: skills.updated_at,
@@ -95,6 +96,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
         author: e.author,
         installs: e.installs || 0,
         rating: e.rating || 0,
+        netVotes: e.netVotes || 0,
         badges,
       };
     },

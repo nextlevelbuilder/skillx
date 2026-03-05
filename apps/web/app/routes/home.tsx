@@ -6,6 +6,7 @@ import { getDb } from "~/lib/db";
 import { skills } from "~/lib/db/schema";
 import { desc, count, sql } from "drizzle-orm";
 import { getCached } from "~/lib/cache/kv-cache";
+import { getSession } from "~/lib/auth/session-helpers";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -18,9 +19,13 @@ export function meta({}: Route.MetaArgs) {
   ];
 }
 
-export async function loader({ context }: Route.LoaderArgs) {
+export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
   const db = getDb(env.DB);
+
+  // Check auth state (non-blocking)
+  const session = await getSession(request, env).catch(() => null);
+  const isAuthenticated = !!session?.user;
 
   // Get global stats with KV cache (5 min TTL)
   const stats = await getCached(env.KV, "stats:global", 300, async () => {
@@ -44,6 +49,15 @@ export async function loader({ context }: Route.LoaderArgs) {
 
   // Get first page of leaderboard sorted by composite score
   const PAGE_SIZE = 20;
+  // Distinct categories for filter dropdown
+  const categories = await getCached(env.KV, "categories:distinct", 300, async () => {
+    const rows = await db
+      .selectDistinct({ category: skills.category })
+      .from(skills)
+      .orderBy(skills.category);
+    return rows.map((r) => r.category).filter(Boolean);
+  });
+
   const leaderboardEntries = await getCached(
     env.KV,
     `leaderboard:home:best:0:${PAGE_SIZE}`,
@@ -54,8 +68,11 @@ export async function loader({ context }: Route.LoaderArgs) {
           slug: skills.slug,
           name: skills.name,
           author: skills.author,
+          description: skills.description,
+          category: skills.category,
           installs: skills.install_count,
           rating: skills.bayesian_rating,
+          netVotes: skills.net_votes,
         })
         .from(skills)
         .orderBy(desc(skills.composite_score))
@@ -70,13 +87,14 @@ export async function loader({ context }: Route.LoaderArgs) {
       rank: i + 1,
       installs: e.installs || 0,
       rating: e.rating || 0,
+      netVotes: e.netVotes || 0,
     }));
 
-  return { stats, featuredSkills, leaderboard: ranked, leaderboardHasMore: hasMore };
+  return { stats, featuredSkills, leaderboard: ranked, leaderboardHasMore: hasMore, categories, isAuthenticated };
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { stats, featuredSkills, leaderboard, leaderboardHasMore } = loaderData;
+  const { stats, featuredSkills, leaderboard, leaderboardHasMore, categories, isAuthenticated } = loaderData;
 
   return (
     <div className="flex flex-col items-center px-4">
@@ -158,7 +176,12 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         <h2 className="mb-6 text-center font-mono text-xl font-bold text-sx-fg">
           Leaderboard
         </h2>
-        <HomeLeaderboard initialEntries={leaderboard} initialHasMore={leaderboardHasMore} />
+        <HomeLeaderboard
+          initialEntries={leaderboard}
+          initialHasMore={leaderboardHasMore}
+          categories={categories}
+          isAuthenticated={isAuthenticated}
+        />
       </div>
     </div>
   );

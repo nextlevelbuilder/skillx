@@ -7,7 +7,7 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { getDb } from "~/lib/db";
 import { skills } from "~/lib/db/schema";
-import { desc, sql } from "drizzle-orm";
+import { desc, eq, sql } from "drizzle-orm";
 import { getCached } from "~/lib/cache/kv-cache";
 
 const MAX_LIMIT = 50;
@@ -73,7 +73,11 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     MAX_LIMIT,
   );
 
-  const cacheKey = `leaderboard:v2:${sort}:${offset}:${limit}`;
+  // Category filter with validation (cap at 50 chars, prevent cache key pollution)
+  const rawCategory = url.searchParams.get("category") || "";
+  const category = rawCategory.length <= 50 ? rawCategory : "";
+
+  const cacheKey = `leaderboard:v3:${sort}:${category}:${offset}:${limit}`;
 
   // Badge thresholds (top 10% cutoffs), cached separately
   const thresholds = await getCached(env.KV, "leaderboard:thresholds", 300, async () => {
@@ -100,19 +104,29 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const orderCol = getOrderColumn(sort);
 
   const results = await getCached(env.KV, cacheKey, 300, async () => {
-    return db
+    let query = db
       .select({
         slug: skills.slug,
         name: skills.name,
         author: skills.author,
+        description: skills.description,
+        category: skills.category,
         installs: skills.install_count,
         rating: skills.bayesian_rating,
+        netVotes: skills.net_votes,
         trendingScore: skills.trending_score,
         favoriteCount: skills.favorite_count,
         updatedAt: skills.updated_at,
         bayesianRating: skills.bayesian_rating,
       })
       .from(skills)
+      .$dynamic();
+
+    if (category) {
+      query = query.where(eq(skills.category, category));
+    }
+
+    return query
       .orderBy(desc(orderCol))
       .limit(limit + 1)
       .offset(offset);
@@ -125,8 +139,11 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
       slug: e.slug,
       name: e.name,
       author: e.author,
+      description: e.description,
+      category: e.category,
       installs: e.installs || 0,
       rating: e.rating || 0,
+      netVotes: e.netVotes || 0,
       badges: computeBadges(e, thresholds),
     }),
   );

@@ -25,6 +25,7 @@ export async function recomputeSkillScores(
       maxInstalls: sql<number>`coalesce(max(install_count), 1)`,
       maxStars: sql<number>`coalesce(max(github_stars), 1)`,
       maxFavorites: sql<number>`coalesce(max(favorite_count), 1)`,
+      maxNetVotes: sql<number>`coalesce(max(net_votes), 1)`,
     })
     .from(skills);
 
@@ -35,6 +36,7 @@ export async function recomputeSkillScores(
       ratingCount: skills.rating_count,
       installCount: skills.install_count,
       githubStars: skills.github_stars,
+      netVotes: skills.net_votes,
       updatedAt: skills.updated_at,
     })
     .from(skills)
@@ -109,11 +111,13 @@ export async function recomputeSkillScores(
     bayesianRating,
     installCount: skill.installCount ?? 0,
     githubStars: skill.githubStars ?? 0,
+    netVotes: skill.netVotes ?? 0,
     successRate,
     updatedAt: skill.updatedAt,
     favoriteCount,
     maxInstalls: globalStats.maxInstalls,
     maxStars: globalStats.maxStars,
+    maxNetVotes: Math.max(globalStats.maxNetVotes, 1),
     maxFavorites: Math.max(globalStats.maxFavorites, 1),
   });
 
