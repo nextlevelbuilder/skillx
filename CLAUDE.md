@@ -53,7 +53,7 @@ apps/web/app/
 └── app.css              # Tailwind + theme tokens
 
 packages/cli/src/        # `skillx` npm package
-├── commands/            # search, use, report, config
+├── commands/            # search, use, publish, report, config
 ├── lib/                 # api-client, config-store
 └── index.ts             # Commander.js entry
 ```
@@ -65,6 +65,8 @@ pnpm install              # Install all dependencies
 pnpm dev                  # Start dev server (apps/web) → http://localhost:5173
 pnpm build                # Build for production
 pnpm typecheck            # TypeScript check
+pnpm test                 # Run unit tests (vitest) once
+pnpm test:watch           # Run unit tests in watch mode
 pnpm seed                 # Seed DB (requires ADMIN_SECRET env var)
 
 # Inside apps/web:

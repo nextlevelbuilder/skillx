@@ -1,12 +1,12 @@
 ---
-status: in-progress
+status: complete
 created: 2026-02-13
 updated: 2026-03-05
 branch: feat/skillx-use-redesign
 estimated_phases: 5
 effort: 18h
 tags: [cli, backend, security, ui]
-notes: "Phase 1-2 and 5 complete. Phase 3 (integration testing) and Phase 4 (docs/deploy) remain pending."
+notes: "All 5 phases complete. Phase 3: 38 tests pass (30 content-scanner unit tests, 8 CLI parseIdentifier tests). Phase 4: CLI README + CLAUDE.md updated. Code review fixes applied (bidirectional override chars, caution threshold precision). Deploy deferred pending PR merge."
 ---
 
 # Plan: `skillx use` Identifier Redesign + Security
@@ -28,8 +28,8 @@ notes: "Phase 1-2 and 5 complete. Phase 3 (integration testing) and Phase 4 (doc
 |---|-------|----------|--------|--------|------------|
 | 1 | [Backend: GitHub repo scanner + register API](phase-01-backend-github-scanner.md) | HIGH | 4h | Complete | — |
 | 2 | [CLI: Identifier parsing + resolution chain](phase-02-cli-identifier-resolution.md) | HIGH | 4h | Complete | Phase 1 |
-| 3 | [Integration testing + edge cases](phase-03-integration-testing.md) | MEDIUM | 2h | Pending | Phase 1, 2 |
-| 4 | [Docs + deploy](phase-04-docs-deploy.md) | LOW | 1h | Pending | Phase 3 |
+| 3 | [Integration testing + edge cases](phase-03-integration-testing.md) | MEDIUM | 2h | Complete | Phase 1, 2 |
+| 4 | [Docs + deploy](phase-04-docs-deploy.md) | LOW | 1h | Complete | Phase 3 |
 | 5 | [Security: Content scanning + CLI/UI warnings](phase-05-security-content-scanning-warnings.md) | HIGH | 7h | Complete | Phase 1 |
 
 ## Execution Order

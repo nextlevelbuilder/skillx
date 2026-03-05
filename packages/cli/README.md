@@ -56,6 +56,26 @@ skillx use something --search             # force search mode
 - Single word → direct slug lookup, falls back to search if not found
 - Multi-word or `--search` flag → searches and uses the top result
 
+**Security warnings:** Skills are scanned for suspicious content at registration. The CLI shows colored warnings:
+
+- **Safe** — no issues detected (no banner)
+- **Caution** — yellow banner, some patterns flagged
+- **Danger** — red banner, suspicious content patterns detected
+
+Use `--raw` to output content with boundary markers (for piping to other tools).
+
+### `skillx publish [owner/repo]`
+
+Publish skills from a GitHub repo to the SkillX marketplace (requires API key + repo ownership).
+
+```bash
+skillx publish                          # auto-detect from git remote
+skillx publish owner/repo               # explicit repo
+skillx publish owner/repo --path .claude/skills/my-skill  # specific skill
+skillx publish owner/repo --scan        # scan all SKILL.md files
+skillx publish --dry-run                # preview without publishing
+```
+
 ### `skillx report <slug> <outcome>`
 
 Report skill usage outcome (requires API key).

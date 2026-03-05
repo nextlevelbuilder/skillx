@@ -330,11 +330,12 @@ Response:
 Skill content (SKILL.md)
     ↓
 [scanContent: detect patterns]
-    ├─ DANGER: invisible Unicode, ANSI escapes, prompt injection,
-    │          javascript: URLs, shell injection → risk_label = "danger"
+    ├─ DANGER: invisible Unicode (zero-width, bidi overrides), ANSI escapes,
+    │          prompt injection patterns, javascript: URLs, shell injection
+    │          → risk_label = "danger"
     │
     ├─ CAUTION: script/iframe/form tags, URL shorteners, base64 blocks,
-    │           XML-style tags (2+ matches) → risk_label = "caution"
+    │           XML-style tags (2+ matches threshold) → risk_label = "caution"
     │
     └─ else → risk_label = "safe"
     ↓
@@ -345,10 +346,17 @@ INSERT INTO skills (content, risk_label, ...) VALUES (sanitized_content, label, 
 Lazy-fetch (skill-detail API) also scans + sanitizes before returning
 ```
 
+**Invisible Unicode Detection (Trojan Source Prevention):**
+
+- **Zero-width chars** — U+200B, U+200C, U+200D, U+FEFF, U+2060-U+2064, U+2066-U+206F
+- **Bidirectional overrides** — U+202A-U+202E (used to reverse code logic visually)
+- Both types trigger "danger" label immediately
+
 **Risk Labels:**
+
 - **"safe"** — No dangerous patterns detected
-- **"caution"** — Multiple suspicious patterns (warnings shown to users)
-- **"danger"** — Prompt injection or injection vectors detected (strong warnings)
+- **"caution"** — Multiple suspicious patterns (2+), warnings shown to users
+- **"danger"** — Prompt injection, invisible chars, ANSI escapes, or injection vectors detected (strong warnings)
 - **"unknown"** — Not yet scanned (legacy data)
 
 **Response (single skill):**

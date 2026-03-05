@@ -7,9 +7,10 @@
 ## Overview
 
 - **Priority:** LOW
-- **Status:** Pending
+- **Status:** Complete
 - **Depends on:** Phase 3 (all tests pass)
 - **Description:** Update CLI README, project docs, deploy backend + CLI.
+- **Completed:** Updated packages/cli/README.md with new identifier formats + security warning section. Updated CLAUDE.md with `pnpm test` command + publish docs in CLI commands list. system-architecture.md + docs/ updated in previous session. Deploy deferred pending PR merge.
 
 ## Implementation Steps
 
@@ -61,12 +62,12 @@ Update `docs/system-architecture.md` with security flow diagram if applicable.
 
 ## Todo List
 
-- [ ] Update `packages/cli/README.md` with new identifier formats
-- [ ] Update `docs/system-architecture.md` if needed
-- [ ] Update `CLAUDE.md` routes table + security notes
-- [ ] Deploy backend (`pnpm build && cd apps/web && npx wrangler deploy`)
-- [ ] Run migration on remote D1 (`pnpm db:migrate:remote`)
-- [ ] Build CLI (`cd packages/cli && pnpm build`)
+- [x] Update `packages/cli/README.md` with new identifier formats
+- [x] Update `docs/system-architecture.md` if needed
+- [x] Update `CLAUDE.md` routes table + security notes + pnpm test command
+- [ ] Deploy backend (`pnpm build && cd apps/web && npx wrangler deploy`) — deferred
+- [ ] Run migration on remote D1 (`pnpm db:migrate:remote`) — deferred
+- [ ] Build CLI (`cd packages/cli && pnpm build`) — done (no errors, pre-existing only)
 
 ## Success Criteria
 

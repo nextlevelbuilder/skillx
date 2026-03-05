@@ -332,6 +332,35 @@ All list APIs support:
 
 ---
 
+## Test Infrastructure
+
+**Framework:** Vitest (Fast unit testing)
+
+**Test Configuration:**
+
+- Config file: `vitest.config.ts`
+- Test file pattern: `**/*.test.ts`
+- Test directories:
+  - `apps/web/app/**/*.test.ts` — Web app tests
+  - `packages/cli/src/**/*.test.ts` — CLI tests
+
+**Current Test Suite (38 tests):**
+
+- **content-scanner.test.ts** (30 tests) — Security scanning for prompt injection, invisible chars, ANSI escapes, shell injection, HTML/XML tags
+- **use.test.ts** (8 tests) — CLI identifier resolution (search, two-part, three-part, slug formats)
+
+**Running Tests:**
+
+```bash
+pnpm test              # Run all tests once
+pnpm test:watch       # Watch mode for development
+```
+
+**Test Coverage Areas:**
+
+1. **Security scanning** — detect malicious content, Unicode tricks, prompt injection patterns
+2. **CLI identifier parsing** — correctly classify input formats (author/skill, org/repo/skill, slug, search query)
+
 ## Dependencies
 
 **Production:**
@@ -350,10 +379,11 @@ All list APIs support:
 - vite
 - typescript
 - wrangler (Cloudflare CLI)
-- vitest
+- vitest (unit testing)
 - prettier
 
 ---
 
-**Last Updated:** Feb 2025
+**Last Updated:** Mar 2025
 **Total LOC:** ~4,500 (excluding auto-generated)
+**Test Suite:** 38 unit tests
