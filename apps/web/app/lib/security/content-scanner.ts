@@ -12,7 +12,7 @@ export interface ScanResult {
 }
 
 // DANGER patterns — any single match = "danger"
-const INVISIBLE_UNICODE = /[\u200B-\u200D\uFEFF\u2060-\u2064\u2066-\u206F]/g;
+const INVISIBLE_UNICODE = /[\u200B-\u200D\u202A-\u202E\uFEFF\u2060-\u2064\u2066-\u206F]/g;
 const ANSI_ESCAPE = /\x1B\[[0-9;]*[A-Za-z]/g;
 const PROMPT_INJECTION_PATTERNS = [
   /ignore\s+(all\s+)?(previous|prior|above)\s+(instructions|prompts|rules)/i,

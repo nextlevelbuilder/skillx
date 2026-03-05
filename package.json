@@ -6,7 +6,9 @@
     "build": "pnpm --filter web build",
     "typecheck": "pnpm --filter web typecheck",
     "deploy": "pnpm --filter web deploy",
-    "seed": "node scripts/seed-skills.mjs"
+    "seed": "node scripts/seed-skills.mjs",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "packageManager": "pnpm@10.22.0",
   "engines": {
@@ -18,5 +20,8 @@
       "sharp",
       "workerd"
     ]
+  },
+  "devDependencies": {
+    "vitest": "^4.0.18"
   }
 }

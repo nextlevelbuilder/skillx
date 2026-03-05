@@ -35,7 +35,7 @@ interface ParsedIdentifier {
 }
 
 /** Parse identifier into type + parts */
-function parseIdentifier(input: string): ParsedIdentifier {
+export function parseIdentifier(input: string): ParsedIdentifier {
   if (input.includes(' ')) return { type: 'search', parts: [input] };
 
   const slashParts = input.split('/');
