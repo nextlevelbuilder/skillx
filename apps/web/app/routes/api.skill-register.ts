@@ -14,8 +14,11 @@ import { eq } from "drizzle-orm";
 import { fetchGitHubSkill } from "~/lib/github/fetch-github-skill";
 import { scanGitHubRepo } from "~/lib/github/scan-github-repo";
 import { indexSkill } from "~/lib/vectorize/index-skill";
+import { authenticateRequest } from "~/lib/auth/authenticate-request";
+import { validateRepoOwnership } from "~/lib/github/validate-repo-ownership";
 
 const GITHUB_REPO_PATTERN = /^[a-zA-Z0-9._-]+\/[a-zA-Z0-9._-]+$/;
+const SAFE_PATH_PATTERN = /^[a-zA-Z0-9._\-/]+$/;
 
 interface RegisterBody {
   owner?: string;
@@ -26,6 +29,17 @@ interface RegisterBody {
 
 export async function action({ request, context }: ActionFunctionArgs) {
   try {
+    const env = context.cloudflare.env as Env;
+
+    // Require authentication
+    const auth = await authenticateRequest(request, env);
+    if (!auth) {
+      return Response.json(
+        { error: "Authentication required. Use API key (Authorization: Bearer) or sign in." },
+        { status: 401 },
+      );
+    }
+
     const body = (await request.json()) as RegisterBody;
     const { owner, repo, skill_path, scan } = body;
 
@@ -36,7 +50,25 @@ export async function action({ request, context }: ActionFunctionArgs) {
       );
     }
 
-    const env = context.cloudflare.env as Env;
+    // Validate skill_path if provided (prevent path traversal)
+    if (skill_path) {
+      if (skill_path.includes("..") || skill_path.startsWith("/") || !SAFE_PATH_PATTERN.test(skill_path)) {
+        return Response.json(
+          { error: "Invalid skill_path. Must be a relative path without '..' sequences." },
+          { status: 400 },
+        );
+      }
+    }
+
+    // Validate GitHub repo ownership
+    const db = getDb(env.DB);
+    const ownership = await validateRepoOwnership(auth.userId, owner, repo, db);
+    if (!ownership.valid) {
+      return Response.json(
+        { error: ownership.reason || "You do not have access to this repository." },
+        { status: 403 },
+      );
+    }
 
     // Mode: specific skill_path → register single subfolder skill
     if (skill_path) {

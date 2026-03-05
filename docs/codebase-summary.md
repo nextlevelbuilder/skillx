@@ -11,7 +11,8 @@ skillx/
 │       │   ├── components/            # React UI components (14 files)
 │       │   ├── lib/
 │       │   │   ├── db/                # Drizzle ORM schema + database helpers
-│       │   │   ├── auth/              # Better Auth config + session helpers
+│       │   │   ├── auth/              # Better Auth config + session helpers + authenticate-request
+│       │   │   ├── github/            # GitHub API utilities + validate-repo-ownership
 │       │   │   ├── search/            # Hybrid search orchestration (5 modules)
 │       │   │   ├── vectorize/         # Embedding indexing (3 modules)
 │       │   │   └── cache/             # KV caching utilities
@@ -70,6 +71,7 @@ skillx/
 | `api.skill-install.ts` | API | ? | Track skill install (fire-and-forget) |
 | `api.usage-report.ts` | API | 99 | Log skill execution outcomes |
 | `api.user-api-keys.ts` | API | 133 | Create/list/revoke API keys |
+| `api.skill-register.ts` | API | ? | Register/publish skills from GitHub repos (auth required) |
 | `api.admin.seed.ts` | API | 121 | Load demo seed data |
 | `$.tsx` | Catch-all | 23 | 404 page |
 
@@ -140,12 +142,22 @@ skillx/
 | `auth-client.ts` | React client for sessions (getSession, signIn, signOut) |
 | `session-helpers.ts` | `getSession(request, env)`, `requireAuth()` — request-level auth |
 | `api-key-utils.ts` | Hash/verify API keys (SHA-256), generate prefixes |
+| `authenticate-request.ts` | Unified auth: tries API key first, fallbacks to session; returns `{ userId, method }` |
 
 **Flow:**
 1. User clicks "Sign in with GitHub"
 2. Better Auth → GitHub OAuth → session cookie (7d expiry)
 3. Routes check: `const session = await getSession(request, env)`
 4. Protected routes: `await requireAuth(session)` → 401 if missing
+5. For dual-auth endpoints (CLI + Web): `const auth = await authenticateRequest(request, env)` → try API key, fallback to session
+
+### GitHub Integration (apps/web/app/lib/github)
+
+| Module                       | Purpose |
+|------------------------------|---------|
+| `validate-repo-ownership.ts` | Verify user has write access to GitHub repo (used by skill registration) |
+
+**Used by:** Register API to validate author owns the GitHub repository before publishing skills.
 
 ### Vectorization (apps/web/app/lib/vectorize)
 
@@ -169,6 +181,7 @@ skillx/
 | `index.ts` | - | Commander.js CLI entry + command registration |
 | `commands/search.ts` | 86 | `skillx search "..."` → API call → table output |
 | `commands/use.ts` | 78 | `skillx use skill1 skill2` → fetch SKILL.md, POST install, echo to stdout |
+| `commands/publish.ts` | 183 | `skillx publish [owner/repo]` → register/publish skills from GitHub |
 | `commands/report.ts` | 90 | `skillx report` → POST usage metrics to API |
 | `commands/config.ts` | 91 | `skillx config set/get KEY VALUE` → local store |
 | `lib/api-client.ts` | 35 | HTTP client with API key auth |
@@ -179,7 +192,10 @@ skillx/
 npm install -g skillx-sh
 skillx search "data processing"
 skillx use skillx-search skillx-email
-skillx config set SKILLX_API_KEY sk_...
+skillx publish owner/repo                    # Auto-detect or explicit owner/repo
+skillx publish owner/repo --path path/to/skill --scan
+skillx publish --dry-run
+skillx config set api-key sk_...
 skillx report --outcome success --duration 1234
 ```
 

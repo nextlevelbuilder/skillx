@@ -1,6 +1,7 @@
 ---
-status: complete
+status: archived
 created: 2026-02-12
+archived: 2026-03-05
 branch: main
 ---
 

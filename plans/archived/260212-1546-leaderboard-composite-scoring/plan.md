@@ -1,6 +1,7 @@
 ---
-status: complete
+status: archived
 created: 2026-02-12
+archived: 2026-03-05
 branch: main
 brainstorm: plans/reports/brainstorm-260212-1546-leaderboard-composite-scoring.md
 ---

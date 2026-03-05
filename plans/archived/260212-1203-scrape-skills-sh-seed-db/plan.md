@@ -1,7 +1,8 @@
 # Scrape skills.sh & Seed SkillX Database
 
 **Date:** 2026-02-12
-**Status:** Draft
+**Status:** Archived (2026-03-05)
+**Archive reason:** Draft only, never implemented. Seed data approach changed — now using register API + GitHub fetch instead of scraping skills.sh HTML.
 **Branch:** main
 
 ## Goal
