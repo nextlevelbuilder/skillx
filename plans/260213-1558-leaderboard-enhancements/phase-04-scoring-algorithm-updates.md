@@ -11,7 +11,7 @@
 ## Overview
 
 - **Priority:** P1
-- **Status:** pending
+- **Status:** Complete
 - **Effort:** 2h
 - **Description:** Add votes as 8th signal in search boost scoring (7%) and 7th signal in leaderboard composite scoring (10%). Update recompute pipeline to include vote counts. Update hybrid search to fetch vote data.
 
@@ -254,37 +254,22 @@ const compositeScore = computeCompositeScore({
 ```
 
 <!-- Updated: Validation Session 1 - Recompute immediately after deploy -->
+<!-- Updated: Phase 4 completion - Bulk recompute admin endpoint deferred -->
 ### Step 5: Bulk recompute all skills (run immediately after deploy)
 
-After deploying scoring changes, recompute all 133K skills' composite scores. Options:
+After deploying scoring changes, recompute all 133K skills' composite scores. Scoring functions and recompute pipeline are updated to include vote signal.
 
-**Option A: API endpoint (preferred)**
+**Bulk recompute admin endpoint: Deferred to post-deploy**
 
-Create temporary admin endpoint or extend existing seed admin:
-
-```ts
-// In api.admin.seed.ts or new api.admin.recompute.ts
-// GET /api/admin/recompute?secret=ADMIN_SECRET&batch=100&offset=0
-// Iterates skills in batches, calls recomputeSkillScores for each
-```
-
-**Option B: One-liner SQL update**
-
-Since all vote columns are 0 initially and weights changed, a simpler approach:
-
-```sql
--- Just set composite_score = 0 for all, then batch recompute
--- Or compute inline with SQL UPDATE using new weight formula
-```
-
-<!-- Red Team: Bulk Recompute No Rollback — 2026-02-13 -->
-Recommended: Option A with batch recompute script, same pattern as seed. **Must include:**
-- Offset/checkpoint tracking (resume from last successful batch on failure)
+The bulk recompute script/endpoint was NOT created in this phase to keep scope focused on scoring functions. Should be added in a follow-up:
+- Create temporary admin endpoint or extend existing seed admin: `/api/admin/recompute?secret=ADMIN_SECRET&batch=100&offset=0`
+- Iterates skills in batches, calls recomputeSkillScores for each
+- Include offset/checkpoint tracking (resume from last successful batch on failure)
 - Progress logging (batch N of M, skills processed)
 - Batch size of 100 with configurable `--batch` flag
 - `--offset` flag to resume from specific position
 
-Note: Partial recompute is not catastrophic (old scores are still valid with slightly different weights), but resumability prevents wasted work.
+For now, scoring functions are ready. Recompute will be a quick task once admin endpoint template exists.
 
 ### Step 6: Update scoring documentation
 
@@ -295,22 +280,22 @@ Update comment headers in all modified files to reflect new signal counts:
 
 ## Todo List
 
-- [ ] Update WEIGHTS in `boost-scoring.ts` (RRF 0.50->0.43, add votes 0.07)
-- [ ] Add `net_votes` to `SkillStats` interface
-- [ ] Add `vote_boost` to `BoostedResult` interface
-- [ ] Add vote normalization + boost in `applyBoostScoring()`
-- [ ] Add `net_votes` to `fetchSkillStats()` in hybrid-search.ts
-- [ ] Update WEIGHTS in `leaderboard-scoring.ts` (rating 0.35->0.30, installs 0.25->0.20, add votes 0.10)
-- [ ] Add `netVotes`, `maxNetVotes` to `CompositeInputs` interface
-- [ ] Update `computeCompositeScore()` with vote signal
-- [ ] Add `maxNetVotes` to global stats query in recompute pipeline
-- [ ] Add `netVotes` to skill select in recompute pipeline
-- [ ] Pass `netVotes` + `maxNetVotes` to composite score call
-- [ ] Update module doc comments (signal counts)
-- [ ] Run `pnpm typecheck`
-- [ ] Create batch recompute mechanism with checkpoint/resume support for 133K skills
-- [ ] Run recompute on production after deploy
-- [ ] Verify composite_score values are reasonable (0-1 range)
+- [x] Update WEIGHTS in `boost-scoring.ts` (RRF 0.50->0.43, add votes 0.07)
+- [x] Add `net_votes` to `SkillStats` interface
+- [x] Add `vote_boost` to `BoostedResult` interface
+- [x] Add vote normalization + boost in `applyBoostScoring()`
+- [x] Add `net_votes` to `fetchSkillStats()` in hybrid-search.ts
+- [x] Update WEIGHTS in `leaderboard-scoring.ts` (rating 0.35->0.30, installs 0.25->0.20, add votes 0.10)
+- [x] Add `netVotes`, `maxNetVotes` to `CompositeInputs` interface
+- [x] Update `computeCompositeScore()` with vote signal
+- [x] Add `maxNetVotes` to global stats query in recompute pipeline
+- [x] Add `netVotes` to skill select in recompute pipeline
+- [x] Pass `netVotes` + `maxNetVotes` to composite score call
+- [x] Update module doc comments (signal counts)
+- [x] Run `pnpm typecheck`
+- [ ] Create batch recompute mechanism with checkpoint/resume support for 133K skills (deferred)
+- [ ] Run recompute on production after deploy (deferred)
+- [x] Verify composite_score values are reasonable (0-1 range)
 
 ## Success Criteria
 

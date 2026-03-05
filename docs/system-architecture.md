@@ -55,22 +55,24 @@
 │ id (PK), slug (unique), name, description, content           │
 │ author, category, version, is_paid, price_cents              │
 │ avg_rating, rating_count, install_count                      │
+│ upvote_count, downvote_count, net_votes (NEW)                │
 │ source_url, created_at, updated_at                           │
 └──────┬──────────────────────┬──────────────────────┬──────────┘
        │                      │                      │
-       ├─ has many →          ├─ has many →         ├─ has many →
-       ↓                      ↓                      ↓
-┌────────────────┐   ┌──────────────┐    ┌─────────────────┐
-│    RATINGS     │   │   REVIEWS    │    │   FAVORITES     │
-├────────────────┤   ├──────────────┤    ├─────────────────┤
-│ id (PK)        │   │ id (PK)      │    │ user_id (FK)    │
-│ skill_id (FK)  │   │ skill_id (FK)│    │ skill_id (FK)   │
-│ user_id        │   │ user_id      │    │ created_at      │
-│ score (0-10)   │   │ content      │    │ (unique combo)  │
-│ is_agent (bool)│   │ is_agent     │    └─────────────────┘
-│ created_at     │   │ created_at   │
-│ updated_at     │   │              │
-└────────────────┘   └──────────────┘
+       ├─ has many →          ├─ has many →         ├─ has many → ├─ has many →
+       ↓                      ↓                      ↓              ↓
+┌────────────────┐   ┌──────────────┐    ┌─────────────────┐ ┌──────────────┐
+│    RATINGS     │   │   REVIEWS    │    │   FAVORITES     │ │    VOTES     │
+├────────────────┤   ├──────────────┤    ├─────────────────┤ ├──────────────┤
+│ id (PK)        │   │ id (PK)      │    │ user_id (FK)    │ │ id (PK)      │
+│ skill_id (FK)  │   │ skill_id (FK)│    │ skill_id (FK)   │ │ skill_id (FK)│
+│ user_id        │   │ user_id      │    │ created_at      │ │ user_id (FK) │
+│ score (0-10)   │   │ content      │    │ (unique combo)  │ │ direction    │
+│ is_agent (bool)│   │ is_agent     │    └─────────────────┘ │ (up/down)    │
+│ created_at     │   │ created_at   │                        │ created_at   │
+│ updated_at     │   │              │                        │ updated_at   │
+└────────────────┘   └──────────────┘                        │(unique combo)│
+                                                             └──────────────┘
 
 ┌────────────────────────┐    ┌─────────────────────┐
 │    USAGE_STATS         │    │    API_KEYS         │
@@ -100,8 +102,11 @@
 **Indexes:**
 - `idx_skills_category` — Fast category filtering
 - `idx_skills_avg_rating` — Sorting by rating
+- `idx_skills_net_votes` — Sorting by votes (NEW)
 - `idx_ratings_skill` — Find ratings for skill
 - `idx_ratings_user_skill` (unique) — Prevent duplicate ratings
+- `idx_votes_skill` — Find votes for skill (NEW)
+- `idx_votes_user_skill` (unique) — Prevent duplicate votes per user (NEW)
 - `idx_api_keys_hash` — Fast API key lookup
 
 ## Search Architecture
@@ -137,11 +142,14 @@ Check KV cache: cache:{hash}
         RRF Fusion: Merge rank lists
         (reciprocal rank fusion formula)
         ↓
-        Boost Scoring:
-        - avg_rating × 0.3 (+0.9 if 9/10 star)
+        Boost Scoring (8 signals):
+        - avg_rating × 0.3
         - install_count × 0.2
+        - net_votes × 0.07
         - freshness × 0.1
-        - favorites boost (+0.1 if favorited)
+        - has_reviews × 0.015
+        - is_favorited × 0.015
+        (vector: 0.5, FTS5: 0.215)
         ↓
         Filter:
         - category (if specified)
@@ -181,6 +189,30 @@ If Vectorize unavailable (dev/error):
 User query → FTS5 only → results
 
 (Graceful degradation enabled for local development)
+```
+
+### 4. Leaderboard Ranking Formula (7 Signals)
+
+```
+score = (avg_rating / 10) × 0.30 +
+        log(install_count + 1) × 0.20 +
+        (net_votes / 100) × 0.10 +
+        (rating_count / 100) × 0.15 +
+        (1 / (days_since_created + 1)) × 0.15 +
+        (review_count / 50) × 0.05 +
+        (is_verified × 0.05)
+
+Sorting: By composite score (default), net_votes, avg_rating, or install_count
+Filters: Category, risk_label, is_paid, date_range (configurable)
+
+Where:
+- avg_rating: [0, 10] — user ratings
+- install_count: integer — skill usage
+- net_votes: upvote_count - downvote_count (community feedback)
+- rating_count: total ratings received
+- freshness: newer skills ranked higher
+- review_count: number of text reviews
+- is_verified: skill author verified status
 ```
 
 ## Authentication Flow
@@ -271,6 +303,7 @@ Response:
 |--------|------|------|---------|
 | GET | `/` | None | Home page |
 | GET | `/api/search` | Session/Key | Search skills |
+| GET | `/api/leaderboard` | None | Leaderboard with sorting & category filter (NEW) |
 | GET | `/api/skills/:slug` | None | Skill detail (public) |
 
 ### Protected Endpoints (Session or API Key)
@@ -280,6 +313,7 @@ Response:
 | POST | `/api/skills/:slug/rate` | Submit rating |
 | POST | `/api/skills/:slug/review` | Write review |
 | POST | `/api/skills/:slug/favorite` | Add/remove favorite |
+| POST | `/api/skills/:slug/vote` | Upvote/downvote skill (NEW) |
 | POST | `/api/skills/:slug/install` | Track install (fire-and-forget) |
 | POST | `/api/skills/register` | Register/publish skills from GitHub repo (validates write access) |
 | POST | `/api/report` | Report usage |
@@ -292,12 +326,45 @@ Response:
 | POST | `/api/user/api-keys` | Create new API key |
 | DELETE | `/api/user/api-keys/:id` | Revoke API key |
 | GET | `/api/user/favorites` | List user's favorites |
+| GET | `/api/user/interactions` | List user's ratings, reviews, votes, favorites (NEW) |
 
 ### Admin Endpoints
 
 | Method | Path | Purpose |
 |--------|------|---------|
 | POST | `/api/admin/seed` | Load demo data (dev only) |
+
+## Voting System (NEW)
+
+### Vote Flow
+
+```
+User clicks up/down arrow on skill card/row
+    ↓
+POST /api/skills/:slug/vote { direction: "up" | "down" }
+    ↓
+[Authenticate via session]
+    ↓
+Check existing vote: SELECT * FROM votes WHERE user_id = ? AND skill_id = ?
+    ↓
+    ├─ If exists & same direction → DELETE (toggle off)
+    │
+    └─ Otherwise → INSERT OR REPLACE vote
+        ↓
+        UPDATE skills SET
+          upvote_count = (SELECT COUNT(*) FROM votes WHERE skill_id = ? AND direction = 'up'),
+          downvote_count = (SELECT COUNT(*) FROM votes WHERE skill_id = ? AND direction = 'down'),
+          net_votes = upvote_count - downvote_count
+        ↓
+        Response: { direction, upvote_count, downvote_count, net_votes }
+```
+
+### Scoring Impact
+
+- Votes contribute 7% to search ranking (0.07 weight)
+- Leaderboard composite score: 10% of total (votes at 0.1 weight)
+- Higher `net_votes` = better leaderboard ranking
+- Negative votes penalize skills but don't remove them
 
 ## Skill Registration & Content Scanning
 

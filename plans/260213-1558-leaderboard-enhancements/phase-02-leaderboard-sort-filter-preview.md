@@ -11,7 +11,7 @@
 ## Overview
 
 - **Priority:** P1
-- **Status:** pending
+- **Status:** Complete
 - **Effort:** 3h
 - **Description:** Add sort tabs, category filter dropdown, clickable GitHub author links, and a preview modal to the leaderboard. Expand API to return `description`, `category`, `net_votes` fields.
 
@@ -310,25 +310,25 @@ const [previewEntry, setPreviewEntry] = useState<LeaderboardEntry | null>(null);
 
 ## Todo List
 
-- [ ] Add `description`, `category`, `net_votes` to leaderboard API select
-- [ ] Add `category` filter param to leaderboard API
-- [ ] Update cache key version to v3
-- [ ] Add distinct categories query to home loader
-- [ ] Create `leaderboard-controls.tsx` (sort tabs + category dropdown)
-- [ ] Create `skill-preview-modal.tsx` (preview popup)
-- [ ] Update `home-leaderboard.tsx` with sort/category state + reset logic
-- [ ] Update `LeaderboardEntry` interface with new fields
-- [ ] Make author column clickable GitHub link
-- [ ] Add preview (Eye) button in Actions column
-- [ ] Wire preview modal state in HomeLeaderboard
-- [ ] Pass categories prop from home page to HomeLeaderboard
-- [ ] Add category validation before KV cache key insertion
-- [ ] Add `isGitHubUsername` guard on author link
-- [ ] Run `pnpm typecheck`
-- [ ] Test: sort tabs switch API calls and reset list
-- [ ] Test: category filter narrows results
-- [ ] Test: author link opens GitHub in new tab
-- [ ] Test: preview modal opens/closes correctly
+- [x] Add `description`, `category`, `net_votes` to leaderboard API select
+- [x] Add `category` filter param to leaderboard API
+- [x] Update cache key version to v3
+- [x] Add distinct categories query to home loader
+- [x] Create `leaderboard-controls.tsx` (sort tabs + category dropdown)
+- [x] Create `skill-preview-modal.tsx` (preview popup)
+- [x] Update `home-leaderboard.tsx` with sort/category state + reset logic
+- [x] Update `LeaderboardEntry` interface with new fields
+- [x] Make author column clickable GitHub link
+- [x] Add preview (Eye) button in Actions column
+- [x] Wire preview modal state in HomeLeaderboard
+- [x] Pass categories prop from home page to HomeLeaderboard
+- [x] Add category validation before KV cache key insertion
+- [x] Add `isGitHubUsername` guard on author link
+- [x] Run `pnpm typecheck`
+- [x] Test: sort tabs switch API calls and reset list
+- [x] Test: category filter narrows results
+- [x] Test: author link opens GitHub in new tab
+- [x] Test: preview modal opens/closes correctly
 
 ## Success Criteria
 

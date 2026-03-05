@@ -10,7 +10,7 @@
 ## Overview
 
 - **Priority:** P1
-- **Status:** pending
+- **Status:** Complete
 - **Effort:** 3h
 - **Description:** Add heart toggle for favorites and Reddit-style up/down vote arrows to leaderboard rows. Fetch user's existing favorites + votes on mount. Show login overlay for anonymous users.
 
@@ -324,23 +324,23 @@ Pass `isAuthenticated` to `<HomeLeaderboard>`.
 
 ## Todo List
 
-- [ ] Create `api.user-interactions.ts` (batch favorites + votes fetch)
-- [ ] Register `/api/user/interactions` in routes.ts
-- [ ] Create `leaderboard-vote-controls.tsx`
-- [ ] Create `leaderboard-favorite-button.tsx`
-- [ ] Add Votes column + Favorite button to `leaderboard-table.tsx`
-- [ ] Add interaction fetch + state management in `home-leaderboard.tsx`
-- [ ] Implement optimistic vote handler with **actual revert logic** (store prev state)
-- [ ] Implement optimistic favorite toggle with **actual revert logic**
-- [ ] Add loading skeleton for vote/favorite buttons on newly scrolled entries
-- [ ] Add auth check in home loader, pass `isAuthenticated` prop
-- [ ] Add auth-required handler (redirect to GitHub signin)
-- [ ] Re-fetch interactions when infinite scroll loads new entries
-- [ ] Run `pnpm typecheck`
-- [ ] Test: logged-in user can upvote, sees highlighted arrow
-- [ ] Test: logged-in user can favorite, sees filled heart
-- [ ] Test: anonymous user clicks vote, redirected to login
-- [ ] Test: vote toggle (up -> same up = remove)
+- [x] Create `api.user-interactions.ts` (batch favorites + votes fetch)
+- [x] Register `/api/user/interactions` in routes.ts
+- [x] Create `leaderboard-vote-controls.tsx`
+- [x] Create `leaderboard-favorite-button.tsx`
+- [x] Add Votes column + Favorite button to `leaderboard-table.tsx`
+- [x] Add interaction fetch + state management in `home-leaderboard.tsx`
+- [x] Implement optimistic vote handler with **actual revert logic** (store prev state)
+- [x] Implement optimistic favorite toggle with **actual revert logic**
+- [x] Add loading skeleton for vote/favorite buttons on newly scrolled entries
+- [x] Add auth check in home loader, pass `isAuthenticated` prop
+- [x] Add auth-required handler (redirect to GitHub signin)
+- [x] Re-fetch interactions when infinite scroll loads new entries
+- [x] Run `pnpm typecheck`
+- [x] Test: logged-in user can upvote, sees highlighted arrow
+- [x] Test: logged-in user can favorite, sees filled heart
+- [x] Test: anonymous user clicks vote, redirected to login
+- [x] Test: vote toggle (up -> same up = remove)
 
 ## Success Criteria
 

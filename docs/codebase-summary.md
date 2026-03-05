@@ -68,11 +68,14 @@ skillx/
 | `api.skill-rate.ts` | API | 100 | Create/update rating (0-10) |
 | `api.skill-review.ts` | API | 109 | Create/list reviews |
 | `api.skill-favorite.ts` | API | 74 | Add/remove favorites |
+| `api.skill-vote.ts` | API | ? | Upvote/downvote skill |
 | `api.skill-install.ts` | API | ? | Track skill install (fire-and-forget) |
 | `api.usage-report.ts` | API | 99 | Log skill execution outcomes |
 | `api.user-api-keys.ts` | API | 133 | Create/list/revoke API keys |
+| `api.user-interactions.ts` | API | ? | Fetch user's ratings, reviews, votes, favorites |
 | `api.skill-register.ts` | API | ? | Register/publish skills from GitHub repos (auth required) |
 | `api.admin.seed.ts` | API | 121 | Load demo seed data |
+| `api.leaderboard.ts` | API | ? | Get leaderboard with filters & sorting |
 | `$.tsx` | Catch-all | 23 | 404 page |
 
 **Total Routes:** ~1,883 LOC
@@ -84,7 +87,9 @@ skillx/
 | `layout/navbar.tsx` | 99 | Sticky header with Cmd+K search + auth |
 | `layout/footer.tsx` | 31 | Footer with links |
 | `search-command-palette.tsx` | 189 | Modal palette: debounced search + kbd nav |
-| `leaderboard-table.tsx` | 140 | Sortable table with tier badges + rating |
+| `leaderboard-table.tsx` | 140 | Sortable table with tier badges + vote counts |
+| `leaderboard-controls.tsx` | ? | Sort tabs + category filter dropdown |
+| `skill-preview-modal.tsx` | ? | Preview modal for skill descriptions |
 | `skill-card.tsx` | 108 | Card: title, rating, installs, category |
 | `search-input.tsx` | 59 | Input field with debounce |
 | `star-rating.tsx` | 69 | Interactive 0-10 rating control |
@@ -95,6 +100,7 @@ skillx/
 | `filter-tabs.tsx` | 31 | Category + price filters |
 | `rating-badge.tsx` | 36 | S/A/B/C tier display |
 | `command-box.tsx` | 32 | Copyable code block |
+| `signal-badge.tsx` | ? | Display individual scoring signals |
 
 ### Database Layer (apps/web/app/lib/db)
 
@@ -102,10 +108,11 @@ skillx/
 
 | Table | Columns | Purpose |
 |-------|---------|---------|
-| `skills` | id, name, slug, description, content, author, source_url, category, version, is_paid, price_cents, avg_rating, rating_count, install_count, risk_label, timestamps | Core skill metadata + security risk classification |
+| `skills` | id, name, slug, description, content, author, source_url, category, version, is_paid, price_cents, avg_rating, rating_count, install_count, upvote_count, downvote_count, net_votes, risk_label, timestamps | Core skill metadata + voting counters + security risk classification |
 | `ratings` | id, skill_id, user_id, score, is_agent, timestamps | 0-10 scores |
 | `reviews` | id, skill_id, user_id, content, is_agent, created_at | Text feedback |
 | `favorites` | user_id, skill_id, created_at | Many-to-many bookmarks |
+| `votes` | id, skill_id, user_id, direction (up/down), created_at, updated_at | Upvote/downvote tracking (deduplicated per user) |
 | `installs` | id, skill_id, user_id, device_id, created_at | Install tracking (deduplicated per user/device) |
 | `usageStats` | id, skill_id, user_id, model, outcome, duration_ms, created_at | Execution tracking |
 | `apiKeys` | id, user_id, name, key_hash, key_prefix, last_used_at, revoked_at, created_at | API authentication |
@@ -285,21 +292,27 @@ Response: { id, skill_id, user_id, score }
 
 ## Key Implementation Details
 
-### Search Ranking Formula
+### Search Ranking Formula (8 Signals)
 
 ```
 score = vector_relevance × 0.5 +
-        fts5_relevance × 0.3 +
+        fts5_relevance × 0.215 +
         (avg_rating / 10) × 0.3 +
         log(install_count + 1) × 0.2 +
-        (1 / (days_since_created + 1)) × 0.1
+        (net_votes / 100) × 0.07 +
+        (1 / (days_since_created + 1)) × 0.1 +
+        (has_reviews_flag × 0.015) +
+        (is_favorited_flag × 0.015)
 
 Where:
 - vector_relevance: [0, 1] from Vectorize cosine distance
-- fts5_relevance: [0, 1] from FTS5 rank
+- fts5_relevance: [0, 1] from FTS5 BM25 rank (reduced from 0.3)
 - avg_rating: [0, 10] stored in DB
 - install_count: integer, increases with usage
+- net_votes: upvote_count - downvote_count (NEW)
 - freshness: penalizes old skills
+- has_reviews: boolean flag for review existence (signal)
+- is_favorited: boolean flag for user favorite (signal)
 ```
 
 ### API Key Format

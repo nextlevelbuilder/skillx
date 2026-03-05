@@ -1,7 +1,7 @@
 ---
 title: "Leaderboard Enhancements: Votes, Sort/Filter, Favorites, Preview"
 description: "Add vote system, sort/filter controls, quick favorites, preview modal, and integrate votes into scoring algorithms"
-status: pending
+status: complete
 priority: P1
 effort: 10h
 branch: main
@@ -27,10 +27,10 @@ Enhance the leaderboard with community engagement features: Reddit-style votes, 
 
 | # | Phase | Effort | Status | File |
 |---|-------|--------|--------|------|
-| 1 | Database + Vote API | 2h | pending | [phase-01](./phase-01-database-vote-api.md) |
-| 2 | Sort/Filter + Author Link + Preview Modal | 3h | pending | [phase-02](./phase-02-leaderboard-sort-filter-preview.md) |
-| 3 | Favorites Button + Vote Arrows + Auth Overlay | 3h | pending | [phase-03](./phase-03-leaderboard-favorites-votes-ui.md) |
-| 4 | Scoring Algorithm Updates | 2h | pending | [phase-04](./phase-04-scoring-algorithm-updates.md) |
+| 1 | Database + Vote API | 2h | complete | [phase-01](./phase-01-database-vote-api.md) |
+| 2 | Sort/Filter + Author Link + Preview Modal | 3h | complete | [phase-02](./phase-02-leaderboard-sort-filter-preview.md) |
+| 3 | Favorites Button + Vote Arrows + Auth Overlay | 3h | complete | [phase-03](./phase-03-leaderboard-favorites-votes-ui.md) |
+| 4 | Scoring Algorithm Updates | 2h | complete | [phase-04](./phase-04-scoring-algorithm-updates.md) |
 
 ## Key Decisions
 

@@ -10,7 +10,7 @@
 ## Overview
 
 - **Priority:** P1 (blocking for phases 2-4)
-- **Status:** pending
+- **Status:** Complete
 - **Effort:** 2h
 - **Description:** Create `votes` table, add `upvote_count`/`downvote_count`/`net_votes` columns to `skills`, build vote API endpoint following favorite API pattern.
 
@@ -247,21 +247,21 @@ cd apps/web && npx wrangler d1 migrations apply skillx-db --remote
 
 ## Todo List
 
-- [ ] Create migration SQL file `0007_add-votes-table.sql` (or 0006 if refs plan not done)
-- [ ] Add `votes` table to Drizzle schema
-- [ ] Add `upvote_count`, `downvote_count`, `net_votes` columns to skills schema
-- [ ] Add `idx_skills_net_votes` index to skills schema
-- [ ] Add `idx_skills_category` index to migration SQL (for Phase 2 category filter)
-- [ ] Create `api.skill-vote.ts` route handler
-- [ ] Register route in `routes.ts`
-- [ ] Apply migration locally
-- [ ] Apply migration to remote D1
-- [ ] Test: POST vote up, verify response `{ vote_type: 'up', net_votes: 1 }`
-- [ ] Test: POST vote down on same skill, verify vote changed
-- [ ] Test: POST vote none, verify vote removed
-- [ ] Test: Unauthenticated request returns 401
-- [ ] Implement vote rate limiting (10 votes/min per user)
-- [ ] Run `pnpm typecheck`
+- [x] Create migration SQL file `0007_add-votes-table.sql` (or 0006 if refs plan not done)
+- [x] Add `votes` table to Drizzle schema
+- [x] Add `upvote_count`, `downvote_count`, `net_votes` columns to skills schema
+- [x] Add `idx_skills_net_votes` index to skills schema
+- [x] Add `idx_skills_category` index to migration SQL (for Phase 2 category filter)
+- [x] Create `api.skill-vote.ts` route handler
+- [x] Register route in `routes.ts`
+- [x] Apply migration locally
+- [x] Apply migration to remote D1
+- [x] Test: POST vote up, verify response `{ vote_type: 'up', net_votes: 1 }`
+- [x] Test: POST vote down on same skill, verify vote changed
+- [x] Test: POST vote none, verify vote removed
+- [x] Test: Unauthenticated request returns 401
+- [x] Implement vote rate limiting (10 votes/min per user)
+- [x] Run `pnpm typecheck`
 
 ## Success Criteria
 
