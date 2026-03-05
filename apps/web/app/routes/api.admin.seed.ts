@@ -1,7 +1,20 @@
 import type { ActionFunctionArgs } from "react-router";
+import { eq } from "drizzle-orm";
 import { getDb } from '~/lib/db';
 import { skills } from '~/lib/db/schema';
+import { skillReferences } from '~/lib/db/skill-references-schema';
 import { indexSkill } from '~/lib/vectorize/index-skill';
+import { indexReference } from '~/lib/vectorize/index-reference';
+
+const GITHUB_URL_PATTERN = /^https:\/\/(raw\.githubusercontent\.com|github\.com)\//;
+
+interface ReferenceInput {
+  title: string;
+  filename: string;
+  url?: string;
+  type?: string;
+  content: string;
+}
 
 interface SkillInput {
   name: string;
@@ -19,6 +32,8 @@ interface SkillInput {
   rating_count?: number;
   github_stars?: number;
   install_count?: number;
+  scripts?: string; // JSON string
+  references?: ReferenceInput[];
 }
 
 export async function action({ request, context }: ActionFunctionArgs) {
@@ -67,6 +82,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
           rating_count: skillData.rating_count || 0,
           github_stars: skillData.github_stars || 0,
           install_count: skillData.install_count || 0,
+          scripts: skillData.scripts || null,
           created_at: now,
           updated_at: now,
         })
@@ -87,9 +103,36 @@ export async function action({ request, context }: ActionFunctionArgs) {
             rating_count: skillData.rating_count || 0,
             github_stars: skillData.github_stars || 0,
             install_count: skillData.install_count || 0,
+            scripts: skillData.scripts || null,
             updated_at: now,
           },
         });
+
+      // Get the actual skill ID (may differ from generated one on conflict)
+      const [existingSkill] = await db.select({ id: skills.id }).from(skills).where(eq(skills.slug, skillData.slug));
+      const actualSkillId = existingSkill?.id || skillId;
+
+      // Upsert references
+      if (skillData.references?.length) {
+        for (const ref of skillData.references) {
+          const validUrl = ref.url && GITHUB_URL_PATTERN.test(ref.url) ? ref.url : null;
+          await db.insert(skillReferences).values({
+            id: crypto.randomUUID(),
+            skill_id: actualSkillId,
+            title: ref.title,
+            filename: ref.filename,
+            url: validUrl,
+            type: ref.type || 'docs',
+            content: ref.content,
+            created_at: now,
+          }).onConflictDoNothing();
+        }
+        // Populate fts_content (content + ref titles for FTS5)
+        const refTitles = skillData.references.map(r => r.title).join(' ');
+        await db.update(skills)
+          .set({ fts_content: `${skillData.content}\n\n${refTitles}` })
+          .where(eq(skills.slug, skillData.slug));
+      }
 
       skillCount++;
 
@@ -109,6 +152,24 @@ export async function action({ request, context }: ActionFunctionArgs) {
           vectorCount += vectors;
         } catch (vecError) {
           console.warn(`Vectorize skipped for ${skillData.slug}:`, vecError instanceof Error ? vecError.message : vecError);
+        }
+
+        // Index references in Vectorize
+        if (skillData.references?.length) {
+          for (const ref of skillData.references) {
+            try {
+              vectorCount += await indexReference(env.VECTORIZE, env.AI, {
+                skill_id: actualSkillId,
+                filename: ref.filename,
+                content: ref.content,
+                category: skillData.category,
+                is_paid: skillData.is_paid || false,
+                avg_rating: skillData.avg_rating || 0,
+              });
+            } catch (e) {
+              console.warn(`Vectorize ref skipped: ${ref.filename}`, e instanceof Error ? e.message : e);
+            }
+          }
         }
       }
     }

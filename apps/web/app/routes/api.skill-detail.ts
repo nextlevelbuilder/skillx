@@ -1,7 +1,8 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { getDb } from "~/lib/db";
 import { skills, ratings, reviews, favorites } from "~/lib/db/schema";
-import { eq, desc, count, avg } from "drizzle-orm";
+import { skillReferences } from "~/lib/db/skill-references-schema";
+import { eq, desc, count, avg, and } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
 import { scanContent, sanitizeContent } from "~/lib/security/content-scanner";
 
@@ -73,6 +74,24 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
       }
     }
 
+    // Fetch references (metadata only)
+    const refs = await db
+      .select({
+        title: skillReferences.title,
+        filename: skillReferences.filename,
+        url: skillReferences.url,
+        type: skillReferences.type,
+      })
+      .from(skillReferences)
+      .where(eq(skillReferences.skill_id, skill.id))
+      .orderBy(skillReferences.title);
+
+    // Parse scripts JSON
+    let parsedScripts: Array<{ name: string; command: string; url: string }> = [];
+    if (skill.scripts) {
+      try { parsedScripts = JSON.parse(skill.scripts); } catch { /* ignore */ }
+    }
+
     // Fetch reviews with limit
     const skillReviews = await db
       .select()
@@ -98,8 +117,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
       const [favorite] = await db
         .select()
         .from(favorites)
-        .where(eq(favorites.user_id, session.user.id))
-        .where(eq(favorites.skill_id, skill.id))
+        .where(and(eq(favorites.user_id, session.user.id), eq(favorites.skill_id, skill.id)))
         .limit(1);
       isFavorited = !!favorite;
     }
@@ -112,6 +130,8 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
         avgRating: ratingData?.avgRating || 0,
         ratingCount: ratingData?.ratingCount || 0,
       },
+      references: refs,
+      scripts: parsedScripts,
     });
   } catch (error) {
     console.error("Error fetching skill detail:", error);

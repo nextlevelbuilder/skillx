@@ -18,7 +18,10 @@ import {
   fetchFavoriteCount,
   fetchUsageStats,
   fetchUserSkillData,
+  fetchSkillReferences,
 } from "~/lib/db/skill-detail-queries";
+import { SkillReferencesSection } from "../components/skill-references-section";
+import { SkillScriptsSection } from "../components/skill-scripts-section";
 import { useState } from "react";
 import { useFetcher } from "react-router";
 import { FileText, ShieldAlert } from "lucide-react";
@@ -34,7 +37,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
   if (!skill) throw new Response("Skill not found", { status: 404 });
 
   // Run all independent queries in parallel
-  const [skillReviews, ratingSummary, ratingBreakdown, favoriteCount, usage, session] =
+  const [skillReviews, ratingSummary, ratingBreakdown, favoriteCount, usage, session, references] =
     await Promise.all([
       fetchSkillReviews(db, skill.id),
       fetchRatingSummary(db, skill.id),
@@ -42,12 +45,19 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
       fetchFavoriteCount(db, skill.id),
       fetchUsageStats(db, skill.id),
       getSession(request, env),
+      fetchSkillReferences(db, skill.id),
     ]);
 
   // User-specific data (only if authenticated)
   const userData = session?.user?.id
     ? await fetchUserSkillData(db, session.user.id, skill.id)
     : { isFavorited: false, userRating: null };
+
+  // Parse scripts JSON from DB
+  let scripts: Array<{ name: string; command: string; url: string }> = [];
+  if (skill.scripts) {
+    try { scripts = JSON.parse(skill.scripts); } catch { /* ignore */ }
+  }
 
   return {
     skill,
@@ -58,6 +68,8 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
     ratingBreakdown,
     favoriteCount,
     usage,
+    references,
+    scripts,
   };
 }
 
@@ -168,6 +180,12 @@ export default function SkillDetail() {
               <p className="text-sx-fg-muted leading-relaxed">{data.skill.description}</p>
             )}
           </div>
+
+          {/* References */}
+          <SkillReferencesSection references={data.references} />
+
+          {/* Scripts */}
+          <SkillScriptsSection scripts={data.scripts} />
 
           {/* User Rating */}
           {data.isAuthenticated && (

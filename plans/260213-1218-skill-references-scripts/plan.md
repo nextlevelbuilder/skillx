@@ -1,7 +1,7 @@
 ---
 title: "Phase 3.4: Skill References & Scripts"
 description: "Add references (full-content indexed) and scripts (metadata) to skills for richer discovery and agent-mediated execution"
-status: pending
+status: completed
 priority: P1
 effort: 16h
 branch: feat/skill-references-scripts
@@ -29,12 +29,12 @@ Enrich SkillX skills with **references** (markdown docs indexed in Vectorize for
 
 | # | Phase | Status | Effort | Link |
 |---|-------|--------|--------|------|
-| 1 | Database schema & migration | Pending | 2h | [phase-01](./phase-01-database-schema-migration.md) |
-| 2 | GitHub fetcher script | Pending | 4h | [phase-02](./phase-02-github-fetcher-script.md) |
-| 3 | Seed pipeline & Vectorize | Pending | 3h | [phase-03](./phase-03-seed-pipeline-vectorize.md) |
-| 4 | API & search updates | Pending | 2h | [phase-04](./phase-04-api-search-updates.md) |
-| 5 | UI: skill detail page | Pending | 3h | [phase-05](./phase-05-ui-skill-detail.md) |
-| 6 | CLI updates | Pending | 2h | [phase-06](./phase-06-cli-updates.md) |
+| 1 | Database schema & migration | Complete | 2h | [phase-01](./phase-01-database-schema-migration.md) |
+| 2 | GitHub fetcher script | Complete | 4h | [phase-02](./phase-02-github-fetcher-script.md) |
+| 3 | Seed pipeline & Vectorize | Complete | 3h | [phase-03](./phase-03-seed-pipeline-vectorize.md) |
+| 4 | API & search updates | Complete | 2h | [phase-04](./phase-04-api-search-updates.md) |
+| 5 | UI: skill detail page | Complete | 3h | [phase-05](./phase-05-ui-skill-detail.md) |
+| 6 | CLI updates | Complete | 2h | [phase-06](./phase-06-cli-updates.md) |
 
 ## Dependencies
 

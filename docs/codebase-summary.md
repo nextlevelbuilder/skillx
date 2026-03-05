@@ -57,19 +57,20 @@ skillx/
 | Route | Type | LOC | Purpose |
 |-------|------|-----|---------|
 | `home.tsx` | Page | 162 | Hero + stats + featured skills + leaderboard |
-| `skill-detail.tsx` | Page | 184 | Skill page with ratings, reviews, favorites |
+| `skill-detail.tsx` | Page | 184 | Skill page with ratings, reviews, favorites, references, scripts |
 | `leaderboard.tsx` | Page | 78 | Sortable skills table with tier badges |
 | `search.tsx` | Page | 110 | Search results page (uses API) |
 | `profile.tsx` | Page | 115 | User profile + favorite skills |
 | `settings.tsx` | Page | 248 | API key CRUD + usage stats |
 | `auth-catchall.tsx` | Handler | 12 | Better Auth webhook handler |
 | `api.search.ts` | API | 240 | Hybrid search: query → vectorize → rank |
-| `api.skill-detail.ts` | API | 75 | Fetch single skill + ratings |
+| `api.skill-detail.ts` | API | 75 | Fetch single skill + ratings + references + scripts |
 | `api.skill-rate.ts` | API | 100 | Create/update rating (0-10) |
 | `api.skill-review.ts` | API | 109 | Create/list reviews |
 | `api.skill-favorite.ts` | API | 74 | Add/remove favorites |
 | `api.skill-vote.ts` | API | ? | Upvote/downvote skill |
 | `api.skill-install.ts` | API | ? | Track skill install (fire-and-forget) |
+| `api.skill-references.ts` | API | ? | Add/list skill references (NEW) |
 | `api.usage-report.ts` | API | 99 | Log skill execution outcomes |
 | `api.user-api-keys.ts` | API | 133 | Create/list/revoke API keys |
 | `api.user-interactions.ts` | API | ? | Fetch user's ratings, reviews, votes, favorites |
@@ -108,7 +109,8 @@ skillx/
 
 | Table | Columns | Purpose |
 |-------|---------|---------|
-| `skills` | id, name, slug, description, content, author, source_url, category, version, is_paid, price_cents, avg_rating, rating_count, install_count, upvote_count, downvote_count, net_votes, risk_label, timestamps | Core skill metadata + voting counters + security risk classification |
+| `skills` | id, name, slug, description, content, author, source_url, category, version, is_paid, price_cents, avg_rating, rating_count, install_count, upvote_count, downvote_count, net_votes, scripts (JSON), fts_content (computed), risk_label, timestamps | Core skill metadata + voting counters + scripts array + FTS5 search content + security risk classification |
+| `skill_references` | id, skill_id (FK), title, filename, url, type (enum: doc/link/example), content, created_at | External references, documentation links, code examples |
 | `ratings` | id, skill_id, user_id, score, is_agent, timestamps | 0-10 scores |
 | `reviews` | id, skill_id, user_id, content, is_agent, created_at | Text feedback |
 | `favorites` | user_id, skill_id, created_at | Many-to-many bookmarks |
@@ -179,13 +181,15 @@ skillx/
 | `embed-text.ts` | ? | Call Workers AI to embed text (bge-base-en-v1.5) |
 | `chunk-text.ts` | 30 | Split skill content into 512-token chunks (10% overlap) |
 | `index-skill.ts` | 67 | On skill create: chunk → embed → index in Vectorize |
+| `index-reference.ts` | ? | On reference add: index title + first paragraph via Workers AI |
 
 **Flow:**
 1. Skill created/updated
-2. Extract content (SKILL.md, readme, references)
+2. Extract content (SKILL.md, readme, references, scripts)
 3. Chunk into 512-token pieces (10% overlap)
 4. Embed each chunk via Workers AI
 5. Upsert into Vectorize index (namespace: skill_id)
+6. On reference add: embed title + first paragraph, index separately
 
 ### CLI Package (packages/cli)
 
@@ -193,11 +197,12 @@ skillx/
 |------|-----|---------|
 | `index.ts` | - | Commander.js CLI entry + command registration |
 | `commands/search.ts` | 86 | `skillx search "..."` → API call → table output |
-| `commands/use.ts` | 78 | `skillx use skill1 skill2` → fetch SKILL.md, POST install, echo to stdout |
+| `commands/use.ts` | 78 | `skillx use skill1 skill2` → fetch SKILL.md + flags, POST install, echo to stdout |
 | `commands/publish.ts` | 183 | `skillx publish [owner/repo]` → register/publish skills from GitHub |
 | `commands/report.ts` | 90 | `skillx report` → POST usage metrics to API |
 | `commands/config.ts` | 91 | `skillx config set/get KEY VALUE` → local store |
 | `lib/api-client.ts` | 35 | HTTP client with API key auth |
+| `lib/use-display.ts` | ? | Display formatter for skill content (references, scripts, content) |
 | `utils/config-store.ts` | - | conf package: ~/.skillx/config.json, includes getDeviceId() |
 
 **Usage:**
@@ -205,6 +210,8 @@ skillx/
 npm install -g skillx-sh
 skillx search "data processing"
 skillx use skillx-search skillx-email
+skillx use skillx-search --include-refs      # Include references section
+skillx use skillx-search --include-scripts   # Include scripts array
 skillx publish owner/repo                    # Auto-detect or explicit owner/repo
 skillx publish owner/repo --path path/to/skill --scan
 skillx publish --dry-run

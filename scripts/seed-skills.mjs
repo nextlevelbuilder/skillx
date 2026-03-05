@@ -148,8 +148,14 @@ async function main() {
     const batchNum = Math.floor(i / BATCH_SIZE) + 1;
     const totalBatches = Math.ceil(remaining.length / BATCH_SIZE);
 
+    // Prepare batch: stringify scripts JSON, keep references as array
+    const prepared = batch.map(skill => ({
+      ...skill,
+      scripts: skill.scripts ? (typeof skill.scripts === 'string' ? skill.scripts : JSON.stringify(skill.scripts)) : undefined,
+    }));
+
     try {
-      const result = await seedBatch(batch);
+      const result = await seedBatch(prepared);
       totalSeeded += result.skills;
       totalVectors += result.vectors;
 

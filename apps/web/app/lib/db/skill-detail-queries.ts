@@ -1,5 +1,6 @@
 import { eq, desc, count, avg, and, sql } from "drizzle-orm";
 import { skills, ratings, reviews, favorites, usageStats } from "./schema";
+import { skillReferences } from "./skill-references-schema";
 import type { Database } from "./index";
 
 export async function fetchSkillBySlug(db: Database, slug: string) {
@@ -99,6 +100,21 @@ export async function fetchUsageStats(db: Database, skillId: string) {
   }));
 
   return { totalUsages: total, successRate, modelBreakdown };
+}
+
+/** Fetch skill references (metadata only — no content for page load) */
+export async function fetchSkillReferences(db: Database, skillId: string) {
+  return db
+    .select({
+      id: skillReferences.id,
+      title: skillReferences.title,
+      filename: skillReferences.filename,
+      url: skillReferences.url,
+      type: skillReferences.type,
+    })
+    .from(skillReferences)
+    .where(eq(skillReferences.skill_id, skillId))
+    .orderBy(skillReferences.title);
 }
 
 /** Check user-specific data: favorite status + personal rating */

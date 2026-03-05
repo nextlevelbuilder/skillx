@@ -50,6 +50,20 @@
       "when": 1772700411636,
       "tag": "0006_same_mikhail_rasputin",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "6",
+      "when": 1772700411700,
+      "tag": "0007_add-votes-table",
+      "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1772900000000,
+      "tag": "0008_add-skill-references",
+      "breakpoints": true
     }
   ]
 }

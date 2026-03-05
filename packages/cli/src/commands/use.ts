@@ -2,26 +2,17 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import ora from 'ora';
 import { apiRequest, ApiError } from '../lib/api-client.js';
-import { getApiKey, getBaseUrl, getDeviceId } from '../utils/config-store.js';
 import { searchSkills } from '../lib/search-api.js';
-
-interface SkillDetails {
-  slug: string;
-  name: string;
-  description: string;
-  category: string;
-  avg_rating: number | null;
-  install_command?: string;
-  content: string;
-  risk_label?: string;
-  source_url?: string;
-}
+import {
+  displaySkill,
+  type SkillDetails,
+  type SkillDetailResponse,
+  type DisplayOptions,
+} from './use-display.js';
 
 interface RegisterResponse {
-  // Single skill mode
   skill?: SkillDetails;
   created?: boolean;
-  // Scan mode (multi-skill)
   skills?: Array<{ slug: string; name: string; author: string }>;
   registered?: number;
   skipped?: number;
@@ -55,7 +46,7 @@ export function parseIdentifier(input: string): ParsedIdentifier {
  */
 export async function resolveAndUseSkill(
   identifier: string,
-  options: { raw: boolean },
+  options: DisplayOptions,
 ): Promise<void> {
   const parsed = parseIdentifier(identifier);
 
@@ -90,7 +81,7 @@ export async function resolveAndUseSkill(
 async function resolveBySlug(
   slug: string,
   displayId: string,
-  options: { raw: boolean },
+  options: DisplayOptions,
   fallback: {
     registerFallback?: { owner: string; repo: string; skill_path?: string; scan?: boolean };
     searchFallback?: boolean;
@@ -99,16 +90,15 @@ async function resolveBySlug(
   const spinner = ora(`Fetching skill: ${displayId}...`).start();
 
   try {
-    const res = await apiRequest<{ skill: SkillDetails }>(`/api/skills/${slug}`);
+    const res = await apiRequest<SkillDetailResponse>(`/api/skills/${slug}`);
     spinner.stop();
-    displaySkill(res.skill, displayId, options);
+    displaySkill(res.skill, displayId, options, res.references, res.scripts);
   } catch (err) {
     if (!(err instanceof ApiError && err.status === 404)) {
       spinner.stop();
       throw err;
     }
 
-    // 404 — try fallbacks
     if (fallback.registerFallback) {
       spinner.text = 'Skill not found. Scanning GitHub...';
       try {
@@ -137,9 +127,8 @@ async function resolveBySlug(
 function handleRegisterResult(
   res: RegisterResponse,
   displayId: string,
-  options: { raw: boolean },
+  options: DisplayOptions,
 ): void {
-  // Single skill mode
   if (res.skill) {
     if (res.created) {
       console.log(chalk.green(`\nRegistered new skill from GitHub: ${displayId}`));
@@ -148,7 +137,6 @@ function handleRegisterResult(
     return;
   }
 
-  // Multi-skill scan result
   if (res.skills && res.skills.length > 0) {
     console.log(chalk.bold.green(`\nFound ${res.skills.length} skill(s) in repo:\n`));
     res.skills.forEach((s) => {
@@ -162,71 +150,6 @@ function handleRegisterResult(
   }
 
   console.log(chalk.yellow(`\nNo skills found in ${displayId}`));
-}
-
-/** Display a single skill with formatted output */
-function displaySkill(skill: SkillDetails, displayId: string, options: { raw: boolean }): void {
-  // Fire-and-forget install tracking
-  trackInstall(skill.slug);
-
-  if (options.raw) {
-    console.log(`--- BEGIN EXTERNAL SKILL CONTENT (untrusted, risk: ${skill.risk_label || 'unknown'}) ---`);
-    console.log(skill.content);
-    console.log('--- END EXTERNAL SKILL CONTENT ---');
-    return;
-  }
-
-  // Risk warning banner
-  if (skill.risk_label === 'danger') {
-    console.log(chalk.bgRed.white.bold(' WARNING ') +
-      chalk.red(' This skill has suspicious content patterns detected.'));
-    console.log(chalk.red('  Review carefully before pasting into AI tools.\n'));
-  } else if (skill.risk_label === 'caution') {
-    console.log(chalk.bgYellow.black.bold(' CAUTION ') +
-      chalk.yellow(' Some content patterns flagged for review.\n'));
-  }
-
-  const rating = skill.avg_rating ?? 0;
-  console.log(chalk.bold.green(`\n✓ Skill: ${skill.name}\n`));
-  console.log(chalk.dim('─'.repeat(80)));
-  console.log(chalk.bold('Description:'));
-  console.log(skill.description);
-  console.log();
-
-  console.log(chalk.bold('Category:'), chalk.magenta(skill.category));
-  console.log(chalk.bold('Rating:'), chalk.yellow(`⭐ ${rating.toFixed(1)}`));
-  console.log();
-
-  if (skill.install_command) {
-    console.log(chalk.bold.cyan('Install Command:'));
-    console.log(chalk.bgBlack.white(` ${skill.install_command} `));
-    console.log();
-  }
-
-  console.log(chalk.bold('Content:'));
-  console.log(chalk.dim('─'.repeat(80)));
-  console.log(skill.content);
-  console.log(chalk.dim('─'.repeat(80)));
-
-  console.log(chalk.dim(`\nSource: ${skill.source_url || 'unknown'}`));
-  console.log(chalk.dim('Tip: Review content before pasting into AI tools.'));
-  console.log(chalk.dim(`Use ${chalk.cyan(`skillx use ${displayId} --raw`)} to output raw content (for piping)`));
-  console.log(chalk.dim(`View online at: ${chalk.underline(`https://skillx.sh/skills/${skill.slug}`)}`));
-}
-
-/** Fire-and-forget install tracking */
-function trackInstall(slug: string): void {
-  const installHeaders: Record<string, string> = {
-    'X-Device-Id': getDeviceId(),
-  };
-  const apiKey = getApiKey();
-  if (apiKey) {
-    installHeaders['Authorization'] = `Bearer ${apiKey}`;
-  }
-  fetch(`${getBaseUrl()}/api/skills/${slug}/install`, {
-    method: 'POST',
-    headers: installHeaders,
-  }).catch(() => {});
 }
 
 /** Search for a keyword and use the top result */
@@ -251,15 +174,19 @@ export const useCommand = new Command('use')
   .argument('<identifier>', 'author/skill, org/repo/skill, slug, or search keywords')
   .option('-r, --raw', 'Output raw content only (for piping)')
   .option('-s, --search', 'Force search mode')
-  .action(async (identifier: string, options: { raw?: boolean; search?: boolean }) => {
+  .option('--include-refs', 'Include references in output')
+  .option('--include-scripts', 'Include scripts in output')
+  .action(async (identifier: string, options: { raw?: boolean; search?: boolean; includeRefs?: boolean; includeScripts?: boolean }) => {
     const raw = options.raw ?? false;
+    const includeRefs = options.includeRefs ?? false;
+    const includeScripts = options.includeScripts ?? false;
 
     try {
       if (options.search) {
         await searchAndUse(identifier, raw);
         return;
       }
-      await resolveAndUseSkill(identifier, { raw });
+      await resolveAndUseSkill(identifier, { raw, includeRefs, includeScripts });
     } catch (error) {
       if (error instanceof ApiError) {
         if (error.status === 404) {

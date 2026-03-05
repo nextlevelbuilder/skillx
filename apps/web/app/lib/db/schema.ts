@@ -29,6 +29,8 @@ export const skills = sqliteTable(
     upvote_count: integer("upvote_count").default(0),
     downvote_count: integer("downvote_count").default(0),
     net_votes: integer("net_votes").default(0),
+    scripts: text("scripts"), // JSON: [{name, command, url}]
+    fts_content: text("fts_content"), // Computed: content + ref titles (for FTS5)
     risk_label: text("risk_label").default("unknown"),
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updated_at: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
