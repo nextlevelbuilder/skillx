@@ -52,7 +52,7 @@ export async function resolveAndUseSkill(
 
   switch (parsed.type) {
     case 'search':
-      return searchAndUse(parsed.parts[0], options.raw);
+      return searchAndUse(parsed.parts[0], options);
 
     case 'three-part': {
       const [org, repo, skillName] = parsed.parts;
@@ -115,7 +115,7 @@ async function resolveBySlug(
     } else if (fallback.searchFallback) {
       spinner.stop();
       console.log(chalk.dim(`Skill "${displayId}" not found, searching...`));
-      await searchAndUse(displayId, options.raw);
+      await searchAndUse(displayId, options);
     } else {
       spinner.stop();
       throw err;
@@ -153,7 +153,7 @@ function handleRegisterResult(
 }
 
 /** Search for a keyword and use the top result */
-async function searchAndUse(query: string, raw: boolean): Promise<void> {
+async function searchAndUse(query: string, options: DisplayOptions): Promise<void> {
   const spinner = ora(`Searching for "${query}"...`).start();
   const results = await searchSkills(query);
   spinner.stop();
@@ -166,7 +166,7 @@ async function searchAndUse(query: string, raw: boolean): Promise<void> {
 
   const top = results[0];
   console.log(chalk.dim(`Top result for "${query}": ${chalk.cyan(`${top.author}/${top.name}`)}\n`));
-  await resolveAndUseSkill(`${top.author}/${top.name}`, { raw });
+  await resolveAndUseSkill(`${top.author}/${top.name}`, options);
 }
 
 export const useCommand = new Command('use')
@@ -183,7 +183,7 @@ export const useCommand = new Command('use')
 
     try {
       if (options.search) {
-        await searchAndUse(identifier, raw);
+        await searchAndUse(identifier, { raw, includeRefs, includeScripts });
         return;
       }
       await resolveAndUseSkill(identifier, { raw, includeRefs, includeScripts });

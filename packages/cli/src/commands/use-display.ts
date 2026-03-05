@@ -105,7 +105,8 @@ export function displaySkill(
   console.log(skill.content);
   console.log(chalk.dim('─'.repeat(80)));
 
-  if (options.includeRefs && references?.length) {
+  // Human mode: always show refs/scripts when available
+  if (references?.length) {
     console.log();
     console.log(chalk.bold(`References (${references.length}):`));
     for (const ref of references) {
@@ -115,7 +116,7 @@ export function displaySkill(
     }
   }
 
-  if (options.includeScripts && scripts?.length) {
+  if (scripts?.length) {
     console.log();
     console.log(chalk.bold(`Scripts (${scripts.length}):`));
     for (const s of scripts) {

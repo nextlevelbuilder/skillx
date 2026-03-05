@@ -5,6 +5,7 @@ import { skills } from '~/lib/db/schema';
 import { skillReferences } from '~/lib/db/skill-references-schema';
 import { indexSkill } from '~/lib/vectorize/index-skill';
 import { indexReference } from '~/lib/vectorize/index-reference';
+import { sanitizeContent } from '~/lib/security/content-scanner';
 
 const GITHUB_URL_PATTERN = /^https:\/\/(raw\.githubusercontent\.com|github\.com)\//;
 
@@ -116,6 +117,8 @@ export async function action({ request, context }: ActionFunctionArgs) {
       if (skillData.references?.length) {
         for (const ref of skillData.references) {
           const validUrl = ref.url && GITHUB_URL_PATTERN.test(ref.url) ? ref.url : null;
+          // Sanitize reference content (strip zero-width Unicode, ANSI escapes)
+          const cleanContent = sanitizeContent(ref.content);
           await db.insert(skillReferences).values({
             id: crypto.randomUUID(),
             skill_id: actualSkillId,
@@ -123,9 +126,12 @@ export async function action({ request, context }: ActionFunctionArgs) {
             filename: ref.filename,
             url: validUrl,
             type: ref.type || 'docs',
-            content: ref.content,
+            content: cleanContent,
             created_at: now,
-          }).onConflictDoNothing();
+          }).onConflictDoUpdate({
+            target: [skillReferences.skill_id, skillReferences.filename],
+            set: { content: cleanContent, url: validUrl, title: ref.title, type: ref.type || 'docs' },
+          });
         }
         // Populate fts_content (content + ref titles for FTS5)
         const refTitles = skillData.references.map(r => r.title).join(' ');

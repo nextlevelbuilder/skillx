@@ -1,8 +1,8 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { getDb } from "~/lib/db";
 import { skills, ratings, reviews, favorites } from "~/lib/db/schema";
-import { skillReferences } from "~/lib/db/skill-references-schema";
 import { eq, desc, count, avg, and } from "drizzle-orm";
+import { fetchSkillReferences } from "~/lib/db/skill-detail-queries";
 import { getSession } from "~/lib/auth/session-helpers";
 import { scanContent, sanitizeContent } from "~/lib/security/content-scanner";
 
@@ -74,22 +74,15 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
       }
     }
 
-    // Fetch references (metadata only)
-    const refs = await db
-      .select({
-        title: skillReferences.title,
-        filename: skillReferences.filename,
-        url: skillReferences.url,
-        type: skillReferences.type,
-      })
-      .from(skillReferences)
-      .where(eq(skillReferences.skill_id, skill.id))
-      .orderBy(skillReferences.title);
+    // Fetch references (metadata only) — shared query
+    const refs = await fetchSkillReferences(db, skill.id);
 
     // Parse scripts JSON
     let parsedScripts: Array<{ name: string; command: string; url: string }> = [];
     if (skill.scripts) {
-      try { parsedScripts = JSON.parse(skill.scripts); } catch { /* ignore */ }
+      try { parsedScripts = JSON.parse(skill.scripts); } catch (e) {
+        console.warn(`Invalid scripts JSON for ${slug}:`, e instanceof Error ? e.message : e);
+      }
     }
 
     // Fetch reviews with limit

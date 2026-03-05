@@ -56,7 +56,9 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
   // Parse scripts JSON from DB
   let scripts: Array<{ name: string; command: string; url: string }> = [];
   if (skill.scripts) {
-    try { scripts = JSON.parse(skill.scripts); } catch { /* ignore */ }
+    try { scripts = JSON.parse(skill.scripts); } catch (e) {
+      console.warn(`Invalid scripts JSON for ${slug}:`, e instanceof Error ? e.message : e);
+    }
   }
 
   return {
