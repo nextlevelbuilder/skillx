@@ -114,19 +114,19 @@ Search algorithm: `./docs/search-algorithm.md`
 
 **Auth**: `getSession(request, env)` for session, `requireAuth(request, env)` for redirect
 
-**Search**: Query → Embed (Workers AI) → Vectorize + FTS5 parallel → RRF fusion → 8-signal Boost scoring (RRF 43%, rating 15%, stars 10%, usage 8%, success 7%, votes 7%, recency 5%, favorites 5%) → Filter → Cache (KV)
+**Search**: Query → Embed (Workers AI) → Vectorize + FTS5 parallel → RRF fusion → 8-signal Boost scoring (vector 50%, FTS5 21.5%, rating 3%, installs 2%, votes 0.7%, recency 1%, reviews 0.15%, favorites 0.15%) → Filter → Cache (KV)
 
-**Leaderboard**: 7-signal composite scoring (rating 30%, installs 20%, stars 15%, votes 10%, success 10%, recency 10%, favorites 5%). Sort tabs (best/rating/installs/trending/newest), category filter, preview modal. Client-side interaction overlay (votes + favorites) on KV-cached data.
+**Leaderboard**: 7-signal composite scoring (rating 30%, installs 20%, votes 10%, rating_count 15%, recency 15%, reviews 5%, verified 5%). Sort tabs (best/rating/installs/trending/newest), category + risk_label filter, preview modal. Client-side interaction overlay (votes + favorites) on KV-cached data.
 
 **Skill Detail API**: Returns skill metadata + `references` array (title, url, type) + `scripts` array (name, description, language, url). References indexed in Vectorize for search.
 
 **References & Scripts**: Stored separately — `skill_references` table for external docs/links/examples (title, filename, url, type enum, content). Scripts stored as JSON in `skills.scripts` (name, description, language, url). CLI flags: `skillx use --include-refs --include-scripts` to display.
 
-**Vote API**: POST `/api/skills/:slug/vote` with `{ type: 'up'|'down'|'none' }`. Rate limited 10 votes/min per user. Atomic count update via SQL subquery.
+**Vote API**: POST `/api/skills/:slug/vote` with `{ direction: 'up'|'down' }`. Rate limited 10 votes/min per user. Atomic count update via SQL subquery. Bidirectional: same vote direction toggles off.
 
-**CLI `skillx use` resolution**: `author/skill` (two-part → DB slug `author-skill`) | `org/repo/skill` (three-part → DB slug `org-skill`, fallback register from GitHub) | `slug` (direct lookup, fallback search) | `"keywords"` (search mode). Display logic split into `use-display.ts` module.
+**CLI `skillx use` resolution**: `author/skill` (two-part → DB slug `author-skill`) | `org/repo/skill` (three-part → DB slug `org-skill`, fallback register from GitHub) | `slug` (direct lookup, fallback search) | `"keywords"` (search mode). Flags: `--include-refs`, `--include-scripts` for extended content. Display logic split into `use-display.ts` module.
 
-**Register API**: POST `/api/skills/register` with `{ owner, repo, skill_path?, scan? }`. Modes: single skill (`skill_path`), scan all SKILL.md files (`scan: true`), or backward-compat fallback (try root, then scan).
+**Register & Publish APIs**: POST `/api/skills/register` with `{ owner, repo, skill_path?, scan? }`. GitHub ownership verified via collaborator check. Content scanned for security (risk_label: safe/caution/danger/unknown). CLI `skillx publish owner/repo [--path X] [--scan] [--dry-run]` — requires API key auth.
 
 **Styling**: Always dark theme. Use `bg-slate-900`, `text-white`, `text-mint`, `border-mint/20`. Geist Sans/Mono fonts. Lucide icons.
 

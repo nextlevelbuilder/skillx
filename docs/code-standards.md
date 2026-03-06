@@ -558,6 +558,39 @@ describe('parseIdentifier', () => {
 - **Edge cases** — test boundaries, empty inputs, invalid formats
 - **Security tests** — verify dangerous patterns are detected correctly
 
+## Security & Content Scanning
+
+### Content Scanner Pattern
+
+All SKILL.md content is scanned for security risks before storage:
+
+```typescript
+import { scanContent, sanitizeContent } from '~/lib/security/content-scanner';
+
+const { label, findings } = scanContent(skillContent);
+const sanitized = sanitizeContent(skillContent);
+
+// Risk labels:
+// - "safe" — No dangerous patterns
+// - "caution" — Multiple suspicious patterns (2+), warnings shown
+// - "danger" — Prompt injection, invisible chars, ANSI escapes detected
+// - "unknown" — Not yet scanned (legacy data)
+```
+
+**Detects:**
+- Invisible Unicode (zero-width, bidirectional override — trojan source prevention)
+- Prompt injection patterns ("ignore all previous instructions", etc.)
+- ANSI escape sequences
+- Shell injection vectors
+- HTML/XML tags (script, iframe, form)
+- Base64 encoded blocks
+- URL shorteners
+
+**Sanitization:**
+- Strips zero-width Unicode characters
+- Removes ANSI escape sequences
+- Preserves content structure for display
+
 ## Git & Commits
 
 ### Commit Message Format
@@ -608,5 +641,6 @@ test: add RRF fusion tests
 
 ---
 
-**Last Updated:** Feb 2025
-**Version:** 1.0
+**Last Updated:** Mar 5, 2026
+**Version:** 1.1
+**Recent Additions:** Content security scanning patterns, voting system API patterns, skill references/scripts handling

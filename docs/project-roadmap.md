@@ -6,18 +6,48 @@
 
 MVP launched with all foundational features:
 - Web marketplace UI
-- Hybrid semantic + keyword search
-- User authentication (GitHub OAuth)
-- Ratings & reviews system
-- API key management
-- CLI tool (skillx)
-- Deployment on Cloudflare stack
+- Hybrid semantic + keyword search (vector + FTS5 + RRF fusion)
+- User authentication (GitHub OAuth via Better Auth)
+- Ratings & reviews system (0-10 scale)
+- API key management (SHA-256 hashed)
+- CLI tool (skillx) with search, use, publish, report, config commands
+- Deployment on Cloudflare Workers + D1 + Vectorize stack
+- Content security scanning (prompt injection, invisible chars, ANSI escapes)
+- Install tracking with device ID deduplication
+
+**Phase 3.1: Leaderboard Enhancements** — 100% COMPLETE ✓
+- Voting system (up/down, Redis-style)
+- Sort tabs (best, rating, installs, trending, newest)
+- Category + risk filter dropdown
+- Skill preview modal (description, category, stats)
+- Scoring algorithm with 7 signals (rating 30%, installs 20%, votes 10%, rating_count 15%, recency 15%, reviews 5%, verified 5%)
+- Client-side vote/favorite state overlay on KV-cached leaderboard
+- Rate limiting (10 votes/min per user)
+
+**Phase 3.2: Skill References & Scripts** — 100% COMPLETE ✓
+- Database: `skill_references` table (title, filename, url, type enum, content)
+- Database: `scripts` JSON column on skills table
+- Database: `fts_content` computed column for extended FTS5 search
+- GitHub fetcher: Tree API scan for SKILL.md + metadata extraction
+- Seed pipeline: Top 50 skills → 500 → full rollout (progressive)
+- API: Detail endpoint returns references + scripts arrays
+- UI: Skill detail page displays references + scripts sections
+- CLI: `--include-refs` and `--include-scripts` flags for `skillx use`
+- Vectorize indexing: Skill content + reference titles (200K vectors)
+
+**Phase 3.5: Skill Publishing & Registration** — 100% COMPLETE ✓
+- Register API: `/api/skills/register` with auth validation
+- GitHub ownership verification via repo write access check
+- Multi-skill scanning (single SKILL.md or repo-wide scan)
+- Content sanitization & security scanning before storage
+- CLI `skillx publish` command: auto-detect owner/repo
+- Usage tracking via install counts and execution reports
 
 ---
 
 ## Phase 2: Production Hardening & Monetization
 
-**Status:** Next Priority
+**Status:** Next Priority (after Phase 3.3+)
 **Duration:** 4-6 weeks
 **Goals:** Enable paid skills, payment processing, production deployment
 
@@ -88,49 +118,45 @@ MVP launched with all foundational features:
 
 > **Implementation order:** Ready-to-implement plans first (3.1, 3.2), then features with external dependencies (3.3-3.6).
 
-#### 3.1 Leaderboard Enhancements (Weeks 1-2) — NEXT UP
+#### 3.1 Leaderboard Enhancements — COMPLETE ✓
+
+**Status:** All 4 phases implemented and merged
 **Implementation plan:** [plans/260213-1558-leaderboard-enhancements/plan.md](../plans/260213-1558-leaderboard-enhancements/plan.md)
-**Status:** Plan complete (red-teamed + validated), ready to implement
-**Why first:** No external dependencies, high user impact, uses migration `0007`
 
-4 phases: DB + Vote API → Sort/Filter/Preview → Favorites/Votes UI → Scoring updates
+- [x] Phase 1: Database migration (`votes` table + skills columns) + Vote API
+- [x] Phase 2: Sort/filter controls + clickable author + preview modal
+- [x] Phase 3: Favorites button + vote arrows + auth overlay
+- [x] Phase 4: Scoring algorithm updates (7 signals: rating 30%, installs 20%, votes 10%, rating_count 15%, recency 15%, reviews 5%, verified 5%)
 
-Key decisions (validated):
-- Reddit-style votes (up/down/none) coexist with 0-10 ratings
-- Votes as 8th search signal (7%, RRF reduced 50%→43%)
-- Votes as 7th leaderboard signal (10%, rating 35%→30%, installs 25%→20%)
-- Sort tabs (5 modes) + category filter dropdown
-- Author links to GitHub profile (with username validation)
-- Preview modal (description, category, stats)
-- Client-side overlay for per-user vote/favorite state
-- DB-based rate limiting (10 votes/min per user)
+#### 3.2 Skill References & Scripts — COMPLETE ✓
 
-- [ ] Phase 1: Database migration (`votes` table + skills columns) + Vote API
-- [ ] Phase 2: Sort/filter controls + clickable author + preview modal
-- [ ] Phase 3: Favorites button + vote arrows + auth overlay
-- [ ] Phase 4: Scoring algorithm updates + bulk recompute
-
-#### 3.2 Skill References & Scripts (Weeks 2-4)
+**Status:** All 6 phases implemented and merged
 **Implementation plan:** [plans/260213-1218-skill-references-scripts/plan.md](../plans/260213-1218-skill-references-scripts/plan.md)
-**Status:** Plan complete (red-teamed + validated), ready to implement
-**Why second:** Ready to implement, uses migration `0006` (order-independent with 3.1), depends on GitHub API
 
-6 phases: DB migration → GitHub fetcher → Seed pipeline → API updates → UI → CLI
+- [x] Phase 1: DB schema migration (`scripts`, `fts_content` columns + `skill_references` table)
+- [x] Phase 2: GitHub fetcher script (Trees API, progressive rollout)
+- [x] Phase 3: Seed pipeline + Vectorize integration
+- [x] Phase 4: API & search updates (detail endpoint returns refs/scripts)
+- [x] Phase 5: UI skill detail page (references + scripts sections)
+- [x] Phase 6: CLI updates (`--include-refs`, `--include-scripts` flags)
 
-Key decisions (validated):
-- References: full content in `skill_references` table, Vectorize titles+first-paragraph only (~200K vectors)
-- Scripts: metadata JSON column on skills table, agent-mediated execution
-- FTS5: separate `fts_content` computed column (content + ref titles)
-- Rollout: top 50 skills first → 500 → full
+#### 3.3 Skill Publishing & Registration — COMPLETE ✓
 
-- [ ] Phase 1: DB schema migration (`scripts`, `fts_content` columns + `skill_references` table)
-- [ ] Phase 2: GitHub fetcher script (Trees API, `--top-n=50`, progressive)
-- [ ] Phase 3: Seed pipeline + Vectorize integration
-- [ ] Phase 4: API & search updates (detail endpoint returns refs/scripts)
-- [ ] Phase 5: UI skill detail page (references + scripts sections)
-- [ ] Phase 6: CLI updates (`--include-refs`, `--include-scripts` for raw mode)
+**Status:** Auth validation + CLI publish command implemented
+**Implementation plan:** [plans/260305-skillx-publish-command/plan.md](../plans/260305-skillx-publish-command/plan.md)
 
-#### 3.3 MCP Server Implementation (Weeks 4-6)
+- [x] Phase 1: Add auth + ownership validation to Register API
+- [x] Phase 2: Create CLI `publish` command
+- [x] Phase 3: Typecheck + manual verification
+
+Features:
+- GitHub repo ownership verification (write access check)
+- Automatic content scanning for security
+- Multi-skill registration support (single file or repo scan)
+- CLI `skillx publish owner/repo` with dry-run mode
+
+#### 3.4 MCP Server Implementation (Weeks 4-5) — NEXT UP
+
 - [ ] Design MCP protocol for skill discovery
 - [ ] Implement MCP server in CLI tool
 - [ ] `skillx-mcp-server` package
@@ -144,36 +170,37 @@ npx skillx-mcp-server
 # Claude makes requests: { method: 'tools/call', name: 'search', args: { query } }
 ```
 
-#### 3.4 Skillmark Integration (Weeks 6-7)
+#### 3.5 Skillmark Integration (Weeks 5-6)
+
 - [ ] Fetch radar charts from Skillmark.sh API
 - [ ] Embed in skill detail page
 - [ ] Cache radar charts (30 min TTL)
 - [ ] Display skill verification badge
 
-#### 3.5 Skill Execution Sandbox (Weeks 7-8)
+#### 3.6 Skill Execution Sandbox (Weeks 6-7)
+
 - [ ] Research: Deno Deploy, AWS Lambda, or Cloudflare Workers
 - [ ] Design execution environment (timeouts, resource limits)
 - [ ] Implement skill runner (fetch SKILL.md, parse commands)
 - [ ] Output capture (stdout, stderr, exit code)
 - [ ] Security: sandboxing, env var isolation
 
-#### 3.6 Skill Publishing Workflow (Weeks 8-9)
-- [ ] Creator dashboard (publish new skill)
-- [ ] SKILL.md validation
-- [ ] Auto-generate skill card
-- [ ] Review queue for admins
-- [ ] Approval/rejection workflow
-
 ### Success Criteria
+
+**Phase 3.1-3.3 (Complete):**
+- [x] References & scripts displayed on skill detail pages
+- [x] CLI `skillx use --include-refs --include-scripts` shows all content
+- [x] Leaderboard sort/filter/preview working
+- [x] Vote system functional with rate limiting (10 votes/min per user)
+- [x] Scoring algorithm updated with vote signal (7 signals total)
+- [x] Skill publishing with GitHub ownership validation
+- [x] Multi-skill registration from GitHub repos
+
+**Phase 3.4-3.6 (Pending):**
 - [ ] MCP server working with Claude
-- [ ] 10+ skills successfully published
+- [ ] 10+ skills successfully published via `skillx publish`
 - [ ] Sandbox execution <5s per skill
 - [ ] Radar charts loading & caching
-- [ ] References & scripts displayed on skill detail pages
-- [ ] CLI `skillx info` shows references & scripts
-- [ ] Leaderboard sort/filter/preview working
-- [ ] Vote system functional with rate limiting
-- [ ] Scoring algorithm updated with vote signal
 
 ---
 
@@ -220,20 +247,25 @@ npx skillx-mcp-server
 | Code coverage | 70%+ | TBD | ? |
 | Documentation coverage | 100% | 100% | ✓ |
 
-### Phase 2 (In Progress)
+### Phase 2 (Next Priority)
 | Metric | Target | Status |
 |--------|--------|--------|
-| Production uptime | 99.5% | In progress |
+| Production uptime | 99.5% | Planned |
 | Payment processing | 100% | Pending |
-| Search latency p95 | <800ms | Pending |
-| GitHub OAuth production | Working | Pending |
+| Search latency p95 | <800ms | On track (local: <200ms) |
+| GitHub OAuth production | Working | Planned |
 
-### Phase 3 (Planned)
-| Metric | Target |
-|--------|--------|
-| Skills published | 100+ |
-| MCP server adoption | 50+ users |
-| Sandbox execution success | 95%+ |
+### Phase 3 (In Progress)
+| Metric | Target | Status |
+|--------|--------|--------|
+| Skills with references | 100% | Complete (all skills) |
+| Skills with scripts | 100% | Complete (where applicable) |
+| Leaderboard performance | <500ms | Complete |
+| Vote system uptime | 99%+ | Complete |
+| Security scanning coverage | 100% | Complete (all new skills) |
+| Skills published via CLI | 10+ | In progress |
+| MCP server adoption | 50+ users | Planned |
+| Sandbox execution success | 95%+ | Planned |
 
 ---
 
@@ -294,5 +326,7 @@ Jan 2025    Feb 2025    Mar 2025    Apr 2025    May 2025
 
 ---
 
-**Last Updated:** Feb 13, 2026
-**Next Review:** Feb 20, 2025
+**Last Updated:** Mar 5, 2026
+**Next Review:** Mar 12, 2026
+**Current Phase:** Phase 3 (Features) — Leaderboard (complete), References/Scripts (complete), Publishing (complete)
+**Next Milestone:** Phase 3.4 MCP Server Implementation

@@ -215,13 +215,19 @@ score = (avg_rating / 10) × 0.30 +
         (review_count / 50) × 0.05 +
         (is_verified × 0.05)
 
-Sorting: By composite score (default), net_votes, avg_rating, or install_count
-Filters: Category, risk_label, is_paid, date_range (configurable)
+Sorting tabs (5 modes):
+- best: composite score (default)
+- rating: avg_rating descending
+- installs: install_count descending
+- trending: net_votes descending (recent)
+- newest: created_at descending
+
+Filters: Category, risk_label (safe/caution/danger/unknown), is_paid, date_range (configurable)
 
 Where:
-- avg_rating: [0, 10] — user ratings
-- install_count: integer — skill usage
-- net_votes: upvote_count - downvote_count (community feedback)
+- avg_rating: [0, 10] — user ratings (0-10 scale)
+- install_count: integer — skill usage tracking
+- net_votes: upvote_count - downvote_count (community feedback via votes)
 - rating_count: total ratings received
 - freshness: newer skills ranked higher
 - review_count: number of text reviews
@@ -455,7 +461,7 @@ skillx use skill-name --include-refs --include-scripts
 - Link to source URLs if provided
 - Expandable code preview if content available
 
-## Skill Registration & Content Scanning
+## Skill Registration, Publishing & Content Scanning
 
 ### Register API
 
@@ -475,10 +481,34 @@ skillx use skill-name --include-refs --include-scripts
 
 **Validation:**
 - User must authenticate (API key or session)
-- GitHub repo ownership verified (write access required)
+- GitHub repo ownership verified (write access via collaborator API check)
 - Content scanned & sanitized before DB insert
 - Scans repo for SKILL.md files at specified path or root
 - Falls back to repo-wide scan if single skill not found
+- Lazy-fetch: full content fetched on demand (skill-detail API)
+
+### CLI Publish Command
+
+**Command:** `skillx publish [owner/repo]`
+
+**Modes:**
+- `skillx publish owner/repo` — Auto-detect single SKILL.md or scan all
+- `skillx publish owner/repo --path path/to/skill` — Specific skill path
+- `skillx publish owner/repo --scan` — Force full repo scan
+- `skillx publish --dry-run` — Validation only (requires auth)
+
+**Authentication:** Requires API key (stored in `~/.skillx/config.json`)
+
+**Workflow:**
+1. Parse owner/repo from command argument
+2. Validate authentication
+3. Fetch user's GitHub access token from Better Auth `account` table
+4. Check collaborator status on target repo via GitHub API
+5. Scan repo for SKILL.md files (top 50, then 500, then all)
+6. Extract metadata (name, description, author, etc.)
+7. Sanitize & scan content for security risks
+8. POST to `/api/skills/register` with auth token
+9. Return slug or error
 
 ### Content Security Scanning
 
@@ -657,5 +687,6 @@ User sees skillx-marketplace with 2 plugins
 
 ---
 
-**Last Updated:** Feb 2025
-**Version:** 1.0
+**Last Updated:** Mar 5, 2026
+**Version:** 1.1
+**Recent Additions:** Voting system, skill references/scripts, CLI publish command, GitHub ownership verification, content security scanning, lazy-fetch skill detail API

@@ -259,17 +259,19 @@ const compositeScore = computeCompositeScore({
 
 After deploying scoring changes, recompute all 133K skills' composite scores. Scoring functions and recompute pipeline are updated to include vote signal.
 
-**Bulk recompute admin endpoint: Deferred to post-deploy**
+**Implemented: Admin endpoint + KV checkpoint/resume**
 
-The bulk recompute script/endpoint was NOT created in this phase to keep scope focused on scoring functions. Should be added in a follow-up:
-- Create temporary admin endpoint or extend existing seed admin: `/api/admin/recompute?secret=ADMIN_SECRET&batch=100&offset=0`
-- Iterates skills in batches, calls recomputeSkillScores for each
-- Include offset/checkpoint tracking (resume from last successful batch on failure)
-- Progress logging (batch N of M, skills processed)
-- Batch size of 100 with configurable `--batch` flag
-- `--offset` flag to resume from specific position
+Created files:
+- `apps/web/app/lib/leaderboard/recompute-all-skills.ts` — batch recompute logic with KV state persistence
+- `apps/web/app/routes/api.admin.recompute.ts` — admin API endpoint
 
-For now, scoring functions are ready. Recompute will be a quick task once admin endpoint template exists.
+Usage:
+- `GET /api/admin/recompute?secret=X` — check progress
+- `POST /api/admin/recompute?secret=X` — run one batch (100 skills)
+- `POST /api/admin/recompute?secret=X&batch=200` — custom batch size
+- `POST /api/admin/recompute?secret=X&resume=true` — resume from last checkpoint
+- `POST /api/admin/recompute?secret=X&all=true` — run all batches until done
+- State persisted in KV with 24h TTL auto-cleanup
 
 ### Step 6: Update scoring documentation
 
@@ -293,8 +295,8 @@ Update comment headers in all modified files to reflect new signal counts:
 - [x] Pass `netVotes` + `maxNetVotes` to composite score call
 - [x] Update module doc comments (signal counts)
 - [x] Run `pnpm typecheck`
-- [ ] Create batch recompute mechanism with checkpoint/resume support for 133K skills (deferred)
-- [ ] Run recompute on production after deploy (deferred)
+- [x] Create batch recompute mechanism with checkpoint/resume support for 133K skills
+- [ ] Run recompute on production after deploy (use POST /api/admin/recompute?all=true)
 - [x] Verify composite_score values are reasonable (0-1 range)
 
 ## Success Criteria

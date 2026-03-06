@@ -68,15 +68,15 @@ skillx/
 | `api.skill-rate.ts` | API | 100 | Create/update rating (0-10) |
 | `api.skill-review.ts` | API | 109 | Create/list reviews |
 | `api.skill-favorite.ts` | API | 74 | Add/remove favorites |
-| `api.skill-vote.ts` | API | ? | Upvote/downvote skill |
-| `api.skill-install.ts` | API | ? | Track skill install (fire-and-forget) |
-| `api.skill-references.ts` | API | ? | Add/list skill references (NEW) |
+| `api.skill-vote.ts` | API | 107 | Upvote/downvote skill (rate limited) |
+| `api.skill-install.ts` | API | - | Track skill install (fire-and-forget) |
+| `api.skill-references.ts` | API | - | Add/list skill references |
+| `api.skill-register.ts` | API | 182 | Register/publish skills from GitHub repos (auth + ownership validation) |
+| `api.user-interactions.ts` | API | 57 | Fetch user's ratings, reviews, votes, favorites |
+| `api.leaderboard.ts` | API | - | Get leaderboard with filters & sorting |
 | `api.usage-report.ts` | API | 99 | Log skill execution outcomes |
 | `api.user-api-keys.ts` | API | 133 | Create/list/revoke API keys |
-| `api.user-interactions.ts` | API | ? | Fetch user's ratings, reviews, votes, favorites |
-| `api.skill-register.ts` | API | ? | Register/publish skills from GitHub repos (auth required) |
 | `api.admin.seed.ts` | API | 121 | Load demo seed data |
-| `api.leaderboard.ts` | API | ? | Get leaderboard with filters & sorting |
 | `$.tsx` | Catch-all | 23 | 404 page |
 
 **Total Routes:** ~1,883 LOC
@@ -88,9 +88,10 @@ skillx/
 | `layout/navbar.tsx` | 99 | Sticky header with Cmd+K search + auth |
 | `layout/footer.tsx` | 31 | Footer with links |
 | `search-command-palette.tsx` | 189 | Modal palette: debounced search + kbd nav |
+| `home-leaderboard.tsx` | 226 | Leaderboard with votes, sort tabs, preview modal |
 | `leaderboard-table.tsx` | 140 | Sortable table with tier badges + vote counts |
-| `leaderboard-controls.tsx` | ? | Sort tabs + category filter dropdown |
-| `skill-preview-modal.tsx` | ? | Preview modal for skill descriptions |
+| `leaderboard-controls.tsx` | 58 | Sort tabs + category filter dropdown |
+| `skill-preview-modal.tsx` | 80 | Preview modal for skill descriptions |
 | `skill-card.tsx` | 108 | Card: title, rating, installs, category |
 | `search-input.tsx` | 59 | Input field with debounce |
 | `star-rating.tsx` | 69 | Interactive 0-10 rating control |
@@ -98,12 +99,10 @@ skillx/
 | `auth-button.tsx` | 41 | GitHub sign in/out |
 | `review-form.tsx` | 65 | Text input for writing reviews |
 | `review-list.tsx` | 60 | Display reviews from DB |
-| `skill-references-section.tsx` | ? | Display external references (docs, links, examples) |
-| `skill-scripts-section.tsx` | ? | Display scripts array with execution details |
+| `skill-content-renderer.tsx` | 31 | Render skill SKILL.md with references + scripts |
 | `filter-tabs.tsx` | 31 | Category + price filters |
 | `rating-badge.tsx` | 36 | S/A/B/C tier display |
 | `command-box.tsx` | 32 | Copyable code block |
-| `signal-badge.tsx` | ? | Display individual scoring signals |
 
 ### Database Layer (apps/web/app/lib/db)
 
@@ -129,11 +128,11 @@ skillx/
 
 | Module | LOC | Function |
 |--------|-----|----------|
-| `hybrid-search.ts` | 239 | Orchestrator: accepts query, returns ranked results |
+| `hybrid-search.ts` | 239 | Orchestrator: accepts query, returns ranked results (8 signals) |
 | `vector-search.ts` | 83 | Vectorize cosine search (768-dim embeddings) |
-| `fts5-search.ts` | 58 | SQLite FTS5 keyword search |
+| `fts5-search.ts` | 58 | SQLite FTS5 keyword search (includes fts_content column) |
 | `rrf-fusion.ts` | 79 | Merge vector & FTS results using reciprocal rank fusion |
-| `boost-scoring.ts` | 82 | Adjust scores: avg_rating × 0.3, installs × 0.2, freshness × 0.1 |
+| `boost-scoring.ts` | 82 | Adjust scores: 8-signal formula (vector 50%, FTS5 21.5%, rating 3%, installs 2%, votes 0.7%, recency 1%, reviews 0.15%, favorites 0.15%) |
 
 **Flow:**
 1. Query (text) → Hash & cache check (KV)
@@ -152,7 +151,7 @@ skillx/
 | `auth-server.ts` | Better Auth config + GitHub OAuth provider setup |
 | `auth-client.ts` | React client for sessions (getSession, signIn, signOut) |
 | `session-helpers.ts` | `getSession(request, env)`, `requireAuth()` — request-level auth |
-| `api-key-utils.ts` | Hash/verify API keys (SHA-256), generate prefixes |
+| `api-key-utils.ts` | Hash/verify API keys (SHA-256), generate prefixes (sk_prod format) |
 | `authenticate-request.ts` | Unified auth: tries API key first, fallbacks to session; returns `{ userId, method }` |
 
 ### Security Scanning (apps/web/app/lib/security)
@@ -172,9 +171,11 @@ skillx/
 
 | Module                       | Purpose |
 |------------------------------|---------|
-| `validate-repo-ownership.ts` | Verify user has write access to GitHub repo (used by skill registration) |
+| `validate-repo-ownership.ts` | Verify user has write access to GitHub repo via collaborator API check (used by skill registration + publish) |
+| `fetch-github-skill.ts` | Fetch SKILL.md metadata from GitHub repos using Tree API |
+| `scan-github-repo.ts` | Progressive scan for SKILL.md files across repo (top 50, then 500, then all) |
 
-**Used by:** Register API to validate author owns the GitHub repository before publishing skills.
+**Used by:** Register API to validate author owns the GitHub repository before publishing skills. Skills API to fetch skill content lazily.
 
 ### Vectorization (apps/web/app/lib/vectorize)
 
@@ -200,11 +201,11 @@ skillx/
 | `index.ts` | - | Commander.js CLI entry + command registration |
 | `commands/search.ts` | 86 | `skillx search "..."` → API call → table output |
 | `commands/use.ts` | 78 | `skillx use skill1 skill2` → fetch SKILL.md + flags, POST install, echo to stdout |
-| `commands/publish.ts` | 183 | `skillx publish [owner/repo]` → register/publish skills from GitHub |
+| `commands/publish.ts` | 182 | `skillx publish [owner/repo]` → register/publish skills from GitHub with auth |
 | `commands/report.ts` | 90 | `skillx report` → POST usage metrics to API |
 | `commands/config.ts` | 91 | `skillx config set/get KEY VALUE` → local store |
-| `lib/api-client.ts` | 35 | HTTP client with API key auth |
-| `lib/use-display.ts` | ? | Display formatter for skill content (references, scripts, content) |
+| `lib/api-client.ts` | 35 | HTTP client with API key auth (Bearer token) |
+| `lib/use-display.ts` | - | Display formatter for skill content (references, scripts, content) |
 | `utils/config-store.ts` | - | conf package: ~/.skillx/config.json, includes getDeviceId() |
 
 **Usage:**
@@ -212,11 +213,12 @@ skillx/
 npm install -g skillx-sh
 skillx search "data processing"
 skillx use skillx-search skillx-email
-skillx use skillx-search --include-refs      # Include references section
-skillx use skillx-search --include-scripts   # Include scripts array
-skillx publish owner/repo                    # Auto-detect or explicit owner/repo
-skillx publish owner/repo --path path/to/skill --scan
-skillx publish --dry-run
+skillx use skillx-search --include-refs       # Include references section
+skillx use skillx-search --include-scripts    # Include scripts array
+skillx publish owner/repo                     # Register/publish from GitHub
+skillx publish owner/repo --path path/to/skill  # Single skill path
+skillx publish owner/repo --scan              # Scan entire repo
+skillx publish --dry-run                      # Validation only (requires auth)
 skillx config set api-key sk_...
 skillx report --outcome success --duration 1234
 ```
@@ -368,7 +370,7 @@ All list APIs support:
 
 **Current Test Suite (38 tests):**
 
-- **content-scanner.test.ts** (30 tests) — Security scanning for prompt injection, invisible chars, ANSI escapes, shell injection, HTML/XML tags
+- **content-scanner.test.ts** (30 tests) — Security scanning for prompt injection, invisible chars (zero-width, bidirectional override), ANSI escapes, shell injection, HTML/XML tags, risk classification
 - **use.test.ts** (8 tests) — CLI identifier resolution (search, two-part, three-part, slug formats)
 
 **Running Tests:**
@@ -380,7 +382,7 @@ pnpm test:watch       # Watch mode for development
 
 **Test Coverage Areas:**
 
-1. **Security scanning** — detect malicious content, Unicode tricks, prompt injection patterns
+1. **Security scanning** — detect malicious content, Unicode tricks (trojan source), prompt injection patterns, invisible characters
 2. **CLI identifier parsing** — correctly classify input formats (author/skill, org/repo/skill, slug, search query)
 
 ## Dependencies
@@ -406,6 +408,7 @@ pnpm test:watch       # Watch mode for development
 
 ---
 
-**Last Updated:** Mar 2025
-**Total LOC:** ~4,500 (excluding auto-generated)
-**Test Suite:** 38 unit tests
+**Last Updated:** Mar 5, 2026
+**Total LOC:** ~4,500 (excluding auto-generated and seed data)
+**Test Suite:** 38 unit tests (content-scanner, CLI identifier parsing)
+**Recent Changes:** Leaderboard enhancements, skill references/scripts, skill publishing with GitHub auth

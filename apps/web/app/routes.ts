@@ -13,6 +13,7 @@ export default [
   route("api/search", "routes/api.search.ts"),
   route("api/leaderboard", "routes/api.leaderboard.ts"),
   route("api/admin/seed", "routes/api.admin.seed.ts"),
+  route("api/admin/recompute", "routes/api.admin.recompute.ts"),
   route("api/skills/register", "routes/api.skill-register.ts"),
   route("api/skills/:slug", "routes/api.skill-detail.ts"),
   route("api/skills/:slug/rate", "routes/api.skill-rate.ts"),
