@@ -37,3 +37,5 @@ scripts/seed-batches/
 
 # OS
 Thumbs.db
+
+.claude/session-state/**/*
