@@ -6,6 +6,7 @@ import { findCommand } from './commands/find.js';
 import { reportCommand } from './commands/report.js';
 import { configCommand } from './commands/config.js';
 import { publishCommand } from './commands/publish.js';
+import { addCommand } from './commands/add.js';
 
 const program = new Command();
 
@@ -20,5 +21,6 @@ program.addCommand(findCommand);
 program.addCommand(reportCommand);
 program.addCommand(configCommand);
 program.addCommand(publishCommand);
+program.addCommand(addCommand);
 
 program.parse(process.argv);
