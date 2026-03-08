@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.3.0...skillx-sh-v0.4.0) (2026-03-08)
+
+
+### Features
+
+* skill references & scripts support ([#9](https://github.com/nextlevelbuilder/skillx/issues/9)) ([9d0f9e9](https://github.com/nextlevelbuilder/skillx/commit/9d0f9e9f49b4727f58ed50f7ba5496ff7a0a902e))
+
 ## [0.3.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.2.0...skillx-sh-v0.3.0) (2026-03-05)
 
 
