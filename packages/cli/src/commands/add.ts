@@ -80,6 +80,7 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
     } else {
       spinner.start('Cloning repository...');
       tempDir = await cloneRepo(parsed.url, parsed.ref);
+      skillsDir = tempDir;
       spinner.stop('Repository cloned');
     }
 
