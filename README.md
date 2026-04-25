@@ -77,6 +77,8 @@ Discover and install skills directly in Claude Code:
 - **skill-creator** (v3.0.0) — Create/update skills optimized for Skillmark benchmarks
 - **skillx** (v1.0.0) — Search and use skills from SkillX.sh marketplace
 
+Chinese users can also search and install skills through [Skills宝](https://skilery.com).
+
 ## Architecture
 
 **Tech Stack:**
