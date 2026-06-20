@@ -4,7 +4,7 @@
     "name": "SkillX.sh"
   },
   "metadata": {
-    "description": "AI agent skills marketplace — search, install, and use skills for Claude Code",
+    "description": "AI agent skills marketplace - search, install, and use skills for Claude Code",
     "version": "1.0.0",
     "pluginRoot": "./.claude/skills"
   },
@@ -34,6 +34,19 @@
       "keywords": ["skills", "marketplace", "search", "cli", "skillx"],
       "category": "developer-tools",
       "tags": ["skill-search", "skill-usage", "marketplace-cli"]
+    },
+    {
+      "name": "hermes-tweet",
+      "source": "./.claude/skills/hermes-tweet",
+      "description": "Guide Hermes Agent X/Twitter workflows through Hermes Tweet with read-first discovery and approval-gated account actions.",
+      "version": "0.1.6",
+      "author": { "name": "Xquik" },
+      "homepage": "https://github.com/Xquik-dev/hermes-tweet",
+      "repository": "https://github.com/Xquik-dev/hermes-tweet",
+      "license": "MIT",
+      "keywords": ["hermes-agent", "twitter", "x", "social-media", "automation"],
+      "category": "marketing",
+      "tags": ["x-twitter", "read-first", "approval-gated-actions"]
     }
   ]
 }
