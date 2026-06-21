@@ -595,6 +595,23 @@
     "github_stars": 6827
   },
   {
+    "name": "hermes-tweet",
+    "slug": "xquik-dev-hermes-tweet",
+    "description": "Native Hermes Agent plugin for X/Twitter search, account reads, monitoring, and approval-gated account actions through Xquik.",
+    "author": "Xquik-dev",
+    "source_url": "https://github.com/Xquik-dev/hermes-tweet/tree/master/skills/hermes-tweet",
+    "category": "marketing",
+    "content": "# Hermes Tweet\n\nNative Hermes Agent plugin for X/Twitter automation through Xquik.\n\n## Features\n- Hermes plugin entry point published as the `hermes-tweet` Python package\n- `tweet_explore` endpoint discovery without network access\n- `tweet_read` for catalog-listed read-only X workflows after `XQUIK_API_KEY` is configured\n- `tweet_action` for posting, replies, likes, follows, DMs, monitors, webhooks, and media changes only when `HERMES_TWEET_ENABLE_ACTIONS=true`\n- Bundled Hermes skill, slash commands, and source-native plugin metadata\n\n## Use Cases\n- Social listening and trend research from Hermes Agent\n- Launch monitoring and support triage with read-first workflows\n- Creator, brand, giveaway, and community audits before account-changing actions\n- Remote gateway or Desktop Hermes sessions that need the same X toolset\n\n## Install\nRun `hermes plugins install Xquik-dev/hermes-tweet --enable`, configure `XQUIK_API_KEY`, and keep `HERMES_TWEET_ENABLE_ACTIONS=false` unless the session needs explicit write actions.",
+    "install_command": "hermes plugins install Xquik-dev/hermes-tweet --enable",
+    "version": "0.1.6",
+    "is_paid": false,
+    "price_cents": 0,
+    "install_count": 0,
+    "avg_rating": 0,
+    "rating_count": 0,
+    "github_stars": 11
+  },
+  {
     "name": "pricing-strategy",
     "slug": "pricing-strategy",
     "description": "SaaS pricing and monetization strategy covering research, tier structure, and packaging for value-based pricing.",
