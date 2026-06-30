@@ -17,6 +17,23 @@
     "github_stars": 191800
   },
   {
+    "name": "hermes-tweet",
+    "slug": "xquik-hermes-tweet",
+    "description": "Native Hermes Agent X/Twitter skill and plugin for social listening, account reads, trend monitoring, and approval-gated publishing workflows.",
+    "author": "Xquik",
+    "source_url": "https://github.com/Xquik-dev/hermes-tweet",
+    "category": "marketing",
+    "content": "# Hermes Tweet\n\nUse Hermes Tweet when a Hermes Agent workflow needs X/Twitter context, social listening, public profile reads, trend monitoring, or controlled account actions.\n\n## Capabilities\n- Search X/Twitter posts, profiles, timelines, conversations, and trends\n- Route public reads through `tweet_explore` and `tweet_read`\n- Keep `tweet_action` approval-gated for posts, replies, likes, follows, DMs, monitors, webhooks, media, and draws\n- Support Hermes Desktop, CLI, TUI, remote gateway, and cron sessions through the same enabled plugin\n\n## Safety\n- Never paste API keys, cookies, passwords, or TOTP secrets into prompts or tool arguments\n- Keep `HERMES_TWEET_ENABLE_ACTIONS=false` for read-only or unattended workflows\n- Use action routes only after the operator approves the exact action and payload\n\n## Install\nInstall in the Hermes runtime with `hermes plugins install Xquik-dev/hermes-tweet --enable`, then configure `XQUIK_API_KEY` in the runtime environment.",
+    "install_command": "hermes plugins install Xquik-dev/hermes-tweet --enable",
+    "version": "0.1.6",
+    "is_paid": false,
+    "price_cents": 0,
+    "install_count": 0,
+    "avg_rating": 8,
+    "rating_count": 0,
+    "github_stars": 0
+  },
+  {
     "name": "vercel-react-best-practices",
     "slug": "vercel-react-best-practices",
     "description": "React and Next.js performance optimization guidelines from Vercel Engineering. Comprehensive guide for optimizing React applications and Next.js pages.",
