@@ -9,6 +9,23 @@ const __dirname = dirname(__filename);
 
 const newSkills = [
   {
+    name: "ontoly-software-graph",
+    slug: "ontoly-software-graph",
+    description: "Graph-first TypeScript codebase understanding using Ontoly's deterministic Software Graph, CLI, MCP server, and Agent Skills.",
+    author: "0xsarwagya",
+    source_url: "https://github.com/0xsarwagya/ontoly/tree/main/skills",
+    category: "implementation",
+    content: "# Ontoly Software Graph\n\nUse Ontoly to build and query a deterministic Software Graph before manually searching a TypeScript repository.\n\n## Capabilities\n- Architecture review from graph evidence\n- Dependency and impact analysis\n- Request tracing through routes, controllers, services, and repositories\n- Configuration and environment-variable usage analysis\n- Framework and package understanding\n- MCP-backed codebase onboarding for AI agents\n\n## Workflow\n1. Verify an Ontoly graph exists.\n2. Run `ontoly build .` if the graph is missing or stale.\n3. Check diagnostics, trust, graph hash, and framework detection.\n4. Query Ontoly CLI or MCP capabilities first.\n5. Cite node IDs, edge types, routes, packages, source locations, diagnostics, and confidence.\n6. Inspect source files only when graph evidence is insufficient.\n\n## Use Cases\n- Explaining repository architecture\n- Tracing login or API flows\n- Finding dependency consumers and providers\n- Planning refactors with evidence\n- Reviewing dead code, configuration usage, and framework structure",
+    install_command: "npx skills add 0xsarwagya/ontoly",
+    version: "0.1.0",
+    is_paid: false,
+    price_cents: 0,
+    install_count: 0,
+    avg_rating: 0,
+    rating_count: 0,
+    github_stars: 0
+  },
+  {
     name: "agent-tools",
     slug: "agent-tools",
     description: "Cloud-based CLI platform providing serverless access to 150+ AI apps and models including image/video generation, LLMs, and search utilities.",
