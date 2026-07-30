@@ -5,6 +5,7 @@ export default defineConfig({
     include: [
       "apps/web/app/**/*.test.ts",
       "packages/cli/src/**/*.test.ts",
+      "scripts/**/*.test.mjs",
     ],
   },
 });
