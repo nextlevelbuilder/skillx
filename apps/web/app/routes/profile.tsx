@@ -6,6 +6,7 @@ import { getDb } from "~/lib/db";
 import { favorites, skills, usageStats } from "~/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
+import { gateSkillRow } from "~/lib/catalog/protected-content";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
@@ -42,7 +43,9 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 
   return {
     user: session.user,
-    favoriteSkills: userFavorites.map((f) => f.skills),
+    // Protected payload boundary: the join returns full `skills` rows carrying
+    // `content`, and loader data reaches the SSR HTML. Gate every row.
+    favoriteSkills: userFavorites.map((favorite) => gateSkillRow(favorite.skills, session.user.id)),
     usageHistory: userUsage,
   };
 }

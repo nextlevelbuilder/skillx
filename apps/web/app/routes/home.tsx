@@ -7,6 +7,7 @@ import { skills } from "~/lib/db/schema";
 import { desc, count, sql } from "drizzle-orm";
 import { getCached } from "~/lib/cache/kv-cache";
 import { getSession } from "~/lib/auth/session-helpers";
+import { gateSkillRow } from "~/lib/catalog/protected-content";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -40,12 +41,15 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     };
   });
 
-  // Get featured skills (top 6 by composite score)
-  const featuredSkills = await db
+  // Get featured skills (top 6 by composite score).
+  // Protected payload boundary: raw rows carry `content` and loader data is
+  // serialized into the SSR HTML, so every row is gated before it is returned.
+  const featuredRows = await db
     .select()
     .from(skills)
     .orderBy(desc(skills.composite_score))
     .limit(6);
+  const featuredSkills = featuredRows.map((row) => gateSkillRow(row, session?.user?.id ?? null));
 
   // Get first page of leaderboard sorted by composite score
   const PAGE_SIZE = 20;

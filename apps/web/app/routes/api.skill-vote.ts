@@ -22,9 +22,9 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       return Response.json({ error: "Authentication required" }, { status: 401 });
     }
 
-    // Validate body
+    // Validate body: `type` must be exactly one of up, down, or none.
     const body = (await request.json()) as { type?: string };
-    const voteType = body?.type ?? "";
+    const voteType: string = body?.type ?? "";
     if (!["up", "down", "none"].includes(voteType)) {
       return Response.json({ error: "type must be 'up', 'down', or 'none'" }, { status: 400 });
     }

@@ -66,6 +66,25 @@ export function omitPayload<T extends { content: string }>(row: T): Omit<T, "con
   return metadata;
 }
 
+/**
+ * Applies the resolver to a raw catalog row and returns a view that is safe to
+ * hand to a loader, a response body, or SSR serialization: the payload is
+ * present only when access was granted. Every surface must use this instead of
+ * forwarding a `skills` row directly, because loader data is serialized into
+ * the server-rendered HTML.
+ */
+export function gateSkillRow<T extends { slug: string; is_paid: boolean | null; content: string }>(
+  row: T,
+  userId: string | null = null,
+): Omit<T, "content"> & { content?: string } {
+  const access = resolveSkillPayloadAccess(
+    { slug: row.slug, is_paid: row.is_paid, content: row.content },
+    { userId },
+  );
+  const metadata = omitPayload(row);
+  return access.granted ? { ...metadata, content: access.payload } : metadata;
+}
+
 export function buildCatalogListingResponse(
   listing: PublicCatalogListingDto,
   source: ContentSource,
