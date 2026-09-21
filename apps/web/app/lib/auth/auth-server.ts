@@ -5,7 +5,10 @@ import * as authSchema from "~/lib/db/schema";
 
 export function createAuth(d1: D1Database, env: Env) {
   const db = drizzle(d1);
-  const isDev = env.ENVIRONMENT === "development";
+  // `ENVIRONMENT` is generated as a literal type ("production"), so widen it
+  // before comparing to allow a development deployment at runtime.
+  const environment: string = env.ENVIRONMENT;
+  const isDev = environment === "development";
 
   return betterAuth({
     database: drizzleAdapter(db, {

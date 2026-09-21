@@ -24,7 +24,7 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
 
     // Validate body
     const body = (await request.json()) as { type?: string };
-    const voteType = body?.type;
+    const voteType = body?.type ?? "";
     if (!["up", "down", "none"].includes(voteType)) {
       return Response.json({ error: "type must be 'up', 'down', or 'none'" }, { status: 400 });
     }
