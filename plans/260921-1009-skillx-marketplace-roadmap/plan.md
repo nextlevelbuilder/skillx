@@ -102,8 +102,11 @@ same register endpoint. Phase 0 must separate the concepts at contract level and
 `0008_add-skill-references.sql` was therefore written by hand.
 
 Adding several new contract tables under a single file would breach the project's 200 LOC per file
-rule (`schema.ts` is already 233 lines). Phase 0 must switch the drizzle `schema` value to a glob
+rule (`schema.ts` is already 233 lines). Phase 0 must therefore extend the generator's schema input
 before generating migrations, or the new tables will silently not be generated.
+
+The fix uses an **explicit multi-file list**, not a glob: `skill_references` is missing from the `0006`
+generator snapshot, so a glob would make the generator re-emit a table that `0008` already created.
 
 ### G7 - Test harness would not run contract tests
 

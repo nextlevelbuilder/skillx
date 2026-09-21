@@ -1,17 +1,12 @@
 /**
- * Shared validator fixtures for `skillx.package/v1` and its sibling contracts.
- *
- * These are the single set of examples every surface validates against, so a
- * schema change forces one fixture update instead of five.
+ * `skillx.package/v1` manifest and verification-evidence fixtures.
  */
 
-import type { CompatibilityDeclarationMap } from "./compatibility";
-import type { SkillxPackageManifest } from "./package-manifest";
-import type { VerificationEvidence } from "./verification-evidence";
-
-/** A syntactically valid digest used by fixtures. */
-export const FIXTURE_DIGEST = `sha256:${"a".repeat(64)}`;
-export const FIXTURE_OTHER_DIGEST = `sha256:${"b".repeat(64)}`;
+import type { CompatibilityDeclarationMap } from "../compatibility";
+import type { SkillxPackageManifest } from "../package-manifest";
+import type { VerificationEvidence } from "../verification-evidence";
+import { FIXTURE_DIGEST } from "./types";
+import type { FixtureCase, MutableFixture } from "./types";
 
 export const COMPATIBILITY_DECLARATION_FIXTURE: CompatibilityDeclarationMap = {
   "claude-code": {
@@ -45,18 +40,6 @@ export const VERIFICATION_EVIDENCE_FIXTURE: VerificationEvidence = {
   verifiedAt: "2026-09-15T10:00:00.000Z",
   verifier: "skillx-ci",
 };
-
-export interface FixtureCase<T = unknown> {
-  name: string;
-  group: "package-manifest" | "verification-evidence" | "collection-member" | "entitlement" | "listing-import" | "release-publish";
-  value: T;
-  expectedValid: boolean;
-  /** Code expected to appear in the issues when `expectedValid` is false. */
-  expectedIssueCode?: string;
-}
-
-/** A shallow-cloned plain-data fixture that a case may mutate before validation. */
-type MutableFixture = Record<string, unknown>;
 
 function cloneManifest(): MutableFixture {
   const environment = PACKAGE_MANIFEST_FIXTURE.environment ?? {};
@@ -185,115 +168,4 @@ export const VERIFICATION_EVIDENCE_FIXTURES: FixtureCase[] = [
     expectedValid: false,
     expectedIssueCode: "required",
   },
-];
-
-export const COLLECTION_MEMBER_FIXTURES: FixtureCase[] = [
-  {
-    name: "valid member with digest",
-    group: "collection-member",
-    value: { packageName: "@zuey/work", version: "1.2.3", digest: FIXTURE_DIGEST },
-    expectedValid: true,
-  },
-  {
-    name: "valid optional member",
-    group: "collection-member",
-    value: { packageName: "@zuey/work", optional: true },
-    expectedValid: true,
-  },
-  {
-    name: "rejects bare slug",
-    group: "collection-member",
-    value: { packageName: "work" },
-    expectedValid: false,
-    expectedIssueCode: "pattern",
-  },
-  {
-    name: "rejects bad digest",
-    group: "collection-member",
-    value: { packageName: "@zuey/work", digest: "deadbeef" },
-    expectedValid: false,
-    expectedIssueCode: "pattern",
-  },
-];
-
-export const ENTITLEMENT_FIXTURES: FixtureCase[] = [
-  {
-    name: "valid purchase entitlement",
-    group: "entitlement",
-    value: {
-      id: "ent_1",
-      subjectId: "user_1",
-      packageName: "@zuey/work",
-      source: "purchase",
-      orderId: "order_1",
-      grantedAt: "2026-09-15T10:00:00.000Z",
-    },
-    expectedValid: true,
-  },
-  {
-    name: "valid grant entitlement",
-    group: "entitlement",
-    value: { subjectId: "user_1", packageName: "@zuey/work", source: "grant", grantedAt: "2026-09-15T10:00:00.000Z" },
-    expectedValid: true,
-  },
-  {
-    name: "rejects purchase without orderId",
-    group: "entitlement",
-    value: { subjectId: "user_1", packageName: "@zuey/work", source: "purchase", grantedAt: "2026-09-15T10:00:00.000Z" },
-    expectedValid: false,
-    expectedIssueCode: "required",
-  },
-  {
-    name: "rejects unknown source",
-    group: "entitlement",
-    value: { subjectId: "user_1", packageName: "@zuey/work", source: "bribe", grantedAt: "2026-09-15T10:00:00.000Z" },
-    expectedValid: false,
-    expectedIssueCode: "unsupported_value",
-  },
-];
-
-export const INGESTION_FIXTURES: FixtureCase[] = [
-  {
-    name: "valid import",
-    group: "listing-import",
-    value: { mode: "import", sourceUrl: "https://github.com/o/r/tree/main/skills/x", fetchedAt: "2026-09-15T10:00:00.000Z" },
-    expectedValid: true,
-  },
-  {
-    name: "rejects relative import source",
-    group: "listing-import",
-    value: { mode: "import", sourceUrl: "/skills/x", fetchedAt: "2026-09-15T10:00:00.000Z" },
-    expectedValid: false,
-    expectedIssueCode: "pattern",
-  },
-  {
-    name: "valid publish",
-    group: "release-publish",
-    value: {
-      mode: "publish",
-      packageName: "@agentkit/engineer",
-      version: "1.2.3",
-      kind: "skill",
-      channel: "beta",
-      releaseState: "quarantined",
-      releaseDigest: FIXTURE_DIGEST,
-      artifactSize: 2048,
-    },
-    expectedValid: true,
-  },
-  {
-    name: "rejects publish without digest",
-    group: "release-publish",
-    value: { mode: "publish", version: "1.2.3", kind: "skill", releaseState: "draft", artifactSize: 2048 },
-    expectedValid: false,
-    expectedIssueCode: "pattern",
-  },
-];
-
-export const ALL_FIXTURES: FixtureCase[] = [
-  ...PACKAGE_MANIFEST_FIXTURES,
-  ...VERIFICATION_EVIDENCE_FIXTURES,
-  ...COLLECTION_MEMBER_FIXTURES,
-  ...ENTITLEMENT_FIXTURES,
-  ...INGESTION_FIXTURES,
 ];

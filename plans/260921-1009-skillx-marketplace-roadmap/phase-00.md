@@ -42,7 +42,10 @@ premium/private payload leakage risk before any paid content exists.
 ### Workstream 2 — Persistence (`phase0-migrations`)
 
 - [ ] Backup the local D1 database before any schema change.
-- [ ] Switch `apps/web/drizzle.config.ts` `schema` from a single file to a glob (gap G6).
+- [ ] Switch `apps/web/drizzle.config.ts` `schema` from a single file to an explicit
+      multi-file list (gap G6). A glob is deliberately NOT used: `skill_references`
+      was created by the hand-written `0008` migration and is absent from the `0006`
+      snapshot, so a glob would make the generator re-emit it.
 - [ ] Add package/release/publisher DB migrations.
 - [ ] Add entitlement contract/table skeleton.
 - [ ] Add collection/revision contract/table skeleton.
