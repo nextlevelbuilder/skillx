@@ -121,3 +121,18 @@ ADMIN_SECRET=xxx API_URL=https://skillx.sh node scripts/seed-skills.mjs --range=
 - D1 upserts on slug conflict (updates existing skills)
 - Vectorize upserts replace existing vectors by ID
 - Safe to run multiple times
+
+## Leaderboard Recompute (Operations)
+
+`run-recompute.sh` bulk-recomputes every skill's leaderboard composite score through
+the admin endpoint. It loops batches client-side because a single `all=true` request is
+capped at 50 batches to stay under the Worker CPU limit.
+
+```bash
+ADMIN_SECRET=xxx ./scripts/run-recompute.sh          # batch_size defaults to 10
+ADMIN_SECRET=xxx ./scripts/run-recompute.sh 25       # larger batches
+```
+
+- Calls `POST /api/admin/recompute` with the `X-Admin-Secret` header (never a query param)
+- Resumable: checkpoint lives in KV, so re-run the same command after an interruption
+- `API_URL` (default `https://skillx.sh/api/admin/recompute`) and `DELAY` (seconds between batches, default 1) are overridable via env

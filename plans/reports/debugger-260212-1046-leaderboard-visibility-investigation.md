@@ -217,5 +217,10 @@ useEffect(() => {
 - `.claude/debug-leaderboard-playwright.js` - Reusable diagnostic script
 - `.claude/test-browser-console.html` - Manual testing instructions
 
+> **Note (2026-09-21):** all five artifacts above were local scratch output and are no
+> longer tracked in this repository (see the `chore(cleanup)` commit that untracked
+> them). They remain on the machine that ran the investigation, but a fresh clone
+> cannot resolve these paths.
+
 **Investigation time:** ~15 minutes
 **Confidence level:** 95% (high confidence no codebase issue)
