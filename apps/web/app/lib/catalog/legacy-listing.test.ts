@@ -4,8 +4,8 @@ import {
   isAlreadyMigrated,
   resolveLegacySlug,
   toListingMigration,
-} from "./legacy-listing-migration";
-import type { LegacySkillRow } from "./legacy-listing-migration";
+} from "./legacy-listing";
+import type { LegacySkillRow } from "./legacy-listing";
 
 function legacyRow(overrides: Partial<LegacySkillRow> = {}): LegacySkillRow {
   return {

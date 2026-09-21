@@ -5,10 +5,12 @@
  * returns a FULL `skills` row (including `content`) as loader data, which React
  * Router then serializes into the SSR HTML.
  *
- * This test therefore scans serve-path sources and enforces one rule: a module
- * that reads unprojected `skills` rows must either import the boundary module
- * (so every row is gated before it is returned) or be an explicitly allowlisted
- * non-response path. Adding a new public route that leaks full rows fails here.
+ * The guard enforces three separate things, because "imports the boundary" alone
+ * is not proof that anything was gated:
+ *   1. every unprojected `skills` read is either gated or an allowlisted
+ *      non-response path,
+ *   2. every gating module actually CALLS `gateSkillRow`, not merely imports it,
+ *   3. every response path imports one of the gating modules.
  *
  * Sources are read through Vite's `import.meta.glob` so the test needs no Node
  * built-ins and stays inside the app's browser-oriented tsconfig.
@@ -16,13 +18,39 @@
 
 import { describe, expect, it } from "vitest";
 
-const BOUNDARY_IMPORT = "~/lib/catalog/protected-content";
+/** Module specifiers that legitimately apply the protected payload boundary. */
+const GATED_IMPORTS = [
+  "~/lib/catalog/protected-content",
+  "./protected-content",
+  "~/lib/catalog/featured-skills",
+  "~/lib/catalog/profile-skill-queries",
+  "~/lib/catalog/skill-detail-data",
+  "~/lib/search/search-result-projection",
+];
 
-const RAW_SOURCES = import.meta.glob("../../**/*.{ts,tsx}", {
-  query: "?raw",
-  import: "default",
-  eager: true,
-}) as Record<string, string>;
+/**
+ * Modules that apply the gate must actually apply it. Importing the resolver
+ * without calling anything would leave rows ungated, which is why this is
+ * asserted separately from the import check.
+ */
+const GATED_MODULES = [
+  "lib/catalog/protected-content.ts",
+  "lib/catalog/featured-skills.ts",
+  "lib/catalog/profile-skill-queries.ts",
+  "lib/catalog/skill-detail-data.ts",
+  "lib/search/search-result-projection.ts",
+];
+
+/**
+ * The functions that actually apply the boundary. A gating module must call at
+ * least one of them; `gateSkillRow` for raw rows, and the response builders for
+ * modules that already hold a public DTO.
+ */
+const GATE_CALLS = [
+  "gateSkillRow(",
+  "buildCatalogListingResponse(",
+  "buildSkillDetailResponse(",
+];
 
 /**
  * Paths that may read unprojected `skills` rows WITHOUT the resolver.
@@ -35,7 +63,7 @@ const NON_RESPONSE_PATHS: Record<string, string> = {
   "lib/db/skill-detail-queries.ts":
     "shared query layer; every caller gates rows before responding",
   "routes/api.skill-register.ts":
-    "import/registration writes; stores rows without serving payload",
+    "authenticated import/registration; returns only a safe summary, never the row",
   "routes/api.skill-favorite.ts":
     "reads the skill for its id only; the response carries favorite state, not the row",
   "routes/api.skill-rate.ts":
@@ -46,14 +74,19 @@ const NON_RESPONSE_PATHS: Record<string, string> = {
     "reads the skill for its id only; the response is an acknowledgement",
 };
 
-/** Response paths that must read rows only through the boundary. */
+/** Response paths whose rows must be gated before they can be serialized. */
 const GATED_RESPONSE_PATHS = [
   "routes/home.tsx",
   "routes/profile.tsx",
   "routes/skill-detail.tsx",
   "routes/api.skill-detail.ts",
-  "lib/search/search-result-projection.ts",
 ];
+
+const RAW_SOURCES = import.meta.glob("../../**/*.{ts,tsx}", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
 
 /**
  * Normalizes glob keys, which are relative to this file (`app/lib/catalog/`),
@@ -84,6 +117,10 @@ function readsUnprojectedSkillsRows(source: string): boolean {
   return /\.select\(\s*\)\s*\.from\(\s*skills\s*\)/.test(source);
 }
 
+function importsAGate(source: string): boolean {
+  return GATED_IMPORTS.some((specifier) => source.includes(specifier));
+}
+
 describe("protected payload boundary guard", () => {
   it("scans a non-trivial number of source files", () => {
     expect(Object.keys(SOURCES).length).toBeGreaterThan(50);
@@ -94,17 +131,31 @@ describe("protected payload boundary guard", () => {
 
     for (const [rel, source] of Object.entries(SOURCES)) {
       if (!readsUnprojectedSkillsRows(source)) continue;
-      const isGated = source.includes(BOUNDARY_IMPORT);
-      const isAllowlisted = rel in NON_RESPONSE_PATHS;
-      if (!isGated && !isAllowlisted) violations.push(rel);
+      if (!importsAGate(source) && !(rel in NON_RESPONSE_PATHS)) violations.push(rel);
     }
 
     expect(
       violations,
       "These modules read full skills rows without the resolver and are not allowlisted:\n" +
         `${violations.join("\n")}\n` +
-        `Fix by importing '${BOUNDARY_IMPORT}' and gating each row, or add a reasoned allowlist entry.`,
+        "Fix by importing a gating module and calling gateSkillRow, or add a reasoned allowlist entry.",
     ).toEqual([]);
+  });
+
+  it("every gating module actually applies the gate, not just imports it", () => {
+    const notApplying = GATED_MODULES.filter((rel) => {
+      const source = SOURCES[rel];
+      return source === undefined || !GATE_CALLS.some((call) => source.includes(call));
+    });
+    expect(notApplying, "These modules import the boundary but never apply it").toEqual([]);
+  });
+
+  it("every response path imports a gating module", () => {
+    const missing = GATED_RESPONSE_PATHS.filter((rel) => {
+      const source = SOURCES[rel];
+      return source === undefined || !importsAGate(source);
+    });
+    expect(missing, "These response paths lost their protected payload boundary").toEqual([]);
   });
 
   it("keeps the allowlist honest: entries must still exist and still need the exemption", () => {
@@ -122,17 +173,8 @@ describe("protected payload boundary guard", () => {
     expect(stale, "Remove stale allowlist entries").toEqual([]);
   });
 
-  it("every gated response path actually imports the boundary", () => {
-    const missing = GATED_RESPONSE_PATHS.filter((rel) => {
-      const source = SOURCES[rel];
-      return source === undefined || !source.includes(BOUNDARY_IMPORT);
-    });
-    expect(missing, "These response paths lost their protected payload boundary").toEqual([]);
-  });
-
   it("delegates the decision instead of inlining its own policy", () => {
     const source = SOURCES["lib/catalog/protected-content.ts"] ?? "";
     expect(source).toContain("decidePayloadAccess");
-    expect(source).toContain("gateSkillRow");
   });
 });

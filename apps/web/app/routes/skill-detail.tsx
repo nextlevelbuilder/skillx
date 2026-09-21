@@ -9,20 +9,9 @@ import { ReviewList } from "../components/review-list";
 import { SkillDetailSidebar } from "../components/skill-detail-sidebar";
 import { SkillContentRenderer } from "../components/skill-content-renderer";
 import { getDb } from "~/lib/db";
-import { getSession } from "~/lib/auth/session-helpers";
-import {
-  fetchSkillBySlug,
-  fetchSkillReviews,
-  fetchRatingSummary,
-  fetchRatingBreakdown,
-  fetchFavoriteCount,
-  fetchUsageStats,
-  fetchUserSkillData,
-  fetchSkillReferences,
-} from "~/lib/db/skill-detail-queries";
+import { loadSkillDetailData } from "~/lib/catalog/skill-detail-data";
 import { SkillReferencesSection } from "../components/skill-references-section";
 import { SkillScriptsSection } from "../components/skill-scripts-section";
-import { omitPayload, resolveSkillPayloadAccess } from "~/lib/catalog/protected-content";
 import { useState } from "react";
 import { useFetcher } from "react-router";
 import { FileText, ShieldAlert } from "lucide-react";
@@ -32,57 +21,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
   if (!slug) throw new Response("Skill not found", { status: 404 });
 
   const env = context.cloudflare.env as Env;
-  const db = getDb(env.DB);
-
-  const skill = await fetchSkillBySlug(db, slug);
-  if (!skill) throw new Response("Skill not found", { status: 404 });
-
-  // Run all independent queries in parallel
-  const [skillReviews, ratingSummary, ratingBreakdown, favoriteCount, usage, session, references] =
-    await Promise.all([
-      fetchSkillReviews(db, skill.id),
-      fetchRatingSummary(db, skill.id),
-      fetchRatingBreakdown(db, skill.id),
-      fetchFavoriteCount(db, skill.id),
-      fetchUsageStats(db, skill.id),
-      getSession(request, env),
-      fetchSkillReferences(db, skill.id),
-    ]);
-
-  // User-specific data (only if authenticated)
-  const userData = session?.user?.id
-    ? await fetchUserSkillData(db, session.user.id, skill.id)
-    : { isFavorited: false, userRating: null };
-
-  // Parse scripts JSON from DB
-  let scripts: Array<{ name: string; command: string; url: string }> = [];
-  if (skill.scripts) {
-    try { scripts = JSON.parse(skill.scripts); } catch (e) {
-      console.warn(`Invalid scripts JSON for ${slug}:`, e instanceof Error ? e.message : e);
-    }
-  }
-
-  // Protected payload boundary: the SSR loader must not forward `skills.content`
-  // directly. Free/public listings keep their payload so the page is unchanged.
-  const access = resolveSkillPayloadAccess(
-    { slug: skill.slug, is_paid: skill.is_paid, content: skill.content },
-    { userId: session?.user?.id ?? null },
-  );
-  const skillMetadata = omitPayload(skill);
-  const skillView = access.granted ? { ...skillMetadata, content: access.payload } : { ...skillMetadata, content: "" };
-
-  return {
-    skill: skillView,
-    reviews: skillReviews,
-    ...userData,
-    isAuthenticated: !!session?.user?.id,
-    ratingSummary,
-    ratingBreakdown,
-    favoriteCount,
-    usage,
-    references,
-    scripts,
-  };
+  return loadSkillDetailData(getDb(env.DB), env, request, slug);
 }
 
 export default function SkillDetail() {

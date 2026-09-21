@@ -29,7 +29,7 @@ It never fabricates a release. Doing so would claim reproducibility the platform
 ## Mapping
 
 The mapping is mechanical and implemented in
-`apps/web/app/lib/catalog/legacy-listing-migration.ts` (`toListingMigration`).
+`apps/web/app/lib/catalog/legacy-listing.ts` (`toListingMigration`).
 
 | Legacy column | Listing field | Rule |
 |---|---|---|

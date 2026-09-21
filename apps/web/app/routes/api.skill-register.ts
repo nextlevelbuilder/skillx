@@ -89,6 +89,21 @@ export async function action({ request, context }: ActionFunctionArgs) {
 }
 
 /** Register a single skill from a specific subfolder path */
+/**
+ * Import responses expose package identity only.
+ * This route is an authenticated write path; it must never echo the stored
+ * SKILL.md payload back to the caller, so the raw row is never returned.
+ */
+function importSummary(
+  skill: { id: string; slug: string; name: string; author: string },
+  created: boolean,
+): Response {
+  return Response.json({
+    skill: { id: skill.id, slug: skill.slug, name: skill.name, author: skill.author },
+    created,
+  });
+}
+
 async function registerSingleSkill(
   env: Env,
   owner: string,
@@ -106,11 +121,11 @@ async function registerSingleSkill(
     .limit(1);
 
   if (existing) {
-    return Response.json({ skill: existing, created: false });
+    return importSummary(existing, false);
   }
 
   const created = await insertAndIndexSkill(env, db, ghSkill);
-  return Response.json({ skill: created, created: true });
+  return importSummary(created, true);
 }
 
 /** Scan repo for all SKILL.md files, register all discovered skills */
@@ -179,14 +194,14 @@ async function registerWithFallback(
     .limit(1);
 
   if (existing) {
-    return Response.json({ skill: existing, created: false });
+    return importSummary(existing, false);
   }
 
   // Try fetching as root-level skill
   try {
     const ghSkill = await fetchGitHubSkill(owner, repo);
     const created = await insertAndIndexSkill(env, db, ghSkill);
-    return Response.json({ skill: created, created: true });
+    return importSummary(created, true);
   } catch {
     // Root fetch failed — fallback to scan
     return registerScannedSkills(env, owner, repo);
