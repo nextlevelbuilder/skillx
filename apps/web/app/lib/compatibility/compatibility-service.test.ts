@@ -93,6 +93,17 @@ describe("compatibility service (web adapter over the shared engine)", () => {
     expect(mismatched.reasons.map((r) => r.code)).toContain("COMPAT_EVIDENCE_DIGEST_MISMATCH");
   });
 
+  it("never verifies when the release has no artifact digest to bind evidence to", () => {
+    const result = resolveCompatibility(
+      { runtime: "claude-code", version: "2.1.0", capabilities: ["hooks.PreToolUse"] },
+      { declarationJson: DECLARATION_JSON, releaseDigest: null },
+      [evidenceRecord()],
+    );
+    expect(result.status).toBe("declared");
+    expect(result.evidence).toBeNull();
+    expect(result.reasons.map((r) => r.code)).toContain("COMPAT_EVIDENCE_UNBOUND");
+  });
+
   it("resolves blocked when a required capability is missing", () => {
     const result = resolveCompatibility(
       { runtime: "claude-code", version: "2.1.0", capabilities: [] },

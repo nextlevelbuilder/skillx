@@ -31,18 +31,26 @@ export function isInstallable(status: CompatibilityStatus): boolean {
   return status === "declared" || status === "verified";
 }
 
+/**
+ * Locates evidence for a runtime.
+ *
+ * Evidence may only be accepted when it is bound to the exact release artifact
+ * being evaluated. Without a release digest there is nothing to bind to, so the
+ * evidence is reported as `unbound` and can never promote the status: a
+ * `verified` badge always means "this exact digest was probed".
+ */
 function findEvidence(
   evidence: VerificationEvidence[] | undefined,
   runtime: string,
   releaseDigest: string | undefined,
-): { matched: VerificationEvidence | null; digestMismatch: boolean } {
+): { matched: VerificationEvidence | null; digestMismatch: boolean; unbound: boolean } {
   const forRuntime = (evidence ?? []).filter((entry) => entry.harness === runtime);
-  if (forRuntime.length === 0) return { matched: null, digestMismatch: false };
-  if (!releaseDigest) return { matched: forRuntime[0] ?? null, digestMismatch: false };
+  if (forRuntime.length === 0) return { matched: null, digestMismatch: false, unbound: false };
+  if (!releaseDigest) return { matched: null, digestMismatch: false, unbound: true };
 
   const exact = forRuntime.find((entry) => entry.releaseDigest === releaseDigest);
-  if (exact) return { matched: exact, digestMismatch: false };
-  return { matched: null, digestMismatch: true };
+  if (exact) return { matched: exact, digestMismatch: false, unbound: false };
+  return { matched: null, digestMismatch: true, unbound: false };
 }
 
 export function normalizeCompatibility(
@@ -50,7 +58,11 @@ export function normalizeCompatibility(
   context: CompatibilityContext = {},
 ): NormalizedCompatibility {
   const declaration = context.declaration?.[target.runtime];
-  const { matched, digestMismatch } = findEvidence(context.evidence, target.runtime, context.releaseDigest);
+  const { matched, digestMismatch, unbound } = findEvidence(
+    context.evidence,
+    target.runtime,
+    context.releaseDigest,
+  );
 
   const result: NormalizedCompatibility = {
     runtime: target.runtime,
@@ -129,6 +141,12 @@ export function normalizeCompatibility(
     code: "COMPAT_EVIDENCE_ABSENT",
     message: "Publisher declared support; no verification evidence matched this release digest.",
   });
+  if (unbound) {
+    result.reasons.push({
+      code: "COMPAT_EVIDENCE_UNBOUND",
+      message: "Evidence exists for this harness but no release digest was supplied to bind it to.",
+    });
+  }
   if (digestMismatch) {
     result.reasons.push({
       code: "COMPAT_EVIDENCE_DIGEST_MISMATCH",
