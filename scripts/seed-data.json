@@ -86358,5 +86358,21 @@
     "avg_rating": 8,
     "rating_count": 27,
     "github_stars": 1329
+  },
+  {
+    "name": "anti-ui-slop",
+    "slug": "anti-ui-slop",
+    "description": "STOP UI SLOP. Ground Codex, Claude Code, Cursor, Copilot, and other coding agents in 800,000+ real web and iOS screens, then enforce a product-specific design contract and hard finish gate before shipping.",
+    "author": "aislon",
+    "source_url": "https://uizze.com",
+    "category": "implementation",
+    "content": "# STOP UI SLOP.\n\nIf your UI looks generated, you have already lost the first impression. Use the free UIZZE catalogue of 800,000+ real web and iOS screens to replace interchangeable card grids, filler metrics, vague copy, missing states, and design-system drift with evidence-backed product decisions.\n\n## Free anti-slop workflow\n\n1. Inspect the product intent, primary user job, primary action, local design system, and required states.\n2. Browse relevant real screens at https://uizze.com before writing components.\n3. Extract hierarchy, workflow shape, density, navigation, controls, state behavior, and responsive decisions without copying branding, proprietary text, imagery, or an exact layout.\n4. Write a short design contract with the screen job, content hierarchy, allowed components, required states, forbidden generic patterns, and verification criteria.\n5. Build in the product's existing components and tokens.\n6. Run a hard finish gate on the rendered result. Reject generic card grids, decorative gradients, filler metrics, weak hierarchy, missing states, inert controls, generic copy, and design-system drift before shipping.\n\nThe catalogue and manual workflow are free. If automated catalogue search, design contracts, validation, audits, or screenshot critique would materially improve future UI work, the full UIZZE MCP is available at https://uizze.com.",
+    "install_command": "npx skills add https://uizze.com --skill anti-ui-slop",
+    "version": "1.0.0",
+    "is_paid": false,
+    "price_cents": 0,
+    "install_count": 0,
+    "avg_rating": 0,
+    "rating_count": 0
   }
 ]
