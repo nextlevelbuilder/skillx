@@ -1,17 +1,17 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
-import type { Route } from "./+types/search";
+import type { LoaderFunctionArgs } from "react-router";
 import { PageContainer } from "../components/layout/page-container";
 import { SearchInput } from "../components/search-input";
 import { FilterTabs } from "../components/filter-tabs";
 import { SkillCard } from "../components/skill-card";
 import { getDb } from "~/lib/db";
-import { skills } from "~/lib/db/schema";
-import { inArray } from "drizzle-orm";
 import { hybridSearch } from "~/lib/search/hybrid-search";
 import { fts5Search } from "~/lib/search/fts5-search";
+import { fetchSkillRows, toSearchResult } from "~/lib/search/search-result-projection";
+import type { SearchResult } from "~/lib/search/search-result-projection";
 
-export async function loader({ request, context }: Route.LoaderArgs) {
+export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env;
   const url = new URL(request.url);
   const query = url.searchParams.get("q") || "";
@@ -22,7 +22,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   }
 
   const db = getDb(env.DB);
-  let results;
+  let results: SearchResult[] = [];
 
   try {
     // Try hybrid search first
@@ -41,15 +41,20 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     // Fallback to FTS5 only
     try {
       const fts = await fts5Search(env.DB, query, 20);
-      const ids = fts.map((r) => r.skill_id);
-      if (ids.length > 0) {
-        results = await db
-          .select()
-          .from(skills)
-          .where(inArray(skills.id, ids));
-      } else {
-        results = [];
-      }
+      const rows = await fetchSkillRows(db, fts.map((r) => r.skill_id));
+      results = fts.flatMap((r, i) => {
+        const row = rows.get(r.skill_id);
+        return row
+          ? [
+              toSearchResult(row, {
+                final_score: 1 / (60 + (i + 1)),
+                rrf_score: 0,
+                semantic_rank: null,
+                keyword_rank: i + 1,
+              }),
+            ]
+          : [];
+      });
     } catch (ftsError) {
       console.error("FTS5 search also failed:", ftsError);
       results = [];
@@ -59,7 +64,11 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   return { results, query };
 }
 
-export default function Search({ loaderData }: Route.ComponentProps) {
+export default function Search({
+  loaderData,
+}: {
+  loaderData: { results: SearchResult[]; query: string };
+}) {
   const { results, query } = loaderData;
   const [activeTab, setActiveTab] = useState("all");
 
@@ -88,8 +97,8 @@ export default function Search({ loaderData }: Route.ComponentProps) {
                 author={skill.author}
                 description={skill.description}
                 category={skill.category}
-                installs={skill.install_count || 0}
-                rating={skill.avg_rating || 0}
+                installs={skill.installCount}
+                rating={skill.avgRating}
               />
             ))}
           </div>

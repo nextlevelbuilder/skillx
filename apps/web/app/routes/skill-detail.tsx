@@ -22,6 +22,7 @@ import {
 } from "~/lib/db/skill-detail-queries";
 import { SkillReferencesSection } from "../components/skill-references-section";
 import { SkillScriptsSection } from "../components/skill-scripts-section";
+import { omitPayload, resolveSkillPayloadAccess } from "~/lib/catalog/protected-content";
 import { useState } from "react";
 import { useFetcher } from "react-router";
 import { FileText, ShieldAlert } from "lucide-react";
@@ -61,8 +62,17 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
     }
   }
 
+  // Protected payload boundary: the SSR loader must not forward `skills.content`
+  // directly. Free/public listings keep their payload so the page is unchanged.
+  const access = resolveSkillPayloadAccess(
+    { slug: skill.slug, is_paid: skill.is_paid, content: skill.content },
+    { userId: session?.user?.id ?? null },
+  );
+  const skillMetadata = omitPayload(skill);
+  const skillView = access.granted ? { ...skillMetadata, content: access.payload } : { ...skillMetadata, content: "" };
+
   return {
-    skill,
+    skill: skillView,
     reviews: skillReviews,
     ...userData,
     isAuthenticated: !!session?.user?.id,

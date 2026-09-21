@@ -5,6 +5,7 @@ import { eq, desc, count, avg, and } from "drizzle-orm";
 import { fetchSkillReferences } from "~/lib/db/skill-detail-queries";
 import { getSession } from "~/lib/auth/session-helpers";
 import { scanContent, sanitizeContent } from "~/lib/security/content-scanner";
+import { omitPayload, resolveSkillPayloadAccess } from "~/lib/catalog/protected-content";
 
 /** Detect stub content: short + ends with "## Author\n{author}" */
 function isStubContent(content: string, author: string): boolean {
@@ -115,8 +116,18 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
       isFavorited = !!favorite;
     }
 
+    // Protected payload boundary: `skills.content` is never forwarded directly.
+    // The resolver grants it for public/free listings and denies it for
+    // protected listings, so every existing consumer keeps working.
+    const access = resolveSkillPayloadAccess(
+      { slug: skill.slug, is_paid: skill.is_paid, content: skill.content },
+      { userId: session?.user?.id ?? null },
+    );
+    const skillMetadata = omitPayload(skill);
+    const skillView = access.granted ? { ...skillMetadata, content: access.payload } : skillMetadata;
+
     return Response.json({
-      skill,
+      skill: skillView,
       reviews: skillReviews,
       isFavorited,
       ratingSummary: {

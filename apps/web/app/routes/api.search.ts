@@ -6,11 +6,13 @@
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router';
 import { getDb } from '~/lib/db';
-import { apiKeys, skills } from '~/lib/db/schema';
+import { apiKeys } from '~/lib/db/schema';
 import { getSession } from '~/lib/auth/session-helpers';
 import { hybridSearch } from '~/lib/search/hybrid-search';
 import { fts5Search } from '~/lib/search/fts5-search';
-import { eq, inArray } from 'drizzle-orm';
+import { fetchSkillRows, toSearchResult } from '~/lib/search/search-result-projection';
+import type { SearchResult } from '~/lib/search/search-result-projection';
+import { eq } from 'drizzle-orm';
 
 interface SearchRequest {
   query: string;
@@ -98,7 +100,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
     // Execute hybrid search
     const db = getDb(env.DB);
-    let results;
+    let results: SearchResult[] = [];
 
     try {
       results = await hybridSearch(
@@ -122,25 +124,21 @@ export async function action({ request, context }: ActionFunctionArgs) {
         category: body.category,
         is_paid: body.is_paid,
       });
-      const skillIds = fts5Results.map((r) => r.skill_id);
 
-      // Fetch full skill data
-      if (skillIds.length > 0) {
-        const skillData = await db
-          .select()
-          .from(skills)
-          .where(inArray(skills.id, skillIds));
-
-        results = skillData.map((skill, i) => ({
-          ...skill,
-          final_score: 1 / (60 + (i + 1)),
-          rrf_score: 0,
-          semantic_rank: null,
-          keyword_rank: i + 1,
-        }));
-      } else {
-        results = [];
-      }
+      // Project through the public DTO + protected content resolver
+      const rows = await fetchSkillRows(db, fts5Results.map((r) => r.skill_id));
+      results = fts5Results.flatMap((r, i) => {
+        const row = rows.get(r.skill_id);
+        return row
+          ? [
+              toSearchResult(
+                row,
+                { final_score: 1 / (60 + (i + 1)), rrf_score: 0, semantic_rank: null, keyword_rank: i + 1 },
+                { userId }
+              ),
+            ]
+          : [];
+      });
     }
 
     return Response.json({
@@ -187,7 +185,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 
     // Execute hybrid search
     const db = getDb(env.DB);
-    let results;
+    let results: SearchResult[] = [];
 
     try {
       results = await hybridSearch(
@@ -208,25 +206,21 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
         category,
         is_paid,
       });
-      const skillIds = fts5Results.map((r) => r.skill_id);
 
-      // Fetch full skill data
-      if (skillIds.length > 0) {
-        const skillData = await db
-          .select()
-          .from(skills)
-          .where(inArray(skills.id, skillIds));
-
-        results = skillData.map((skill, i) => ({
-          ...skill,
-          final_score: 1 / (60 + (i + 1)),
-          rrf_score: 0,
-          semantic_rank: null,
-          keyword_rank: i + 1,
-        }));
-      } else {
-        results = [];
-      }
+      // Project through the public DTO + protected content resolver
+      const rows = await fetchSkillRows(db, fts5Results.map((r) => r.skill_id));
+      results = fts5Results.flatMap((r, i) => {
+        const row = rows.get(r.skill_id);
+        return row
+          ? [
+              toSearchResult(
+                row,
+                { final_score: 1 / (60 + (i + 1)), rrf_score: 0, semantic_rank: null, keyword_rank: i + 1 },
+                { userId }
+              ),
+            ]
+          : [];
+      });
     }
 
     return Response.json({
