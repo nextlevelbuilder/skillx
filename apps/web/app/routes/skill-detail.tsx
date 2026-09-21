@@ -135,7 +135,7 @@ export default function SkillDetail() {
           {/* References */}
           <SkillReferencesSection references={data.references} />
 
-          {/* Scripts */}
+          {/* Scripts as stored on the row (name/command/url) */}
           <SkillScriptsSection scripts={data.scripts} />
 
           {/* User Rating */}

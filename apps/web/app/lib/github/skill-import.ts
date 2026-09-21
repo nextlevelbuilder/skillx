@@ -1,108 +1,66 @@
 /**
  * GitHub → SkillX listing import (the `import` operation, not `publish`).
  *
- * Extracted from `api.skill-register.ts` to keep that route within the project's
- * 200 LOC rule. This module performs authenticated catalog writes: it stores
- * listings, and it never returns a stored row (including `content`) to a caller.
+ * Orchestrates the import modes and gates every row it returns. Free and public
+ * listings keep their payload because the `skillx use` CLI prints `content` from
+ * this response; a protected listing never has a payload echoed back.
  */
 
 import { eq } from "drizzle-orm";
 import { getDb } from "~/lib/db";
-import type { Database } from "~/lib/db";
 import { skills } from "~/lib/db/schema";
 import { fetchGitHubSkill } from "~/lib/github/fetch-github-skill";
 import { scanGitHubRepo } from "~/lib/github/scan-github-repo";
-import { indexSkill } from "~/lib/vectorize/index-skill";
-import { scanContent, sanitizeContent } from "~/lib/security/content-scanner";
+import { gateSkillRow } from "~/lib/catalog/protected-content";
+import { insertAndIndexSkill } from "./skill-insert";
+
+/** The fields this response carries; `skillx use` reads all of them. */
+interface ImportedRow {
+  id: string;
+  slug: string;
+  name: string;
+  author: string;
+  is_paid: boolean | null;
+  content: string;
+}
 
 /**
- * Import responses expose package identity only.
+ * Import confirmation.
  *
- * Never echo the stored SKILL.md payload back to the caller, even though this
- * route is authenticated: a write confirmation is not a payload read.
+ * `skillx use owner/repo/skill` (three-part) and the root-skill fallback consume
+ * this as the import result and print `content`, so a free/public listing MUST
+ * keep its payload — that is a named consumer contract, not a leak. The row is
+ * still passed through the protected payload boundary, so a protected listing
+ * would not have its payload echoed here.
  */
-function importSummary(
-  skill: { id: string; slug: string; name: string; author: string },
+export function importConfirmation(
+  row: ImportedRow | undefined,
   created: boolean,
+  userId: string | null = null,
 ): Response {
-  return Response.json({
-    skill: { id: skill.id, slug: skill.slug, name: skill.name, author: skill.author },
-    created,
-  });
-}
-
-/** Insert a listing into D1 and index it in Vectorize. */
-async function insertAndIndexSkill(
-  env: Env,
-  db: Database,
-  ghSkill: Awaited<ReturnType<typeof fetchGitHubSkill>>,
-) {
-  const skillId = crypto.randomUUID();
-  const now = new Date();
-
-  // Sanitize first, then scan the clean version so the label reflects stored content
-  const cleanContent = sanitizeContent(ghSkill.content);
-  const scanResult = scanContent(cleanContent);
-
-  await db.insert(skills).values({
-    id: skillId,
-    name: ghSkill.name,
-    slug: ghSkill.slug,
-    description: ghSkill.description,
-    content: cleanContent,
-    author: ghSkill.author,
-    source_url: ghSkill.source_url,
-    category: ghSkill.category,
-    install_command: ghSkill.install_command,
-    version: "1.0.0",
-    is_paid: false,
-    price_cents: 0,
-    avg_rating: 0,
-    rating_count: 0,
-    github_stars: ghSkill.github_stars,
-    install_count: 0,
-    risk_label: scanResult.label,
-    created_at: now,
-    updated_at: now,
-  });
-
-  // Index in Vectorize (non-blocking best effort)
-  try {
-    await indexSkill(env.VECTORIZE, env.AI, {
-      id: skillId,
-      name: ghSkill.name,
-      description: ghSkill.description,
-      content: cleanContent,
-      category: ghSkill.category,
-      is_paid: false,
-      avg_rating: 0,
-    });
-  } catch (vecError) {
-    console.warn(
-      `Vectorize indexing failed for ${ghSkill.slug}:`,
-      vecError instanceof Error ? vecError.message : vecError,
-    );
+  if (!row) {
+    // The post-insert re-fetch failed; report the write without echoing a row.
+    return Response.json({ skill: null, created });
   }
-
-  const [created] = await db.select().from(skills).where(eq(skills.slug, ghSkill.slug)).limit(1);
-  return created;
+  return Response.json({ skill: gateSkillRow(row, userId), created });
 }
 
-/** Register a single listing from a specific subfolder path. */
+/** Import a single listing from a specific subfolder path. */
 async function registerSingleSkill(
   env: Env,
   owner: string,
   repo: string,
   skillPath: string,
+  userId: string | null,
 ): Promise<Response> {
   const ghSkill = await fetchGitHubSkill(owner, repo, skillPath);
   const db = getDb(env.DB);
 
   const [existing] = await db.select().from(skills).where(eq(skills.slug, ghSkill.slug)).limit(1);
-  if (existing) return importSummary(existing, false);
+  if (existing) return importConfirmation(existing, false, userId);
 
   const created = await insertAndIndexSkill(env, db, ghSkill);
-  return importSummary(created, true);
+  return importConfirmation(created, true, userId);
 }
 
 /** Scan a repo for all SKILL.md files and import each discovered listing. */
@@ -145,17 +103,22 @@ async function registerScannedSkills(env: Env, owner: string, repo: string): Pro
 }
 
 /** Backward compat: try a root-level skill first, then fall back to a scan. */
-async function registerWithFallback(env: Env, owner: string, repo: string): Promise<Response> {
+async function registerWithFallback(
+  env: Env,
+  owner: string,
+  repo: string,
+  userId: string | null,
+): Promise<Response> {
   const db = getDb(env.DB);
   const rootSlug = `${owner}-${repo}`.toLowerCase();
 
   const [existing] = await db.select().from(skills).where(eq(skills.slug, rootSlug)).limit(1);
-  if (existing) return importSummary(existing, false);
+  if (existing) return importConfirmation(existing, false, userId);
 
   try {
     const ghSkill = await fetchGitHubSkill(owner, repo);
     const created = await insertAndIndexSkill(env, db, ghSkill);
-    return importSummary(created, true);
+    return importConfirmation(created, true, userId);
   } catch {
     return registerScannedSkills(env, owner, repo);
   }
@@ -171,14 +134,15 @@ export async function runImport(
   owner: string,
   repo: string,
   request: RegisterMode,
+  userId: string | null = null,
 ): Promise<Response> {
   switch (request.mode) {
     case "single":
-      return registerSingleSkill(env, owner, repo, request.skillPath);
+      return registerSingleSkill(env, owner, repo, request.skillPath, userId);
     case "scan":
       return registerScannedSkills(env, owner, repo);
     default:
-      return registerWithFallback(env, owner, repo);
+      return registerWithFallback(env, owner, repo, userId);
   }
 }
 

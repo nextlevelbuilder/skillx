@@ -54,7 +54,7 @@ Concrete rows from `scripts/seed-data.json` (5,080 entries) migrate as follows:
 
 Because no slug changes, every existing public URL continues to resolve. This is asserted by the
 Phase 0 acceptance criterion "existing public URLs continue to resolve" and covered by
-`legacy-listing-migration.test.ts`.
+`legacy-listing.test.ts`.
 
 ## Alias policy
 

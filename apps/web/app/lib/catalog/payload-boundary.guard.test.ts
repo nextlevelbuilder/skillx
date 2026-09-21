@@ -38,6 +38,7 @@ const GATED_MODULES = [
   "lib/catalog/featured-skills.ts",
   "lib/catalog/profile-skill-queries.ts",
   "lib/catalog/skill-detail-data.ts",
+  "lib/github/skill-import.ts",
   "lib/search/search-result-projection.ts",
 ];
 
@@ -62,8 +63,8 @@ const GATE_CALLS = [
 const NON_RESPONSE_PATHS: Record<string, string> = {
   "lib/db/skill-detail-queries.ts":
     "shared query layer; every caller gates rows before responding",
-  "lib/github/skill-import.ts":
-    "authenticated import writes; stores rows and returns identity-only summaries, never the row",
+  "lib/github/skill-insert.ts":
+    "insert helper; returns the inserted row to skill-import.ts, which gates it before responding",
   "routes/api.skill-favorite.ts":
     "reads the skill for its id only; the response carries favorite state, not the row",
   "routes/api.skill-rate.ts":

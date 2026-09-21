@@ -88,7 +88,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
       );
     }
 
-    return runImport(env, owner, repo, resolveMode(body));
+    return runImport(env, owner, repo, resolveMode(body), auth.userId);
   } catch (error) {
     return handleRegisterError(error);
   }
