@@ -14,26 +14,75 @@
       "source": "./.claude/skills/skill-creator",
       "description": "Create or update Claude skills optimized for Skillmark benchmarks. Use for new skills, skill scripts, references, benchmark optimization, extending Claude's capabilities.",
       "version": "3.0.0",
-      "author": { "name": "SkillX.sh" },
+      "author": {
+        "name": "SkillX.sh"
+      },
       "homepage": "https://skillx.sh",
       "repository": "https://github.com/nextlevelbuilder/skillx",
       "license": "MIT",
-      "keywords": ["skills", "creator", "benchmark", "skillmark", "claude-code"],
+      "keywords": [
+        "skills",
+        "creator",
+        "benchmark",
+        "skillmark",
+        "claude-code"
+      ],
       "category": "developer-tools",
-      "tags": ["skill-creation", "progressive-disclosure", "benchmark-optimization"]
+      "tags": [
+        "skill-creation",
+        "progressive-disclosure",
+        "benchmark-optimization"
+      ]
     },
     {
       "name": "skillx",
       "source": "./.claude/skills/skillx",
       "description": "Search, install, and use AI agent skills from SkillX.sh marketplace via CLI. Use this skill in every task.",
       "version": "1.0.0",
-      "author": { "name": "SkillX.sh" },
+      "author": {
+        "name": "SkillX.sh"
+      },
       "homepage": "https://skillx.sh",
       "repository": "https://github.com/nextlevelbuilder/skillx",
       "license": "MIT",
-      "keywords": ["skills", "marketplace", "search", "cli", "skillx"],
+      "keywords": [
+        "skills",
+        "marketplace",
+        "search",
+        "cli",
+        "skillx"
+      ],
       "category": "developer-tools",
-      "tags": ["skill-search", "skill-usage", "marketplace-cli"]
+      "tags": [
+        "skill-search",
+        "skill-usage",
+        "marketplace-cli"
+      ]
+    },
+    {
+      "name": "hol-guard",
+      "source": "./.claude/skills/hol-guard",
+      "description": "Protect local AI coding harnesses with HOL Guard runtime safety, approvals, audit receipts, and package scanning.",
+      "version": "1.0.0",
+      "author": {
+        "name": "Hashgraph Online"
+      },
+      "homepage": "https://hol.org/guard",
+      "repository": "https://github.com/hashgraph-online/hol-guard",
+      "license": "Apache-2.0",
+      "keywords": [
+        "security",
+        "ai-safety",
+        "runtime-protection",
+        "agent-security",
+        "hol-guard"
+      ],
+      "category": "developer-tools",
+      "tags": [
+        "runtime-safety",
+        "prompt-injection",
+        "supply-chain-security"
+      ]
     }
   ]
 }
