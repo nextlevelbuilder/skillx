@@ -5,6 +5,7 @@ import { PageContainer } from "../components/layout/page-container";
 import { SearchInput } from "../components/search-input";
 import { FilterTabs } from "../components/filter-tabs";
 import { SkillCard } from "../components/skill-card";
+import { requestSearchParams } from "~/lib/http/request-params";
 import { getDb } from "~/lib/db";
 import { hybridSearch } from "~/lib/search/hybrid-search";
 import { fts5Search } from "~/lib/search/fts5-search";
@@ -13,9 +14,10 @@ import type { SearchResult } from "~/lib/search/search-result-projection";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env;
-  const url = new URL(request.url);
-  const query = url.searchParams.get("q") || "";
-  const category = url.searchParams.get("category") || undefined;
+  // A synthetic or malformed Request must not fail the whole page: query params degrade to empty.
+  const params = requestSearchParams(request);
+  const query = params.get("q") || "";
+  const category = params.get("category") || undefined;
 
   if (!query) {
     return { results: [], query: "" };

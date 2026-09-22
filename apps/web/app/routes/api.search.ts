@@ -12,6 +12,7 @@
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router';
 import { authenticateRequest } from '~/lib/auth/authenticate-request';
+import { requestSearchParams } from '~/lib/http/request-params';
 import { executeSearch } from '~/lib/search/search-executor';
 import type { SearchFilters } from '~/lib/search/hybrid-search';
 
@@ -74,8 +75,9 @@ export async function action({ request, context }: ActionFunctionArgs) {
 /** GET handler for the web UI search page (supports ?q= query param). */
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env as Env;
-  const url = new URL(request.url);
-  const query = url.searchParams.get('q');
+  // A synthetic or malformed Request must not fail the handler: query params degrade to empty.
+  const params = requestSearchParams(request);
+  const query = params.get('q');
 
   if (!query) {
     return Response.json({ results: [], count: 0 });
@@ -83,12 +85,12 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 
   try {
     const userId = (await authenticateRequest(request, env))?.userId;
-    const isPaidParam = url.searchParams.get('is_paid');
+    const isPaidParam = params.get('is_paid');
     const filters: SearchFilters = {
-      category: url.searchParams.get('category') || undefined,
+      category: params.get('category') || undefined,
       is_paid: isPaidParam ? isPaidParam === 'true' : undefined,
     };
-    const requestedLimit = Number.parseInt(url.searchParams.get('limit') ?? '', 10);
+    const requestedLimit = Number.parseInt(params.get('limit') ?? '', 10);
 
     const results = await executeSearch(env, {
       query,

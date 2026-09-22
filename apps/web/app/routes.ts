@@ -9,6 +9,7 @@ export default [
   route("docs/agents", "routes/docs-agents.tsx"),
   route("docs/api", "routes/docs-api.tsx"),
   route("leaderboard", "routes/leaderboard.tsx"),
+  route("search", "routes/search.tsx"),
   route("api/auth/*", "routes/auth-catchall.tsx"),
   route("api/search", "routes/api.search.ts"),
   route("api/leaderboard", "routes/api.leaderboard.ts"),
