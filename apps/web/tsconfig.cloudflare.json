@@ -6,7 +6,8 @@
     "app/**/.server/**/*",
     "app/**/.client/**/*",
     "workers/**/*",
-    "worker-configuration.d.ts"
+    "worker-configuration.d.ts",
+    "../../packages/contracts/src/**/*"
   ],
   "compilerOptions": {
     "composite": true,
@@ -20,7 +21,8 @@
     "baseUrl": ".",
     "rootDirs": [".", "./.react-router/types"],
     "paths": {
-      "~/*": ["./app/*"]
+      "~/*": ["./app/*"],
+      "@skillx/contracts": ["../../packages/contracts/src/index.ts"]
     },
     "esModuleInterop": true,
     "resolveJsonModule": true

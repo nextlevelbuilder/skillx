@@ -50,11 +50,14 @@ export async function action({ request, context }: ActionFunctionArgs) {
       .set({ last_used_at: new Date() })
       .where(eq(apiKeys.id, foundKey.id));
 
-    // Parse and validate body
-    const body = await request.json();
-    const { skill_slug, outcome, model, duration_ms } = body;
+    // SAFETY: request bodies are untrusted; every field is re-validated below.
+    const body = (await request.json()) as Record<string, unknown>;
+    const skill_slug = typeof body.skill_slug === "string" ? body.skill_slug : "";
+    const outcome = typeof body.outcome === "string" ? body.outcome : "";
+    const model = typeof body.model === "string" ? body.model : null;
+    const duration_ms = typeof body.duration_ms === "number" ? body.duration_ms : null;
 
-    if (!skill_slug || typeof skill_slug !== "string") {
+    if (!skill_slug) {
       return Response.json(
         { error: "skill_slug is required" },
         { status: 400 }

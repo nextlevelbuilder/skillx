@@ -62,7 +62,8 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
     if (method === "POST") {
       // Generate new API key
-      const body = await request.json();
+      // SAFETY: request bodies are untrusted; every field is coerced below.
+      const body = (await request.json()) as Record<string, unknown>;
       const name = String(body.name || "Default").trim();
 
       if (name.length > 100) {
@@ -95,7 +96,8 @@ export async function action({ request, context }: ActionFunctionArgs) {
       });
     } else if (method === "DELETE") {
       // Revoke API key (soft delete)
-      const body = await request.json();
+      // SAFETY: request bodies are untrusted; every field is coerced below.
+      const body = (await request.json()) as Record<string, unknown>;
       const keyId = String(body.id || "").trim();
 
       if (!keyId) {

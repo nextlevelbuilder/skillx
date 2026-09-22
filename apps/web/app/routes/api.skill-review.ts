@@ -57,7 +57,8 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     }
 
     // Parse and validate content
-    const body = await request.json();
+    // SAFETY: request bodies are untrusted; every field is re-validated below.
+    const body = (await request.json()) as { content?: unknown };
     const content = String(body.content || "").trim();
 
     if (!content || content.length < 1) {

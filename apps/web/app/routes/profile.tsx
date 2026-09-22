@@ -3,9 +3,8 @@ import { PageContainer } from "../components/layout/page-container";
 import { SkillCard } from "../components/skill-card";
 import { User } from "lucide-react";
 import { getDb } from "~/lib/db";
-import { favorites, skills, usageStats } from "~/lib/db/schema";
-import { eq, desc } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
+import { fetchProfileData } from "~/lib/catalog/profile-skill-queries";
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const env = context.cloudflare.env;
@@ -17,33 +16,12 @@ export async function loader({ request, context }: Route.LoaderArgs) {
 
   const db = getDb(env.DB);
 
-  const [userFavorites, userUsage] = await Promise.all([
-    db
-      .select()
-      .from(favorites)
-      .innerJoin(skills, eq(favorites.skill_id, skills.id))
-      .where(eq(favorites.user_id, session.user.id)),
-    db
-      .select({
-        id: usageStats.id,
-        skillName: skills.name,
-        skillSlug: skills.slug,
-        outcome: usageStats.outcome,
-        model: usageStats.model,
-        duration_ms: usageStats.duration_ms,
-        created_at: usageStats.created_at,
-      })
-      .from(usageStats)
-      .innerJoin(skills, eq(usageStats.skill_id, skills.id))
-      .where(eq(usageStats.user_id, session.user.id))
-      .orderBy(desc(usageStats.created_at))
-      .limit(50),
-  ]);
+  const { favoriteSkills, usageHistory } = await fetchProfileData(db, session.user.id);
 
   return {
     user: session.user,
-    favoriteSkills: userFavorites.map((f) => f.skills),
-    usageHistory: userUsage,
+    favoriteSkills,
+    usageHistory,
   };
 }
 

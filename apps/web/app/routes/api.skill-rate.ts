@@ -22,7 +22,8 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     }
 
     // Parse and validate score
-    const body = await request.json();
+    // SAFETY: request bodies are untrusted; every field is re-validated below.
+    const body = (await request.json()) as { score?: unknown };
     const score = Number(body.score);
 
     if (isNaN(score) || score < 0 || score > 10) {
@@ -76,8 +77,8 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       .where(eq(ratings.skill_id, skill.id))
       .get();
 
-    const avgRating = ratingData?.avgRating || 0;
-    const ratingCount = ratingData?.ratingCount || 0;
+    const avgRating = Number(ratingData?.avgRating ?? 0);
+    const ratingCount = Number(ratingData?.ratingCount ?? 0);
 
     // Update skill's rating stats
     await db

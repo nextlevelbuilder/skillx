@@ -13,9 +13,11 @@ export async function embedTexts(ai: Ai, texts: string[]): Promise<number[][]> {
     throw new Error('Async embedding not supported');
   }
 
-  if (!result.data) {
+  const data = 'data' in result ? result.data : undefined;
+
+  if (!Array.isArray(data)) {
     throw new Error('Failed to generate embeddings: No data returned from AI model');
   }
 
-  return result.data;
+  return data;
 }

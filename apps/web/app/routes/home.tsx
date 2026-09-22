@@ -7,6 +7,7 @@ import { skills } from "~/lib/db/schema";
 import { desc, count, sql } from "drizzle-orm";
 import { getCached } from "~/lib/cache/kv-cache";
 import { getSession } from "~/lib/auth/session-helpers";
+import { fetchGatedFeaturedSkills } from "~/lib/catalog/featured-skills";
 
 export function meta({}: Route.MetaArgs) {
   return [
@@ -40,12 +41,9 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     };
   });
 
-  // Get featured skills (top 6 by composite score)
-  const featuredSkills = await db
-    .select()
-    .from(skills)
-    .orderBy(desc(skills.composite_score))
-    .limit(6);
+  // Protected payload boundary lives in the helper: full rows are gated there
+  // before they can reach loader data (and therefore the SSR HTML).
+  const featuredSkills = await fetchGatedFeaturedSkills(db, session?.user?.id ?? null);
 
   // Get first page of leaderboard sorted by composite score
   const PAGE_SIZE = 20;
