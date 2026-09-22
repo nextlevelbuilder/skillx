@@ -98,9 +98,46 @@ Recovery points taken beforehand: time-travel bookmark
 `.wrangler/backups/skillx-remote-schema-PRE-0010-20260922-074943.json`. `wrangler d1 export --remote`
 fails on this database (wrangler 4.63), so the schema capture goes through the D1 REST API instead.
 
-The catalog is **130,309 skills**, not the ~5k assumed earlier — which means `llms.txt` covers under
-1% of the catalog and `llms-full.txt` about 0.15%. Both state their truncation, but the caps deserve
-revisiting.
+The catalog is **130,309 skills**, not the ~5k assumed earlier — which means `llms.txt` covered under
+1% of the catalog and `llms-full.txt` about 0.15%. Both now accept `?limit=` (see below).
+
+### Post-review hardening
+
+Work done after the slice-7 review, all in the same PR.
+
+**The CLI reported the wrong version (#24).** `src/index.ts` hardcoded `0.1.2` while npm published
+`0.4.0`, and merge to `main` triggers `release-please`, so the next publish would have shipped a
+binary announcing the wrong version. It now reads the manifest at runtime. Depth is load-bearing:
+the helper sits at `src/version.ts` beside the entry point, not in `src/lib/`, because bundling
+inlines it into `dist/index.js` and both locations must be exactly one level below the package root.
+Verified by running the built CLI, not only in source.
+
+**Pull requests had no verification at all.** The only workflow was `release-cli.yml` on push to
+`main`. `.github/workflows/ci.yml` now runs frozen install, typecheck, tests, and both builds on
+pull requests. Writing it found two real defects: `pnpm-lock.yaml` had drifted from the manifests
+(missing the `@skillx/contracts` entry for `apps/web`), so `--frozen-lockfile` would have failed; and
+the root `typecheck` script filtered to `apps/web`, so `packages/cli` and `packages/contracts` were
+never typechecked anywhere. Both are fixed. The workflow's first GitHub run is not yet observed.
+
+**`llms.txt` and `llms-full.txt` now take `?limit=`** with caps of 5000 and 1000, and the truncation
+note names the knob. Two fixes came with it: `Number` replaces `parseInt`, because `parseInt("1e9")`
+is 1 and would have handed a caller asking for more less than the default; and the KV cache key now
+carries the origin, since the rendered document holds absolute URLs that were previously shared
+across hosts.
+
+**`api.search.ts` gained route-level tests** (19), covering the validation, the limit clamp, and the
+envelope that the CLI, the search page, and the MCP tools all consume.
+
+**Task 14 is done** as `/docs/publishers` and `/docs/harness`, added to the docs sub-nav.
+
+**One item was deliberately not done.** Replacing the CLI's hand-written `isActionable` with the
+contract's `isCompatibilityActionable` needs `rootDir` and tsup bundling changes on the npm publish
+path — a poor trade for a one-line predicate. Instead, `COMPATIBILITY_STATUSES` is now pinned in
+`packages/contracts/src/compatibility.test.ts` with a comment naming the mirror, so adding a status
+fails a test rather than silently leaving the CLI wrong. Tracked as #48.
+
+**GitHub state:** #32 (Phase 0) is closed with an evidence comment, and the Phase 0 box in epic #31
+is ticked.
 
 ### Slice 5 notes
 
