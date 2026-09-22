@@ -4,7 +4,7 @@
   "scripts": {
     "dev": "pnpm --filter web dev",
     "build": "pnpm --filter web build",
-    "typecheck": "pnpm --filter web typecheck",
+    "typecheck": "pnpm -r --if-present typecheck",
     "deploy": "pnpm --filter web deploy",
     "seed": "node scripts/seed-skills.mjs",
     "test": "vitest run",

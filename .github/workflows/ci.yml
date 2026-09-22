@@ -1,0 +1,64 @@
+name: CI
+
+# There is no verification on pull requests until now: the only other workflow is
+# release-cli.yml, which runs on push to main. Every later phase depends on a gate
+# existing here, so this job runs the same commands a developer runs locally
+# rather than inventing a second set of rules that could pass while the developer
+# command fails.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Read-only: this job verifies, it never writes to the repository. Stating it
+# explicitly stops the job inheriting a broader default token.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      # Actions are pinned to commit SHAs, not tags, so a moved or compromised tag
+      # cannot change what runs here. The trailing comment records the version.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          # Nothing here pushes, so the token does not belong in .git/config.
+          persist-credentials: false
+
+      # Reads the pnpm version from package.json's `packageManager` field, so the
+      # CI toolchain cannot drift from the one the repo declares.
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # --frozen-lockfile is as much the point of this job as the tests are: the
+      # lockfile had silently drifted from the manifests (a workspace dependency
+      # was missing an entry), which only a frozen install detects.
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # Covers apps/web, packages/contracts, and packages/cli. Before this, the
+      # root script filtered to apps/web, so CLI type errors could have shipped.
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Test
+        run: pnpm test
+
+      # A build gate catches bundling-only breakage that typecheck and tests
+      # cannot see, such as a module resolving to a different relative path once
+      # it is inlined into a bundle.
+      - name: Build web app
+        run: pnpm build
+
+      - name: Build CLI
+        run: pnpm --filter skillx-sh build
