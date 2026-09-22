@@ -46,13 +46,34 @@ undecidable rows without the caller being able to see why.
 
 | # | Slice | Tasks covered | Status |
 |---|---|---|---|
-| 1 | Listing-level declaration + shared catalog resolver | foundation for 1–5 | this goal |
-| 2 | Compatibility-aware API (`?compatible=`, compat on search + detail) | 1, 5 (API half) | this goal |
-| 3 | CLI: `--compatible`, `inspect`, `check --target`, JSON/exit-code envelope | 1, 2, 3, 4 | this goal |
-| 4 | Web compatibility badge with evidence details | 5 | this goal |
-| 5 | Markdown routes, `llms.txt`, `llms-full.txt`, `rel=alternate`, Copy | 9–13 | this goal |
-| 6 | Remote MCP server + tools, WebMCP read tools | 6, 7, 8 | this goal |
-| 7 | Parity tests across API/CLI/MCP/Markdown | 15 | this goal |
+| 1 | Listing-level declaration + shared catalog resolver | foundation for 1–5 | done — `c1a6479`, `95a169e` (16 tests) |
+| 2 | Compatibility-aware API (`?compatible=`, compat on search + detail) | 1, 5 (API half) | done — `d02a897` (40 tests) |
+| 3 | CLI: `--compatible`, `inspect`, `check --target`, JSON/exit-code envelope | 1, 2, 3, 4 | done — `033f2d2` (32 tests, tsup build ok) |
+| 4 | Web compatibility badge with evidence details | 5 | done — `aec3d1b` (5 tests) |
+| 5 | Markdown routes, `llms.txt`, `llms-full.txt`, `rel=alternate`, Copy | 9–13 | done — `c6aa7b9`, `f31c9ed` (71 tests) |
+| 6 | Remote MCP server + tools, WebMCP read tools | 6, 7, 8 | not started |
+| 7 | Parity tests across API/CLI/MCP/Markdown | 15 | not started |
+
+### Slice 5 notes
+
+The three Markdown surfaces read their rows through one gated module,
+`apps/web/app/lib/catalog/public-catalog-index.ts`, which the Phase 0 boundary
+guard now covers. `renderSkillMarkdown` takes `payloadGranted` as a required
+input rather than inferring it from whether `content` is a string: an inference
+would make a deliberate denial indistinguishable from a forgotten field. A
+withheld body renders as an explicit note instead of a blank section.
+
+Both `llms*.txt` routes report the catalog total from a `count(*)` query, not
+the size of their own slice, so a truncated document cannot tell an agent the
+catalog ends where the slice does. `llms.txt` renders 1000 listings and
+`llms-full.txt` 200 bodies; both are KV-cached for 300s.
+
+`skill-detail.tsx` was exactly at the 200-line ceiling after the Copy button, so
+the risk banners moved to `components/risk-warning-banner.tsx`.
+
+**Not done in this slice**, and tracked here so it is not mistaken for coverage:
+the Markdown route is tested at the loader level only. There is no browser-level
+test of `rel=alternate` hoisting or of the clipboard write.
 
 ## Acceptance criteria (from #33)
 
