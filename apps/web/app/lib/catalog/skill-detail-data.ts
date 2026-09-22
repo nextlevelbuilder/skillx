@@ -6,6 +6,7 @@
  * resolver is applied here, so no route may forward `skills.content` directly.
  */
 
+import type { CompatibilitySummary } from "@skillx/contracts";
 import { getSession } from "~/lib/auth/session-helpers";
 import {
   fetchSkillBySlug,
@@ -19,6 +20,7 @@ import {
 } from "~/lib/db/skill-detail-queries";
 import type { Database } from "~/lib/db";
 import { gateSkillRow } from "./protected-content";
+import { summarizeRowRuntimes } from "~/lib/compatibility/catalog-compatibility";
 
 type SkillRow = NonNullable<Awaited<ReturnType<typeof fetchSkillBySlug>>>;
 
@@ -61,6 +63,11 @@ export interface SkillDetailData {
   usage: Awaited<ReturnType<typeof fetchUsageStats>>;
   references: Awaited<ReturnType<typeof fetchSkillReferences>>;
   scripts: StoredScript[];
+  /**
+   * Every runtime the listing declares. Empty when it declares none, which an
+   * agent must read as "unknown", never as "works everywhere".
+   */
+  compatibility: CompatibilitySummary[];
 }
 
 export async function loadSkillDetailData(
@@ -102,5 +109,6 @@ export async function loadSkillDetailData(
     usage,
     references,
     scripts: parseStoredScripts(skill.scripts),
+    compatibility: summarizeRowRuntimes(skill),
   };
 }

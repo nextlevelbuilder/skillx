@@ -12,6 +12,7 @@ import { getDb } from "~/lib/db";
 import { loadSkillDetailData } from "~/lib/catalog/skill-detail-data";
 import { SkillReferencesSection } from "../components/skill-references-section";
 import { SkillScriptsSection } from "../components/skill-scripts-section";
+import { CompatibilityPanel } from "../components/compatibility-panel";
 import { useState } from "react";
 import { useFetcher } from "react-router";
 import { FileText, ShieldAlert } from "lucide-react";
@@ -112,6 +113,11 @@ export default function SkillDetail() {
                 <CommandBox command={thirdPartyCmd} />
               </>
             )}
+          </div>
+
+          {/* Compatibility — declared is not the same as verified */}
+          <div className="mb-8">
+            <CompatibilityPanel summaries={data.compatibility} />
           </div>
 
           {/* SKILL.md label */}
