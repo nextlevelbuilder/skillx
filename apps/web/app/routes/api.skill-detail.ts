@@ -6,6 +6,11 @@ import { fetchSkillReferences } from "~/lib/db/skill-detail-queries";
 import { getSession } from "~/lib/auth/session-helpers";
 import { scanContent, sanitizeContent } from "~/lib/security/content-scanner";
 import { omitPayload, resolveSkillPayloadAccess } from "~/lib/catalog/protected-content";
+import {
+  parseCompatibilityTarget,
+  resolveRowCompatibility,
+  summarizeRowRuntimes,
+} from "~/lib/compatibility/catalog-compatibility";
 
 /** Detect stub content: short + ends with "## Author\n{author}" */
 function isStubContent(content: string, author: string): boolean {
@@ -126,6 +131,17 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
     const skillMetadata = omitPayload(skill);
     const skillView = access.granted ? { ...skillMetadata, content: access.payload } : skillMetadata;
 
+    // Compatibility: every runtime the listing declares, plus a version-aware
+    // answer when the caller named a target. A listing has no artifact digest, so
+    // this can reach `declared` but never `verified`.
+    const compatTarget = parseCompatibilityTarget(
+      new URL(request.url).searchParams.get("target"),
+    );
+    const compatibility = {
+      declared: summarizeRowRuntimes(skill),
+      ...(compatTarget ? { target: resolveRowCompatibility(skill, compatTarget) } : {}),
+    };
+
     return Response.json({
       skill: skillView,
       reviews: skillReviews,
@@ -136,6 +152,7 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
       },
       references: refs,
       scripts: parsedScripts,
+      compatibility,
     });
   } catch (error) {
     console.error("Error fetching skill detail:", error);

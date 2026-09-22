@@ -27,6 +27,8 @@ export interface SkillCatalogRow {
   favorite_count: number | null;
   net_votes: number | null;
   install_command?: string | null;
+  /** Publisher-declared runtime compatibility map, as stored JSON. */
+  compatibility_json?: string | null;
   updated_at: Date | number | null;
 }
 
