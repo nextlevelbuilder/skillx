@@ -167,4 +167,19 @@ describe("compatibility engine — five states", () => {
   it("validates the shipped compatibility fixture", () => {
     expect(validateCompatibilityDeclaration(COMPATIBILITY_DECLARATION_FIXTURE).valid).toBe(true);
   });
+
+  it("pins the vocabulary, because the CLI mirrors it by hand", () => {
+    // `packages/cli/src/lib/skill-lookup.ts` does not import this package: its
+    // tsconfig sets `rootDir: ./src` and its bundler does not resolve a
+    // cross-package path, so `isActionable` enumerates these literals instead.
+    // Adding a status here would otherwise leave that mirror silently wrong, and
+    // no test in either package would notice.
+    expect([...COMPATIBILITY_STATUSES].sort()).toEqual([
+      "blocked",
+      "declared",
+      "unknown",
+      "unsupported",
+      "verified",
+    ]);
+  });
 });
