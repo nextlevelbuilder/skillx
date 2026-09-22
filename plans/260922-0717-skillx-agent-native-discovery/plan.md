@@ -51,8 +51,56 @@ undecidable rows without the caller being able to see why.
 | 3 | CLI: `--compatible`, `inspect`, `check --target`, JSON/exit-code envelope | 1, 2, 3, 4 | done — `033f2d2` (32 tests, tsup build ok) |
 | 4 | Web compatibility badge with evidence details | 5 | done — `aec3d1b` (5 tests) |
 | 5 | Markdown routes, `llms.txt`, `llms-full.txt`, `rel=alternate`, Copy | 9–13 | done — `c6aa7b9`, `f31c9ed` (71 tests) |
-| 6 | Remote MCP server + tools, WebMCP read tools | 6, 7, 8 | not started |
-| 7 | Parity tests across API/CLI/MCP/Markdown | 15 | not started |
+| 6 | Remote MCP server + tools, WebMCP read tools | 6, 7, 8 | done — `89b5e6f`, `b09f539` (52 tests) |
+| 7 | Parity tests across API/CLI/MCP/Markdown | 15 | done — `f0ee904` (15 tests) |
+
+**Task 14 of #33 (publisher/harness landing docs) is not done** and was not assigned to a slice.
+It is the one implementation task in the issue with no code behind it.
+
+### Slice 6 notes
+
+`POST /api/mcp` implements `initialize`, `notifications/initialized`, `tools/list`, and
+`tools/call` over the MCP streamable-HTTP transport. Anything else answers `method not found`
+rather than being stubbed, so a client can see exactly what the server does. Every handler is a
+thin adapter over the same executors the API and the CLI use.
+
+Three behaviours worth knowing before reading the code. A tool that cannot answer returns
+`found: false` with a reason code rather than an error, because `no_package` is the expected
+answer for most of the catalog until the registry is populated; "not in the registry" and "the
+call failed" are different answers. A tool failure is a JSON-RPC *success* carrying `isError`,
+per MCP. And `get_kit` reports a private collection as `not_found`, identical to an unknown slug,
+so the tool cannot enumerate private slugs.
+
+The endpoint sets no CORS headers on purpose: MCP clients are not browsers and the WebMCP layer
+runs same-origin, so nothing in scope needs cross-origin access.
+
+WebMCP (`lib/webmcp/`) is progressive enhancement. Detection checks the shape of
+`navigator.modelContext` rather than trusting presence, and a registration that throws is reported
+as `failed`, never as `registered`.
+
+### Slice 7 notes — what parity does and does not cover
+
+The parity test compares contracts ↔ web adapter, web adapter ↔ MCP, and engine ↔ Markdown against
+one fixture. It **cannot** import the CLI: `apps/web/tsconfig.cloudflare.json` lists its own files
+only, so a cross-package import fails the project boundary. The CLI is therefore the one surface
+holding a hand-written mirror of `isCompatibilityActionable` instead of calling it, pinned by value
+in its own test. Replacing that mirror with the contract call is the cleanest follow-up.
+
+### Remote D1 state (changed since slice 5)
+
+Migrations **0009 and 0010 are now applied to remote `skillx-db`**, verified independently through the
+D1 REST API: remote had been missing 0009 as well, so the Phase 0 registry tables did not exist in
+production until now. Post-state: 21 → 28 tables, `skills` 130,309 rows unchanged, `skills_fts`
+intact, 11 migrations recorded, none pending.
+
+Recovery points taken beforehand: time-travel bookmark
+`000049e3-00000000-000050ee-38c209ac471ef825f224801bdbf967b3`, plus a schema capture at
+`.wrangler/backups/skillx-remote-schema-PRE-0010-20260922-074943.json`. `wrangler d1 export --remote`
+fails on this database (wrangler 4.63), so the schema capture goes through the D1 REST API instead.
+
+The catalog is **130,309 skills**, not the ~5k assumed earlier — which means `llms.txt` covers under
+1% of the catalog and `llms-full.txt` about 0.15%. Both state their truncation, but the caps deserve
+revisiting.
 
 ### Slice 5 notes
 
