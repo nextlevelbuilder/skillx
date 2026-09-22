@@ -11,8 +11,10 @@
  */
 
 import { writeFile, readFile } from 'fs/promises';
-import { fileURLToPath } from 'url';
+import { canonicalizeSeedRecords } from './lib/seed-identity.mjs';
+import { slugify } from '../packages/skill-identity/index.js';
 import { dirname, join } from 'path';
+import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -154,36 +156,46 @@ async function fetchAllSkills() {
 
 function transformSkills(rawSkills) {
   const maxStars = Math.max(...rawSkills.map(s => s.stars || 0));
-  const slugSet = new Set();
 
-  return rawSkills.map(skill => {
-    let slug = `${skill.author}-${skill.name}`.toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+  // Slugs are derived from source identity (repo + full path). The old suffix came from
+  // `skill.id.slice(-6)`, which turned shared `.../SKILL.md` ids into the `-ill-md` slugs.
+  const candidates = rawSkills.map((skill, index) => ({
+    index,
+    skill,
+    source_url: skill.githubUrl || null,
+    author: skill.author,
+    name: skill.name,
+    slug: slugify(`${skill.author}-${skill.name}`),
+  }));
 
-    // Deduplicate slugs
-    if (slugSet.has(slug)) {
-      const suffix = skill.id.slice(-6);
-      slug = `${slug}-${suffix}`;
-    }
-    slugSet.add(slug);
+  const { kept, dropped } = canonicalizeSeedRecords(candidates);
+  if (dropped.length > 0) {
+    console.log(`Skipped ${dropped.length} duplicate source identity row(s)`);
+  }
 
-    return {
-      name: skill.name,
-      slug,
-      description: skill.description || `${skill.name} skill by ${skill.author}`,
-      author: skill.author,
-      source_url: skill.githubUrl || null,
-      category: inferCategory(skill.name, skill.description || ''),
-      content: generateContent(skill.name, skill.description || '', skill.author),
-      install_command: deriveInstallCommand(skill.githubUrl, skill.author, skill.name),
-      version: '1.0.0',
-      is_paid: false,
-      price_cents: 0,
-      github_stars: skill.stars || 0,
-      install_count: 0,
-      avg_rating: normalizeRating(skill.stars || 0, maxStars),
-      rating_count: deriveRatingCount(skill.stars || 0),
-    };
-  });
+  return [...kept]
+    .sort((a, b) => a.record.index - b.record.index)
+    .map(({ record, slug }) => {
+      const skill = record.skill;
+
+      return {
+        name: skill.name,
+        slug,
+        description: skill.description || `${skill.name} skill by ${skill.author}`,
+        author: skill.author,
+        source_url: skill.githubUrl || null,
+        category: inferCategory(skill.name, skill.description || ''),
+        content: generateContent(skill.name, skill.description || '', skill.author),
+        install_command: deriveInstallCommand(skill.githubUrl, skill.author, skill.name),
+        version: '1.0.0',
+        is_paid: false,
+        price_cents: 0,
+        github_stars: skill.stars || 0,
+        install_count: 0,
+        avg_rating: normalizeRating(skill.stars || 0, maxStars),
+        rating_count: deriveRatingCount(skill.stars || 0),
+      };
+    });
 }
 
 async function main() {

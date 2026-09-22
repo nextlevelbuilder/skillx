@@ -6,12 +6,13 @@
  * this response; a protected listing never has a payload echoed back.
  */
 
-import { eq } from "drizzle-orm";
 import { getDb } from "~/lib/db";
-import { skills } from "~/lib/db/schema";
 import { fetchGitHubSkill } from "~/lib/github/fetch-github-skill";
 import { scanGitHubRepo } from "~/lib/github/scan-github-repo";
 import { gateSkillRow } from "~/lib/catalog/protected-content";
+import { findSkillBySource } from "~/lib/db/skill-aliases";
+import { planRegistration } from "~/lib/skills/registration";
+import { loadClaimedSlugs } from "~/lib/skills/register-skill";
 import { insertAndIndexSkill } from "./skill-insert";
 
 /** The fields this response carries; `skillx use` reads all of them. */
@@ -56,10 +57,21 @@ async function registerSingleSkill(
   const ghSkill = await fetchGitHubSkill(owner, repo, skillPath);
   const db = getDb(env.DB);
 
-  const [existing] = await db.select().from(skills).where(eq(skills.slug, ghSkill.slug)).limit(1);
+  // Identity, not the display name: two skills that share a folder name inside one repository are
+  // two listings, so a stored row only short-circuits the import when repository AND path match.
+  const existing = await findSkillBySource(db, ghSkill.source_repo, ghSkill.source_path);
   if (existing) return importConfirmation(existing, false, userId);
 
-  const created = await insertAndIndexSkill(env, db, ghSkill);
+  const decision = planRegistration({
+    owner,
+    repo,
+    sourcePath: ghSkill.source_path,
+    slugBase: ghSkill.slug,
+    existing,
+    takenSlugs: await loadClaimedSlugs(db, ghSkill.slug),
+  });
+
+  const created = await insertAndIndexSkill(env, db, ghSkill, decision.slug);
   return importConfirmation(created, true, userId);
 }
 
@@ -84,14 +96,22 @@ async function registerScannedSkills(env: Env, owner: string, repo: string): Pro
     try {
       const ghSkill = await fetchGitHubSkill(owner, repo, skillPath);
 
-      const [existing] = await db.select().from(skills).where(eq(skills.slug, ghSkill.slug)).limit(1);
+      const existing = await findSkillBySource(db, ghSkill.source_repo, ghSkill.source_path);
       if (existing) {
         registeredSkills.push({ slug: existing.slug, name: existing.name, author: existing.author });
         skipped++;
         continue;
       }
 
-      const created = await insertAndIndexSkill(env, db, ghSkill);
+      const decision = planRegistration({
+        owner,
+        repo,
+        sourcePath: ghSkill.source_path,
+        slugBase: ghSkill.slug,
+        existing,
+        takenSlugs: await loadClaimedSlugs(db, ghSkill.slug),
+      });
+      const created = await insertAndIndexSkill(env, db, ghSkill, decision.slug);
       registeredSkills.push({ slug: created.slug, name: created.name, author: created.author });
       registered++;
     } catch (err) {
@@ -110,14 +130,22 @@ async function registerWithFallback(
   userId: string | null,
 ): Promise<Response> {
   const db = getDb(env.DB);
-  const rootSlug = `${owner}-${repo}`.toLowerCase();
 
-  const [existing] = await db.select().from(skills).where(eq(skills.slug, rootSlug)).limit(1);
+  // A root-level skill is stored with an empty path, which is what the writer uses for repo root.
+  const existing = await findSkillBySource(db, `${owner}/${repo}`.toLowerCase(), "");
   if (existing) return importConfirmation(existing, false, userId);
 
   try {
     const ghSkill = await fetchGitHubSkill(owner, repo);
-    const created = await insertAndIndexSkill(env, db, ghSkill);
+    const decision = planRegistration({
+      owner,
+      repo,
+      sourcePath: ghSkill.source_path,
+      slugBase: ghSkill.slug,
+      existing: null,
+      takenSlugs: await loadClaimedSlugs(db, ghSkill.slug),
+    });
+    const created = await insertAndIndexSkill(env, db, ghSkill, decision.slug);
     return importConfirmation(created, true, userId);
   } catch {
     return registerScannedSkills(env, owner, repo);

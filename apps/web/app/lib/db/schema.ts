@@ -12,6 +12,9 @@ export const skills = sqliteTable(
     content: text("content").notNull(),
     author: text("author").notNull(),
     source_url: text("source_url"),
+    // Canonical identity: repo + full path inside it. "" = skill at repo root.
+    source_repo: text("source_repo"),
+    source_path: text("source_path"),
     category: text("category").notNull(),
     install_command: text("install_command"),
     version: text("version").default("1.0.0"),
@@ -42,7 +45,24 @@ export const skills = sqliteTable(
     index("idx_skills_composite_score").on(table.composite_score),
     index("idx_skills_trending_score").on(table.trending_score),
     index("idx_skills_net_votes").on(table.net_votes),
+    uniqueIndex("idx_skills_source_identity")
+      .on(table.source_repo, table.source_path)
+      .where(sql`source_repo IS NOT NULL`),
   ]
+);
+
+// Skill aliases - legacy slug -> canonical skill, keeps old URLs alive after a slug change
+export const skillAliases = sqliteTable(
+  "skill_aliases",
+  {
+    slug: text("slug").primaryKey(),
+    skill_id: text("skill_id")
+      .notNull()
+      .references(() => skills.id, { onDelete: "cascade" }),
+    reason: text("reason").notNull().default("legacy"), // 'legacy' | 'duplicate-source' | 'renamed'
+    created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("idx_skill_aliases_skill").on(table.skill_id)]
 );
 
 // Votes - Reddit-style upvote/downvote

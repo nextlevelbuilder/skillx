@@ -1,7 +1,9 @@
 import type { ActionFunctionArgs } from "react-router";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import { pickSlug, sourceIdentity } from "@skillx/skill-identity";
 import { getDb } from '~/lib/db';
 import { skills } from '~/lib/db/schema';
+import { recordSkillAlias } from '~/lib/db/skill-aliases';
 import { skillReferences } from '~/lib/db/skill-references-schema';
 import { indexSkill } from '~/lib/vectorize/index-skill';
 import { indexReference } from '~/lib/vectorize/index-reference';
@@ -64,16 +66,71 @@ export async function action({ request, context }: ActionFunctionArgs) {
       const now = new Date();
 
       // Upsert skill into D1
+      // Identity comes from the source, never from the display name: two skills that share a
+      // folder name inside one repository stay two rows, and re-seeding updates the row that
+      // already holds this identity instead of inserting a duplicate.
+      const identity = sourceIdentity({
+        sourceUrl: skillData.source_url,
+        author: skillData.author,
+        name: skillData.name,
+        slug: skillData.slug,
+      });
+      const identityRepo = identity.sourced ? identity.repoLabel : null;
+      const identityPath = identity.sourced ? identity.path : null;
+
+      const [rowByIdentity] = identityRepo
+        ? await db
+            .select({ id: skills.id, slug: skills.slug })
+            .from(skills)
+            .where(
+              and(eq(skills.source_repo, identityRepo), eq(skills.source_path, identityPath ?? '')),
+            )
+            .limit(1)
+        : [];
+
+      // Rows seeded before identities existed only carry source_url; matching on it lets a
+      // re-seed upgrade them in place instead of creating a second row for the same skill.
+      const [rowBySourceUrl] = skillData.source_url
+        ? await db
+            .select({ id: skills.id, slug: skills.slug })
+            .from(skills)
+            .where(eq(skills.source_url, skillData.source_url))
+            .limit(1)
+        : [];
+
+      // A slug-only match is the last resort, and it is only safe while that row still has no
+      // identity: once a row owns an identity its slug belongs to that skill, and rewriting the row
+      // here would quietly destroy the other skill's identity.
+      const [rowBySlug] = await db
+        .select({ id: skills.id, slug: skills.slug, source_repo: skills.source_repo })
+        .from(skills)
+        .where(eq(skills.slug, skillData.slug))
+        .limit(1);
+
+      const renamableBySlug = rowBySlug && rowBySlug.source_repo === null ? rowBySlug : undefined;
+      const target = rowByIdentity ?? rowBySourceUrl ?? renamableBySlug;
+      const actualSkillId = target?.id || skillId;
+
+      // The requested slug can also be held by a different skill. This is then a new skill that
+      // needs its own slug: the identity fragment keeps both reachable instead of failing the whole
+      // seed run on the unique constraint.
+      const finalSlug =
+        rowBySlug && !renamableBySlug
+          ? pickSlug(skillData.slug, identity.identity, new Set([rowBySlug.slug]))
+          : skillData.slug;
+
       await db
         .insert(skills)
         .values({
-          id: skillId,
+          id: actualSkillId,
           name: skillData.name,
-          slug: skillData.slug,
+          slug: finalSlug,
           description: skillData.description,
           content: skillData.content,
           author: skillData.author,
           source_url: skillData.source_url || null,
+          source_repo: identityRepo,
+          source_path: identityPath,
           category: skillData.category,
           install_command: skillData.install_command || null,
           version: skillData.version || '1.0.0',
@@ -88,13 +145,16 @@ export async function action({ request, context }: ActionFunctionArgs) {
           updated_at: now,
         })
         .onConflictDoUpdate({
-          target: skills.slug,
+          target: skills.id,
           set: {
             name: skillData.name,
+            slug: finalSlug,
             description: skillData.description,
             content: skillData.content,
             author: skillData.author,
             source_url: skillData.source_url || null,
+            source_repo: identityRepo,
+            source_path: identityPath,
             category: skillData.category,
             install_command: skillData.install_command || null,
             version: skillData.version || '1.0.0',
@@ -109,9 +169,15 @@ export async function action({ request, context }: ActionFunctionArgs) {
           },
         });
 
-      // Get the actual skill ID (may differ from generated one on conflict)
-      const [existingSkill] = await db.select({ id: skills.id }).from(skills).where(eq(skills.slug, skillData.slug));
-      const actualSkillId = existingSkill?.id || skillId;
+      // A slug that changed must stay reachable: keep the previous one as an alias.
+      if (target && target.slug !== finalSlug) {
+        await recordSkillAlias(db, {
+          slug: target.slug,
+          skillId: actualSkillId,
+          reason: 'renamed',
+          createdAt: now,
+        });
+      }
 
       // Upsert references
       if (skillData.references?.length) {
@@ -137,7 +203,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
         const refTitles = skillData.references.map(r => r.title).join(' ');
         await db.update(skills)
           .set({ fts_content: `${skillData.content}\n\n${refTitles}` })
-          .where(eq(skills.slug, skillData.slug));
+          .where(eq(skills.slug, finalSlug));
       }
 
       skillCount++;

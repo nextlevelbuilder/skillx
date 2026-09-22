@@ -61,18 +61,16 @@ const GATE_CALLS = [
  * rows cannot slip in silently.
  */
 const NON_RESPONSE_PATHS: Record<string, string> = {
-  "lib/db/skill-detail-queries.ts":
-    "shared query layer; every caller gates rows before responding",
+  "lib/db/skill-aliases.ts":
+    "identity resolution layer; id-only callers never serialize the row, and the detail path gates the row",
   "lib/github/skill-insert.ts":
-    "insert helper; returns the inserted row to skill-import.ts, which gates it before responding",
-  "routes/api.skill-favorite.ts":
-    "reads the skill for its id only; the response carries favorite state, not the row",
+    "insert helper; returns the row to skill-import.ts, which gates it",
   "routes/api.skill-rate.ts":
-    "reads the skill for its id only; the response carries the rating summary",
+    "reads the skill for its id only; the response carries no row",
   "routes/api.skill-review.ts":
-    "reads the skill for its id only; the response carries the created review",
+    "reads the skill for its id only; the response carries no row",
   "routes/api.usage-report.ts":
-    "reads the skill for its id only; the response is an acknowledgement",
+    "reads the skill for its id only; the response carries no row",
 };
 
 /** Response paths whose rows must be gated before they can be serialized. */

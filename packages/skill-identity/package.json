@@ -1,0 +1,19 @@
+{
+  "name": "@skillx/skill-identity",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Canonical skill identity and slug rules shared by the web app and the seed pipeline",
+  "main": "./index.js",
+  "types": "./index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.js"
+    }
+  },
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ]
+}

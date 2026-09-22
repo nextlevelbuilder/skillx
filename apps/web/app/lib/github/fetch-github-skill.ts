@@ -5,13 +5,20 @@
  * Uses GitHub REST API (unauthenticated — rate-limited to 60 req/hr/IP).
  */
 
+import { baseSlug } from "@skillx/skill-identity";
+
 export interface GitHubSkillData {
   name: string;
+  /** Readable slug. The canonical slug is decided at registration against existing rows. */
   slug: string;
   description: string;
   content: string;
   author: string;
   source_url: string;
+  /** Canonical identity: `owner/repo`. */
+  source_repo: string;
+  /** Full path of the skill inside the repo; "" for a repo-root skill. */
+  source_path: string;
   category: string;
   install_command: string;
   github_stars: number;
@@ -156,7 +163,10 @@ async function fetchSubfolderSkill(
     throw new Error(`No SKILL.md found at ${owner}/${repo}/${skillPath}`);
   }
 
-  const slug = `${owner}-${skillName}`.toLowerCase();
+  // The readable slug. Identity is `(source_repo, source_path)`, so two folders with the same
+  // name in one repository stay two different skills instead of collapsing into one.
+  const slug = baseSlug(owner, skillPath, repo);
+  const sourceRepo = `${owner}/${repo}`.toLowerCase();
   const description = extractDescription(content) || `${skillName} skill from ${owner}/${repo}`;
   const sourceUrl = `${repoData.html_url}/tree/${branch}/${skillPath}`;
 
@@ -167,8 +177,10 @@ async function fetchSubfolderSkill(
     content,
     author: repoData.owner.login,
     source_url: sourceUrl,
+    source_repo: sourceRepo,
+    source_path: skillPath,
     category: inferCategory(repoData.topics || []),
-    install_command: `npx skillx-sh use ${owner}/${repo}/${skillName}`,
+    install_command: `npx skillx-sh use ${owner}/${repo}/${skillPath}`,
     github_stars: repoData.stargazers_count,
   };
 }
@@ -190,7 +202,7 @@ async function fetchRootSkill(
     content = repoData.description || `# ${repoData.name}\n\nNo skill documentation found.`;
   }
 
-  const slug = `${owner}-${repo}`.toLowerCase();
+  const slug = baseSlug(owner, "", repo);
 
   return {
     name: repoData.name,
@@ -199,6 +211,8 @@ async function fetchRootSkill(
     content,
     author: repoData.owner.login,
     source_url: repoData.html_url,
+    source_repo: `${owner}/${repo}`.toLowerCase(),
+    source_path: "",
     category: inferCategory(repoData.topics || []),
     install_command: `npx skillx-sh use ${owner}/${repo}`,
     github_stars: repoData.stargazers_count,

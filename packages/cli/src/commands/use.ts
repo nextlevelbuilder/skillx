@@ -18,11 +18,18 @@ interface RegisterResponse {
   skipped?: number;
 }
 
-type IdentifierType = 'search' | 'three-part' | 'two-part' | 'slug';
+type IdentifierType = 'search' | 'repo-path' | 'two-part' | 'slug';
 
 interface ParsedIdentifier {
   type: IdentifierType;
   parts: string[];
+}
+
+/** Source identity of an `org/repo/<skill path...>` identifier. */
+export interface SourceTarget {
+  /** Slug guess, used only when the server has no skill for the identity yet. */
+  slug: string;
+  identity: { repo: string; path: string };
 }
 
 /** Parse identifier into type + parts */
@@ -30,9 +37,34 @@ export function parseIdentifier(input: string): ParsedIdentifier {
   if (input.includes(' ')) return { type: 'search', parts: [input] };
 
   const slashParts = input.split('/');
-  if (slashParts.length === 3) return { type: 'three-part', parts: slashParts };
+  // org/repo/<skill path...>: the skill path can be several segments deep, so none of it is dropped
+  if (slashParts.length >= 3) return { type: 'repo-path', parts: slashParts };
   if (slashParts.length === 2) return { type: 'two-part', parts: slashParts };
   return { type: 'slug', parts: [input] };
+}
+
+/**
+ * Map `org/repo/<skill path...>` onto a full source identity. The last path segment is the
+ * readable name; the whole path is kept so deep paths round-trip to the server.
+ */
+export function parseRepoPath(parts: string[]): SourceTarget {
+  const [owner, repo, ...rest] = parts;
+  const path = rest.join('/');
+  const leaf = rest.length > 0 ? rest[rest.length - 1] : repo;
+
+  return {
+    slug: `${owner}-${leaf}`.toLowerCase(),
+    identity: { repo: `${owner}/${repo}`, path },
+  };
+}
+
+/** Skill detail endpoint, optionally pinned to a source identity. */
+export function buildSkillEndpoint(slug: string, identity?: { repo: string; path: string }): string {
+  const endpoint = `/api/skills/${encodeURIComponent(slug)}`;
+  if (!identity) return endpoint;
+
+  const query = new URLSearchParams({ repo: identity.repo, path: identity.path });
+  return `${endpoint}?${query.toString()}`;
 }
 
 /**
@@ -40,7 +72,7 @@ export function parseIdentifier(input: string): ParsedIdentifier {
  *
  * Resolution chain:
  * - spaces → search mode
- * - x/y/z (three-part) → DB lookup slug "x-z", fallback register from repo y
+ * - x/y/z... (repo path) → identity lookup on repo + full path, fallback register from that path
  * - x/y (two-part) → DB lookup slug "x-y", fallback scan repo y for skills
  * - single word → DB lookup, fallback search
  */
@@ -54,11 +86,12 @@ export async function resolveAndUseSkill(
     case 'search':
       return searchAndUse(parsed.parts[0], options);
 
-    case 'three-part': {
-      const [org, repo, skillName] = parsed.parts;
-      const slug = `${org}-${skillName}`.toLowerCase();
+    case 'repo-path': {
+      const [org, repo] = parsed.parts;
+      const { slug, identity } = parseRepoPath(parsed.parts);
       return resolveBySlug(slug, identifier, options, {
-        registerFallback: { owner: org, repo, skill_path: skillName },
+        identity,
+        registerFallback: { owner: org, repo, skill_path: identity.path },
       });
     }
 
@@ -85,12 +118,13 @@ async function resolveBySlug(
   fallback: {
     registerFallback?: { owner: string; repo: string; skill_path?: string; scan?: boolean };
     searchFallback?: boolean;
+    identity?: { repo: string; path: string };
   },
 ): Promise<void> {
   const spinner = ora(`Fetching skill: ${displayId}...`).start();
 
   try {
-    const res = await apiRequest<SkillDetailResponse>(`/api/skills/${slug}`);
+    const res = await apiRequest<SkillDetailResponse>(buildSkillEndpoint(slug, fallback.identity));
     spinner.stop();
     displaySkill(res.skill, displayId, options, res.references, res.scripts);
   } catch (err) {
