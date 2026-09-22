@@ -71,6 +71,13 @@
       "when": 1789979864442,
       "tag": "0009_brave_sally_floyd",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790054377460,
+      "tag": "0010_greedy_famine",
+      "breakpoints": true
     }
   ]
 }
