@@ -62,7 +62,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
     if (method === "POST") {
       // Generate new API key
-      const body = await request.json();
+      const body = (await request.json()) as { name?: unknown };
       const name = String(body.name || "Default").trim();
 
       if (name.length > 100) {
@@ -95,7 +95,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
       });
     } else if (method === "DELETE") {
       // Revoke API key (soft delete)
-      const body = await request.json();
+      const body = (await request.json()) as { id?: unknown };
       const keyId = String(body.id || "").trim();
 
       if (!keyId) {

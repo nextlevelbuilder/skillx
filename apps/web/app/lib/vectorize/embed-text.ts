@@ -13,9 +13,12 @@ export async function embedTexts(ai: Ai, texts: string[]): Promise<number[][]> {
     throw new Error('Async embedding not supported');
   }
 
-  if (!result.data) {
+  // The binding's generated type also covers the async variant, which carries no `data`, so
+  // probe for the sync shape instead of assuming the whole union has it.
+  const data = (result as { data?: number[][] }).data;
+  if (!data) {
     throw new Error('Failed to generate embeddings: No data returned from AI model');
   }
 
-  return result.data;
+  return data;
 }

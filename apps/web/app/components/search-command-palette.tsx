@@ -26,7 +26,7 @@ export function SearchCommandPalette({ open, onClose }: SearchCommandPaletteProp
   const [selectedIndex, setSelectedIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const navigate = useNavigate();
-  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   // Focus input when opened
   useEffect(() => {
@@ -48,7 +48,7 @@ export function SearchCommandPalette({ open, onClose }: SearchCommandPaletteProp
     setLoading(true);
     try {
       const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=8`);
-      const data = await res.json();
+      const data = (await res.json()) as { results?: SearchResult[] };
       setResults(data.results || []);
       setSelectedIndex(0);
     } catch {

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useSearchParams } from "react-router";
-import type { Route } from "./+types/search";
+import type { LoaderFunctionArgs } from "react-router";
 import { PageContainer } from "../components/layout/page-container";
 import { SearchInput } from "../components/search-input";
 import { FilterTabs } from "../components/filter-tabs";
@@ -8,21 +8,31 @@ import { SkillCard } from "../components/skill-card";
 import { getDb } from "~/lib/db";
 import { skills } from "~/lib/db/schema";
 import { inArray } from "drizzle-orm";
-import { hybridSearch } from "~/lib/search/hybrid-search";
+import { hybridSearch, type SearchResult } from "~/lib/search/hybrid-search";
 import { fts5Search } from "~/lib/search/fts5-search";
+import { requestSearchParams } from "~/lib/http/request-params";
 
-export async function loader({ request, context }: Route.LoaderArgs) {
-  const env = context.cloudflare.env;
-  const url = new URL(request.url);
-  const query = url.searchParams.get("q") || "";
-  const category = url.searchParams.get("category") || undefined;
+/**
+ * Fields the results grid renders. Both hybrid results and raw skill rows satisfy this, so the
+ * FTS5 fallback can hand back plain table rows.
+ */
+type SearchListResult = Pick<
+  SearchResult,
+  "slug" | "name" | "author" | "description" | "category" | "install_count" | "avg_rating"
+>;
+
+export async function loader({ request, context }: LoaderFunctionArgs) {
+  const env = context.cloudflare.env as Env;
+  const params = requestSearchParams(request);
+  const query = params.get("q") || "";
+  const category = params.get("category") || undefined;
 
   if (!query) {
     return { results: [], query: "" };
   }
 
   const db = getDb(env.DB);
-  let results;
+  let results: SearchListResult[] = [];
 
   try {
     // Try hybrid search first
@@ -59,7 +69,11 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   return { results, query };
 }
 
-export default function Search({ loaderData }: Route.ComponentProps) {
+export default function Search({
+  loaderData,
+}: {
+  loaderData: { results: SearchListResult[]; query: string };
+}) {
   const { results, query } = loaderData;
   const [activeTab, setActiveTab] = useState("all");
 

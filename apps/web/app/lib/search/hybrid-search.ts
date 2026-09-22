@@ -221,19 +221,20 @@ export async function hybridSearch(
       const skillIds = fts5Results.map((r) => r.skill_id);
       const skillsMap = await fetchSkills(db, skillIds);
 
-      return fts5Results
-        .map((r) => {
-          const skill = skillsMap.get(r.skill_id);
-          if (!skill) return null;
-          return {
-            ...skill,
-            final_score: 1 / (60 + r.rank),
-            rrf_score: 0,
-            semantic_rank: null,
-            keyword_rank: r.rank,
-          };
-        })
-        .filter((r): r is SearchResult => r !== null);
+      const results: SearchResult[] = [];
+      for (const r of fts5Results) {
+        const skill = skillsMap.get(r.skill_id);
+        if (!skill) continue;
+        results.push({
+          ...skill,
+          final_score: 1 / (60 + r.rank),
+          rrf_score: 0,
+          semantic_rank: null,
+          keyword_rank: r.rank,
+        });
+      }
+
+      return results;
     } catch (fallbackError) {
       console.error('FTS5 fallback search error:', fallbackError);
       return [];

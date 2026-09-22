@@ -8,8 +8,9 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from 'react-router';
 import { getDb } from '~/lib/db';
 import { apiKeys, skills } from '~/lib/db/schema';
 import { getSession } from '~/lib/auth/session-helpers';
-import { hybridSearch } from '~/lib/search/hybrid-search';
+import { hybridSearch, type SearchResult } from '~/lib/search/hybrid-search';
 import { fts5Search } from '~/lib/search/fts5-search';
+import { requestSearchParams } from '~/lib/http/request-params';
 import { eq, inArray } from 'drizzle-orm';
 
 interface SearchRequest {
@@ -65,7 +66,7 @@ async function authenticateRequest(
     if (session?.user?.id) {
       return session.user.id;
     }
-  } catch (error) {
+  } catch {
     // Session auth failed, continue as anonymous
   }
 
@@ -98,7 +99,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
     // Execute hybrid search
     const db = getDb(env.DB);
-    let results;
+    let results: SearchResult[] = [];
 
     try {
       results = await hybridSearch(
@@ -164,8 +165,8 @@ export async function action({ request, context }: ActionFunctionArgs) {
  */
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env;
-  const url = new URL(request.url);
-  const query = url.searchParams.get('q');
+  const params = requestSearchParams(request);
+  const query = params.get('q');
 
   // If no query, return empty results
   if (!query) {
@@ -177,17 +178,17 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     const userId = await authenticateRequest(request, env);
 
     // Get optional filters from query params
-    const category = url.searchParams.get('category') || undefined;
-    const isPaidParam = url.searchParams.get('is_paid');
+    const category = params.get('category') || undefined;
+    const isPaidParam = params.get('is_paid');
     const is_paid = isPaidParam ? isPaidParam === 'true' : undefined;
     const limit = Math.min(
-      parseInt(url.searchParams.get('limit') || '20', 10),
+      parseInt(params.get('limit') || '20', 10),
       100
     );
 
     // Execute hybrid search
     const db = getDb(env.DB);
-    let results;
+    let results: SearchResult[] = [];
 
     try {
       results = await hybridSearch(
