@@ -3,6 +3,9 @@ import { type RouteConfig, index, route } from "@react-router/dev/routes";
 export default [
   index("routes/home.tsx"),
   route("skills/:slug", "routes/skill-detail.tsx"),
+  route("skills/:slug.md", "routes/skill-markdown.ts"),
+  route("llms.txt", "routes/llms-txt.ts"),
+  route("llms-full.txt", "routes/llms-full-txt.ts"),
   route("profile", "routes/profile.tsx"),
   route("settings", "routes/settings.tsx"),
   route("docs", "routes/docs.tsx"),
@@ -11,6 +14,7 @@ export default [
   route("leaderboard", "routes/leaderboard.tsx"),
   route("api/auth/*", "routes/auth-catchall.tsx"),
   route("api/search", "routes/api.search.ts"),
+  route("api/mcp", "routes/api.mcp.ts"),
   route("api/leaderboard", "routes/api.leaderboard.ts"),
   route("api/admin/seed", "routes/api.admin.seed.ts"),
   route("api/admin/recompute", "routes/api.admin.recompute.ts"),

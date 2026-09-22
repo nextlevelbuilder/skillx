@@ -38,6 +38,7 @@ const GATED_MODULES = [
   "lib/catalog/featured-skills.ts",
   "lib/catalog/profile-skill-queries.ts",
   "lib/catalog/skill-detail-data.ts",
+  "lib/catalog/public-catalog-index.ts",
   "lib/github/skill-import.ts",
   "lib/search/search-result-projection.ts",
 ];

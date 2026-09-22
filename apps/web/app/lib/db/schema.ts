@@ -1,6 +1,12 @@
 import { sql } from "drizzle-orm";
 import { sqliteTable, text, integer, real, uniqueIndex, index } from "drizzle-orm/sqlite-core";
 
+// Auth and API-key tables live in their own module so this file stays within
+// the project's 200 LOC rule. Re-exported so `~/lib/db/schema` remains the
+// single import site for every caller.
+export * from "./auth-schema";
+
+
 // Skills - core marketplace entity
 export const skills = sqliteTable(
   "skills",
@@ -30,6 +36,10 @@ export const skills = sqliteTable(
     downvote_count: integer("downvote_count").default(0),
     net_votes: integer("net_votes").default(0),
     scripts: text("scripts"), // JSON: [{name, command, url}]
+    // JSON: publisher-declared runtime compatibility map (`skillx.package/v1`
+    // `compatible` shape). A listing has no artifact digest, so a declaration
+    // here can reach `declared` but never `verified`.
+    compatibility_json: text("compatibility_json"),
     fts_content: text("fts_content"), // Computed: content + ref titles (for FTS5)
     risk_label: text("risk_label").default("unknown"),
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
@@ -159,75 +169,5 @@ export const installs = sqliteTable(
     uniqueIndex("idx_installs_device")
       .on(table.skill_id, table.device_id)
       .where(sql`device_id IS NOT NULL`),
-  ]
-);
-
-// Better Auth tables — required by drizzle adapter
-export const user = sqliteTable("user", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  email: text("email").notNull().unique(),
-  emailVerified: integer("emailVerified", { mode: "boolean" }).default(false),
-  image: text("image"),
-  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull(),
-});
-
-export const session = sqliteTable("session", {
-  id: text("id").primaryKey(),
-  userId: text("userId")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  token: text("token").notNull().unique(),
-  expiresAt: integer("expiresAt", { mode: "timestamp_ms" }).notNull(),
-  ipAddress: text("ipAddress"),
-  userAgent: text("userAgent"),
-  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull(),
-});
-
-export const account = sqliteTable("account", {
-  id: text("id").primaryKey(),
-  userId: text("userId")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  accountId: text("accountId").notNull(),
-  providerId: text("providerId").notNull(),
-  accessToken: text("accessToken"),
-  refreshToken: text("refreshToken"),
-  accessTokenExpiresAt: integer("accessTokenExpiresAt", { mode: "timestamp_ms" }),
-  refreshTokenExpiresAt: integer("refreshTokenExpiresAt", { mode: "timestamp_ms" }),
-  scope: text("scope"),
-  idToken: text("idToken"),
-  password: text("password"),
-  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull(),
-});
-
-export const verification = sqliteTable("verification", {
-  id: text("id").primaryKey(),
-  identifier: text("identifier").notNull(),
-  value: text("value").notNull(),
-  expiresAt: integer("expiresAt", { mode: "timestamp_ms" }).notNull(),
-  createdAt: integer("createdAt", { mode: "timestamp_ms" }).notNull(),
-  updatedAt: integer("updatedAt", { mode: "timestamp_ms" }).notNull(),
-});
-
-// API keys - for CLI and external integrations
-export const apiKeys = sqliteTable(
-  "api_keys",
-  {
-    id: text("id").primaryKey(),
-    user_id: text("user_id").notNull(),
-    name: text("name").notNull().default("Default"),
-    key_hash: text("key_hash").notNull().unique(),
-    key_prefix: text("key_prefix").notNull(), // first 8 chars for identification
-    last_used_at: integer("last_used_at", { mode: "timestamp_ms" }),
-    revoked_at: integer("revoked_at", { mode: "timestamp_ms" }),
-    created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
-  },
-  (table) => [
-    index("idx_api_keys_user").on(table.user_id),
-    index("idx_api_keys_hash").on(table.key_hash),
   ]
 );

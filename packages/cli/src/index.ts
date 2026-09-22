@@ -3,6 +3,8 @@ import { Command } from 'commander';
 import { searchCommand } from './commands/search.js';
 import { useCommand } from './commands/use.js';
 import { findCommand } from './commands/find.js';
+import { inspectCommand } from './commands/inspect.js';
+import { checkCommand } from './commands/check.js';
 import { reportCommand } from './commands/report.js';
 import { configCommand } from './commands/config.js';
 import { publishCommand } from './commands/publish.js';
@@ -17,6 +19,8 @@ program
 program.addCommand(searchCommand);
 program.addCommand(useCommand);
 program.addCommand(findCommand);
+program.addCommand(inspectCommand);
+program.addCommand(checkCommand);
 program.addCommand(reportCommand);
 program.addCommand(configCommand);
 program.addCommand(publishCommand);
