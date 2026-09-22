@@ -11,6 +11,8 @@ export default [
   route("docs", "routes/docs.tsx"),
   route("docs/agents", "routes/docs-agents.tsx"),
   route("docs/api", "routes/docs-api.tsx"),
+  route("docs/publishers", "routes/docs-publishers.tsx"),
+  route("docs/harness", "routes/docs-harness.tsx"),
   route("leaderboard", "routes/leaderboard.tsx"),
   route("api/auth/*", "routes/auth-catchall.tsx"),
   route("api/search", "routes/api.search.ts"),
