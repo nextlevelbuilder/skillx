@@ -13,11 +13,12 @@ import { fetchGitHubSkill } from "~/lib/github/fetch-github-skill";
 import { indexSkill } from "~/lib/vectorize/index-skill";
 import { scanContent, sanitizeContent } from "~/lib/security/content-scanner";
 
-/** Insert a listing into D1 and index it in Vectorize. */
+/** Insert a listing into D1 and index it in Vectorize. `slug` carries the identity-derived slug. */
 export async function insertAndIndexSkill(
   env: Env,
   db: Database,
   ghSkill: Awaited<ReturnType<typeof fetchGitHubSkill>>,
+  slug = ghSkill.slug,
 ) {
   const skillId = crypto.randomUUID();
   const now = new Date();
@@ -29,7 +30,7 @@ export async function insertAndIndexSkill(
   await db.insert(skills).values({
     id: skillId,
     name: ghSkill.name,
-    slug: ghSkill.slug,
+    slug,
     description: ghSkill.description,
     content: cleanContent,
     author: ghSkill.author,
@@ -66,6 +67,6 @@ export async function insertAndIndexSkill(
     );
   }
 
-  const [created] = await db.select().from(skills).where(eq(skills.slug, ghSkill.slug)).limit(1);
+  const [created] = await db.select().from(skills).where(eq(skills.slug, slug)).limit(1);
   return created;
 }
