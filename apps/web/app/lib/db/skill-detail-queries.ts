@@ -1,15 +1,12 @@
 import { eq, desc, count, avg, and, sql } from "drizzle-orm";
 import { skills, ratings, reviews, favorites, usageStats } from "./schema";
 import { skillReferences } from "./skill-references-schema";
+import { resolveSkillBySlug } from "./skill-aliases";
 import type { Database } from "./index";
 
-export async function fetchSkillBySlug(db: Database, slug: string) {
-  const [skill] = await db
-    .select()
-    .from(skills)
-    .where(eq(skills.slug, slug))
-    .limit(1);
-  return skill ?? null;
+/** Resolve a public slug, including legacy slugs kept in `skill_aliases`. */
+export function fetchSkillBySlug(db: Database, slug: string) {
+  return resolveSkillBySlug(db, slug);
 }
 
 export async function fetchSkillReviews(db: Database, skillId: string) {

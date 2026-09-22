@@ -19,8 +19,11 @@ export default defineConfig({
   test: {
     include: [
       "apps/web/app/**/*.test.ts",
+      // Node-API integration tests live outside app/ (Worker app is typechecked without Node types)
+      "apps/web/tests/**/*.test.ts",
       "packages/cli/src/**/*.test.ts",
       "packages/contracts/src/**/*.test.ts",
+      "packages/skill-identity/**/*.test.ts",
     ],
   },
 });

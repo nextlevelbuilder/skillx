@@ -4,6 +4,7 @@ import { skills, favorites } from "~/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
 import { recomputeSkillScores } from "~/lib/leaderboard/recompute-skill-scores";
+import { resolveSkillBySlug } from "~/lib/db/skill-aliases";
 
 export async function action({ request, params, context }: ActionFunctionArgs) {
   try {
@@ -22,11 +23,8 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     }
 
     // Find skill
-    const [skill] = await db
-      .select()
-      .from(skills)
-      .where(eq(skills.slug, slug))
-      .limit(1);
+    // Find skill (legacy slugs resolve through skill_aliases)
+    const skill = await resolveSkillBySlug(db, slug);
 
     if (!skill) {
       return Response.json({ error: "Skill not found" }, { status: 404 });

@@ -1,8 +1,11 @@
 import type { LoaderFunctionArgs } from "react-router";
+import { requestSearchParams } from "~/lib/http/request-params";
 import { getDb } from "~/lib/db";
 import { skills, ratings, reviews, favorites } from "~/lib/db/schema";
 import { eq, desc, count, avg, and } from "drizzle-orm";
 import { fetchSkillReferences } from "~/lib/db/skill-detail-queries";
+import { findSkillBySource, findSkillsByLeaf, resolveSkillBySlug } from "~/lib/db/skill-aliases";
+import { GITHUB_REPO_PATTERN } from "~/lib/skills/registration";
 import { getSession } from "~/lib/auth/session-helpers";
 import { scanContent, sanitizeContent } from "~/lib/security/content-scanner";
 import { omitPayload, resolveSkillPayloadAccess } from "~/lib/catalog/protected-content";
@@ -47,12 +50,39 @@ export async function loader({ params, request, context }: LoaderFunctionArgs) {
     const env = context.cloudflare.env as Env;
     const db = getDb(env.DB);
 
-    // Fetch skill data
-    const [skill] = await db
-      .select()
-      .from(skills)
-      .where(eq(skills.slug, slug))
-      .limit(1);
+    // `repo` (+ optional `path`) pins the lookup to a source identity: the only unambiguous way
+    // to name a skill whose folder name is shared inside one repository. When it is present, a miss
+    // never falls back to a slug that may belong to another skill.
+    const search = requestSearchParams(request);
+    const repo = search.get("repo");
+    const repoPath = search.get("path") ?? "";
+
+    const pinnedRepo = repo && GITHUB_REPO_PATTERN.test(repo) ? repo.toLowerCase() : null;
+
+    let skill = pinnedRepo
+      ? await findSkillBySource(db, pinnedRepo, repoPath)
+      : await resolveSkillBySlug(db, slug);
+
+    // `owner/repo/leaf` is the documented short form for a skill whose stored path is deeper than
+    // the folder the caller typed. A unique leaf inside the named repo is used, so the short form
+    // keeps working; an ambiguous one is refused with its candidates instead of guessed.
+    if (!skill && pinnedRepo) {
+      const candidates = await findSkillsByLeaf(db, pinnedRepo, repoPath);
+      if (candidates.length === 1) {
+        skill = await findSkillBySource(db, pinnedRepo, candidates[0].source_path ?? "");
+      } else if (candidates.length > 1) {
+        return Response.json(
+          {
+            error: "Ambiguous skill path",
+            candidates: candidates.map((candidate) => ({
+              slug: candidate.slug,
+              source_path: candidate.source_path,
+            })),
+          },
+          { status: 404 },
+        );
+      }
+    }
 
     if (!skill) {
       return Response.json({ error: "Skill not found" }, { status: 404 });
