@@ -14,6 +14,7 @@ export default [
   route("leaderboard", "routes/leaderboard.tsx"),
   route("api/auth/*", "routes/auth-catchall.tsx"),
   route("api/search", "routes/api.search.ts"),
+  route("api/mcp", "routes/api.mcp.ts"),
   route("api/leaderboard", "routes/api.leaderboard.ts"),
   route("api/admin/seed", "routes/api.admin.seed.ts"),
   route("api/admin/recompute", "routes/api.admin.recompute.ts"),
