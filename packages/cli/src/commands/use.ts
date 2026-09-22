@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { apiRequest, ApiError } from '../lib/api-client.js';
 import { searchSkills } from '../lib/search-api.js';
+import { planResolution } from '../lib/identifier.js';
 import {
   displaySkill,
   type SkillDetails,
@@ -18,63 +19,28 @@ interface RegisterResponse {
   skipped?: number;
 }
 
-type IdentifierType = 'search' | 'three-part' | 'two-part' | 'slug';
-
-interface ParsedIdentifier {
-  type: IdentifierType;
-  parts: string[];
-}
-
-/** Parse identifier into type + parts */
-export function parseIdentifier(input: string): ParsedIdentifier {
-  if (input.includes(' ')) return { type: 'search', parts: [input] };
-
-  const slashParts = input.split('/');
-  if (slashParts.length === 3) return { type: 'three-part', parts: slashParts };
-  if (slashParts.length === 2) return { type: 'two-part', parts: slashParts };
-  return { type: 'slug', parts: [input] };
-}
+// Identifier parsing and slug mapping live in `lib/identifier.ts`, so `use`,
+// `inspect`, and `check` classify and resolve an identifier identically. Re-exported
+// here because this module is `use`'s public surface.
+export { parseIdentifier } from '../lib/identifier.js';
 
 /**
  * Resolve identifier and use the skill. Exported for use by search --use.
- *
- * Resolution chain:
- * - spaces → search mode
- * - x/y/z (three-part) → DB lookup slug "x-z", fallback register from repo y
- * - x/y (two-part) → DB lookup slug "x-y", fallback scan repo y for skills
- * - single word → DB lookup, fallback search
  */
 export async function resolveAndUseSkill(
   identifier: string,
   options: DisplayOptions,
 ): Promise<void> {
-  const parsed = parseIdentifier(identifier);
+  const plan = planResolution(identifier);
 
-  switch (parsed.type) {
-    case 'search':
-      return searchAndUse(parsed.parts[0], options);
-
-    case 'three-part': {
-      const [org, repo, skillName] = parsed.parts;
-      const slug = `${org}-${skillName}`.toLowerCase();
-      return resolveBySlug(slug, identifier, options, {
-        registerFallback: { owner: org, repo, skill_path: skillName },
-      });
-    }
-
-    case 'two-part': {
-      const [author, skillName] = parsed.parts;
-      const slug = `${author}-${skillName}`.toLowerCase();
-      return resolveBySlug(slug, identifier, options, {
-        registerFallback: { owner: author, repo: skillName, scan: true },
-      });
-    }
-
-    case 'slug':
-      return resolveBySlug(parsed.parts[0], identifier, options, {
-        searchFallback: true,
-      });
+  if (plan.parsed.type === 'search') {
+    return searchAndUse(plan.parsed.parts[0], options);
   }
+
+  return resolveBySlug(plan.slug ?? identifier, plan.displayId, options, {
+    ...(plan.registerFallback ? { registerFallback: plan.registerFallback } : {}),
+    ...(plan.searchFallback ? { searchFallback: true } : {}),
+  });
 }
 
 /** Core resolution: DB lookup with fallback to register or search */
@@ -155,7 +121,7 @@ function handleRegisterResult(
 /** Search for a keyword and use the top result */
 async function searchAndUse(query: string, options: DisplayOptions): Promise<void> {
   const spinner = ora(`Searching for "${query}"...`).start();
-  const results = await searchSkills(query);
+  const { results } = await searchSkills(query);
   spinner.stop();
 
   if (results.length === 0) {
