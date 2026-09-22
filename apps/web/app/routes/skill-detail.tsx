@@ -52,6 +52,9 @@ export default function SkillDetail() {
 
   return (
     <PageContainer>
+      {/* The Markdown variant of this page, for agents that prefer it. React 19
+          hoists this link into <head>. */}
+      <link rel="alternate" type="text/markdown" href={`/skills/${data.skill.slug}.md`} />
       {/* Breadcrumb */}
       <nav className="mb-6 flex items-center gap-1.5 text-sm text-sx-fg-muted">
         <Link to="/" className="transition-colors hover:text-sx-fg">skills</Link>
