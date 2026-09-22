@@ -12,6 +12,7 @@
  */
 
 import type { CompatibilitySummary } from "@skillx/contracts";
+import { LLMS_FULL_MAX, LLMS_INDEX_MAX } from "./llms-limit";
 
 export interface LlmsEntry {
   slug: string;
@@ -31,7 +32,7 @@ export interface LlmsFullOptions {
   truncated: boolean;
 }
 
-function header(siteUrl: string): string[] {
+function header(): string[] {
   return [
     "# SkillX",
     "",
@@ -48,7 +49,7 @@ function summaryLabel(summary: CompatibilitySummary): string {
 
 export function renderLlmsTxt(siteUrl: string, entries: LlmsEntry[], total: number): string {
   const base = siteUrl.replace(/\/+$/, "");
-  const lines = header(base);
+  const lines = header();
 
   lines.push("## Skills", "");
   for (const entry of entries) {
@@ -64,8 +65,8 @@ export function renderLlmsTxt(siteUrl: string, entries: LlmsEntry[], total: numb
 
   if (entries.length < total) {
     lines.push(
-      `_Listing ${entries.length} of ${total} skills. The catalog is paginated; use the API`,
-      `\`POST ${base}/api/search\` for the rest._`,
+      `_Listing ${entries.length} of ${total} skills. Request a larger slice with \`?limit=\``,
+      `(up to ${LLMS_INDEX_MAX}) or use \`POST ${base}/api/search\`._`,
       "",
     );
   }
@@ -87,13 +88,14 @@ export function renderLlmsFullTxt(
   options: LlmsFullOptions,
 ): string {
   const base = siteUrl.replace(/\/+$/, "");
-  const lines = header(base);
+  const lines = header();
   lines.push("## Skills", "");
 
   if (options.truncated) {
     lines.push(
-      `_This document renders ${entries.length} of ${options.total} skills. The remainder is`,
-      `available through ${base}/llms.txt and the search API._`,
+      `_This document renders ${entries.length} of ${options.total} skills. Raise \`?limit=\``,
+      `(up to ${LLMS_FULL_MAX}), or read the remainder through ${base}/llms.txt and`,
+      `\`POST ${base}/api/search\`._`,
       "",
     );
   }
