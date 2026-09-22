@@ -7,12 +7,15 @@ import { reportCommand } from './commands/report.js';
 import { configCommand } from './commands/config.js';
 import { publishCommand } from './commands/publish.js';
 
+/** Injected at build time from packages/cli/package.json by tsup (see tsup.config.ts). */
+declare const __SKILLX_VERSION__: string;
+
 const program = new Command();
 
 program
   .name('skillx')
   .description('The Only Skill That Your AI Agent Needs.')
-  .version('0.1.2');
+  .version(__SKILLX_VERSION__);
 
 program.addCommand(searchCommand);
 program.addCommand(useCommand);
