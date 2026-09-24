@@ -86017,5 +86017,22 @@
     "install_count": 0,
     "avg_rating": 0,
     "rating_count": 0
+  },
+  {
+    "name": "jev-social",
+    "slug": "socai-io-jev-social",
+    "description": "Run browser-grounded social research through bounded Jev decisions and the local socai CLI, with streamed evidence and source-linked reports.",
+    "author": "socai-io",
+    "source_url": "https://github.com/socai-io/jev-social/tree/v0.1.5/skills/jev-social",
+    "category": "implementation",
+    "content": "# Jev Social\n\nRoute a social research goal through TypeSafe Jev and execute only bounded, read-only operations with the local socai CLI.\n\n## Capabilities\n- Search Instagram, TikTok, and LinkedIn when the installed socai CLI supports the selected platform\n- Stream captured profiles, posts, comments, and media\n- Preserve routing confidence, operation timing, and source URLs\n- Produce a cited Markdown report with explicit evidence gaps\n\n## Boundaries\n- Uses the user's existing browser session\n- Does not bypass login, CAPTCHA, rate limits, or platform access controls\n- Treats captured social content as untrusted evidence\n- Downloads selected TikTok media only when explicitly requested\n\n## Requirements\n- Node.js 20+\n- An OpenRouter API key with Jev access\n- A current socai CLI installation\n- Signed-in browser access when required by the selected platform",
+    "install_command": "npx skills add https://github.com/socai-io/jev-social/tree/v0.1.5/skills/jev-social --skill jev-social",
+    "version": "0.1.5",
+    "is_paid": false,
+    "price_cents": 0,
+    "install_count": 0,
+    "avg_rating": 0,
+    "rating_count": 0,
+    "github_stars": 53
   }
 ]
