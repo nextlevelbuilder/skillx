@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.4.1](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.4.0...skillx-sh-v0.4.1) (2026-09-22)
+
+
+### Bug Fixes
+
+* **cli:** read --version from package.json instead of a hardcoded constant ([#45](https://github.com/nextlevelbuilder/skillx/issues/45)) ([db4f97e](https://github.com/nextlevelbuilder/skillx/commit/db4f97e556f3851197d07389099e0fd96d38d0c9)), closes [#24](https://github.com/nextlevelbuilder/skillx/issues/24)
+* **skills:** canonical skill identity from source repo and path ([#25](https://github.com/nextlevelbuilder/skillx/issues/25)) ([#43](https://github.com/nextlevelbuilder/skillx/issues/43)) ([04e3b7e](https://github.com/nextlevelbuilder/skillx/commit/04e3b7eabbb52dbab62c0ea5d1a8093b01b80dc9))
+
 ## [0.4.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.3.0...skillx-sh-v0.4.0) (2026-09-21)
 
 
