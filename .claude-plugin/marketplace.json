@@ -83,6 +83,31 @@
         "prompt-injection",
         "supply-chain-security"
       ]
+    },
+    {
+      "name": "marketing-mindset",
+      "source": "./.claude/skills/marketing-mindset",
+      "description": "A marketer's operating mindset for growth and client acquisition: test volume floors, channel kill rules, positioning, offers, and cold outreach for first clients.",
+      "version": "0.3.0",
+      "author": {
+        "name": "Axel Freeman (axelfreeman)"
+      },
+      "homepage": "https://github.com/axelfreeman/marketing-mindset",
+      "repository": "https://github.com/axelfreeman/marketing-mindset",
+      "license": "MIT",
+      "keywords": [
+        "marketing",
+        "growth",
+        "positioning",
+        "cold-outreach",
+        "client-acquisition"
+      ],
+      "category": "marketing",
+      "tags": [
+        "marketing-mindset",
+        "go-to-market",
+        "offer-design"
+      ]
     }
   ]
 }
