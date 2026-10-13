@@ -15,6 +15,10 @@ const MIGRATION_0011 = "0011_release_tree_digest.sql";
 const migrationFiles = readdirSync(MIGRATIONS_DIR)
   .filter((file) => file.endsWith(".sql"))
   .sort();
+/** Every migration up to and including 0011, selected by name so later migrations do not shift it. */
+const THROUGH_0011 = migrationFiles.filter((file) => file <= MIGRATION_0011);
+/** The database shape 0011 applies to. */
+const BEFORE_0011 = migrationFiles.filter((file) => file < MIGRATION_0011);
 
 function statementsOf(file: string): string[] {
   return readFileSync(join(MIGRATIONS_DIR, file), "utf-8")
@@ -93,8 +97,9 @@ function seedRegistry(raw: DatabaseSync) {
 }
 
 describe("migration 0011_release_tree_digest", () => {
-  it("is the latest migration", () => {
-    expect(migrationFiles.at(-1)).toBe(MIGRATION_0011);
+  it("exists and follows 0010", () => {
+    expect(migrationFiles).toContain(MIGRATION_0011);
+    expect(BEFORE_0011.at(-1)).toMatch(/^0010_/);
   });
 
   it("contains only additive statements", () => {
@@ -110,7 +115,7 @@ describe("migration 0011_release_tree_digest", () => {
 
   it("applies to a fresh database with the documented defaults", () => {
     const raw = new DatabaseSync(":memory:");
-    applyMigrations(raw, migrationFiles);
+    applyMigrations(raw, THROUGH_0011);
     const byName = (table: string) => Object.fromEntries(columns(raw, table).map((c) => [c.name, c]));
     expect(byName("publishers").state).toMatchObject({ notnull: 1, dflt_value: "'active'" });
     expect(byName("packages").visibility).toMatchObject({ notnull: 1, dflt_value: "'public'" });
@@ -131,7 +136,7 @@ describe("migration 0011_release_tree_digest", () => {
 
   it("keeps every existing row and value when applied to a database at 0010", () => {
     const raw = new DatabaseSync(":memory:");
-    applyMigrations(raw, migrationFiles.slice(0, -1));
+    applyMigrations(raw, BEFORE_0011);
     seedRegistry(raw);
     const columnsBefore = Object.fromEntries(REGISTRY_TABLES.map((t) => [t, columns(raw, t).map((c) => String(c.name))]));
     const before = snapshot(raw, columnsBefore);
@@ -157,20 +162,33 @@ describe("migration 0011_release_tree_digest", () => {
     ).toEqual({ n: 3 });
   });
 
-  it("rolls back to the 0010 shape with the recorded SQL", () => {
+  it("rolls back to the 0010 shape with the recorded SQL, including wrangler's migration record", () => {
     const raw = new DatabaseSync(":memory:");
-    applyMigrations(raw, migrationFiles.slice(0, -1));
+    // The bookkeeping table wrangler d1 maintains next to the schema.
+    raw.exec(
+      "CREATE TABLE d1_migrations (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT UNIQUE, applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL)",
+    );
+    const record = raw.prepare("INSERT INTO d1_migrations (name) VALUES (?)");
+    applyMigrations(raw, BEFORE_0011);
+    for (const file of BEFORE_0011) record.run(file);
     seedRegistry(raw);
     const shapeBefore = Object.fromEntries(REGISTRY_TABLES.map((t) => [t, [columns(raw, t), indexes(raw, t)]]));
     const columnsBefore = Object.fromEntries(REGISTRY_TABLES.map((t) => [t, columns(raw, t).map((c) => String(c.name))]));
     const rowsBefore = snapshot(raw, columnsBefore);
+    const appliedNames = () => (raw.prepare("SELECT name FROM d1_migrations ORDER BY id").all() as Array<{ name: string }>).map((r) => r.name);
 
     applyMigrations(raw, [MIGRATION_0011]);
+    record.run(MIGRATION_0011);
     const rollback = rollbackSql(MIGRATION_0011);
     expect(rollback.length).toBeGreaterThan(0);
     for (const statement of rollback) raw.exec(statement);
 
     expect(Object.fromEntries(REGISTRY_TABLES.map((t) => [t, [columns(raw, t), indexes(raw, t)]]))).toEqual(shapeBefore);
     expect(snapshot(raw, columnsBefore)).toEqual(rowsBefore);
+    expect(appliedNames()).toEqual(BEFORE_0011);
+
+    // The rollback leaves the database ready to apply 0011 again.
+    applyMigrations(raw, [MIGRATION_0011]);
+    expect(columns(raw, "package_releases").map((c) => c.name)).toContain("release_digest");
   });
 });

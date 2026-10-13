@@ -13,7 +13,9 @@
 -- created them. Those statements were removed here; applying them would fail with "table
 -- already exists". The 0011 snapshot records the full schema, which realigns the generator.
 --
--- Rollback (SQLite/D1 support DROP COLUMN since 3.35; take a D1 time-travel bookmark first):
+-- Rollback (SQLite/D1 support DROP COLUMN since 3.35; take a D1 time-travel bookmark first).
+-- The last statement removes the wrangler bookkeeping row, so a later `migrations apply`
+-- re-applies 0011 instead of skipping it:
 --   DROP INDEX IF EXISTS idx_package_releases_digest;
 --   ALTER TABLE package_releases DROP COLUMN status_issued_at;
 --   ALTER TABLE package_releases DROP COLUMN status_sequence;
@@ -24,6 +26,7 @@
 --   ALTER TABLE package_releases DROP COLUMN release_digest;
 --   ALTER TABLE packages DROP COLUMN visibility;
 --   ALTER TABLE publishers DROP COLUMN state;
+--   DELETE FROM d1_migrations WHERE name = '0011_release_tree_digest.sql';
 
 ALTER TABLE `publishers` ADD `state` text DEFAULT 'active' NOT NULL;--> statement-breakpoint
 ALTER TABLE `packages` ADD `visibility` text DEFAULT 'public' NOT NULL;--> statement-breakpoint
