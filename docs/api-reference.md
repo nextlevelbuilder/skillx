@@ -728,6 +728,71 @@ Bulk upsert skills and index into Vectorize. For seeding demo/production data.
 
 ---
 
+## Release Manifest Contract (`skillx.release/v1`)
+
+Contract only: no endpoint serves or accepts release manifests yet. The
+publisher pipeline and pinned read API build on it. Source:
+`packages/contracts/src/release-manifest.ts`; canonical JSON:
+`packages/contracts/src/canonical-json.ts`.
+
+A release manifest pins one immutable `@publisher/slug@version` to the
+`agentkit.skill-tree/v1` tree of its files. It is a JSON object with exactly
+these members; unknown members are rejected at every level.
+
+| Member | Type | Rule |
+|--------|------|------|
+| `schemaVersion` | string | `skillx.release/v1` |
+| `identity` | string | `PACKAGE_NAME_PATTERN`, publisher and slug pass the tree segment rules; `@agentkit/*` is rejected (`identity.reserved_publisher`) |
+| `version` | string | semantic version |
+| `channel` | string | `stable`, `beta`, `alpha` |
+| `kind` | string | `skill`, `hook-pack`, `bundle` |
+| `releaseDigest` | string | `sha256:<64 lowercase hex>`; equals the tree digest of `files` and is the release identity |
+| `artifactDigest` | string | `sha256:<64 lowercase hex>` of the transport archive; integrity only, never an identity |
+| `artifactSize` | integer | positive |
+| `files` | array | non-empty, at most 4096 entries of `{ path, mode, sha256, size }`, sorted by raw UTF-8 path bytes, no duplicates or case-fold collisions; `path` passes the tree path, NFC and noise rules; `mode` is `100644` or `100755`; `sha256` is bare lowercase hex; `size` at most 32 MiB |
+| `fileCount` | integer | equals `files.length` |
+| `treeSize` | integer | sum of file sizes, at most 256 MiB |
+| `state` | string | `draft`, `quarantined`, `published`, `yanked` at signing time; a state change produces a newly signed manifest for the same `releaseDigest` |
+| `publisher` | object | `{ handle, verifiedBy }`; `handle` equals the identity publisher; `verifiedBy` is `none`, `github` or `admin` (`none` means not publisher-verified) |
+| `sourceProvenance` | object or `null` | `{ repo, commit, path }`: https URL without credentials, full lowercase hex commit, package root path (`""` for the repository root) |
+| `declaredScripts` | array | paths from `files`, unique and sorted like `files`; informational, never executed by SkillX |
+| `createdAt` | string | RFC 3339 UTC with whole seconds, e.g. `2026-10-13T04:30:00Z` |
+| `keyId` | string | `^[a-z0-9][a-z0-9._-]{1,63}$` |
+| `signatureAlgorithm` | string | `ed25519` |
+| `signature` | string | padded standard base64 of the 64-byte Ed25519 signature |
+
+### Signature bytes
+
+The signature covers the UTF-8 bytes of the canonical JSON of the manifest
+with only the `signature` member removed (so `keyId` and `signatureAlgorithm`
+are signed). Canonical JSON is the RFC 8785 form restricted to this value
+space:
+
+- object members sorted by key (UTF-16 code units; every key is ASCII), no whitespace anywhere;
+- arrays keep their order; numbers are non-negative safe integers in plain decimal;
+- strings escape only `"` (`\"`), `\` (`\\`), U+0008/09/0A/0C/0D (`\b \t \n \f \r`) and other
+  code points below U+0020 (`\u00xx`, lowercase hex); everything else, including `/`, `<`,
+  `>`, `&`, U+2028 and U+2029, is raw UTF-8;
+- no BOM, no trailing newline.
+
+Go's `encoding/json.Marshal` does not produce these bytes (it HTML-escapes and
+escapes U+2028/U+2029); a verifier must re-encode with the rules above.
+
+Cross-language vectors: `packages/contracts/src/fixtures/release-manifest-v1.json`
+(signed valid manifests with their exact signing payload and file contents,
+invalid-signature cases, invalid-manifest cases). The vector key is derived
+from a public seed text and must never be trusted outside tests.
+
+### Database columns (migration `0011_release_tree_digest`)
+
+`package_releases`: `release_digest`, `file_count`, `tree_size`,
+`signed_manifest_key` (R2 key of the signed manifest), `quarantined_at`, and the
+non-unique index `idx_package_releases_digest`. `packages.visibility`
+(`public` default, `private`). `publishers.state` (`active` default,
+`suspended`, `revoked`). All additive; rollback SQL is in the migration header.
+
+---
+
 ## Error Format
 
 All error responses follow a consistent shape:

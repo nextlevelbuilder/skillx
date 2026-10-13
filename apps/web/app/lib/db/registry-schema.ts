@@ -8,6 +8,7 @@ export const publishers = sqliteTable(
     handle: text("handle").notNull().unique(),
     display_name: text("display_name").notNull(),
     owner_user_id: text("owner_user_id"),
+    state: text("state").notNull().default("active"), // active | suspended | revoked
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [index("idx_publishers_owner").on(table.owner_user_id)]
@@ -24,6 +25,7 @@ export const packages = sqliteTable(
     name: text("name").notNull(), // fully-qualified '@handle/slug'
     slug: text("slug").notNull(),
     kind: text("kind").notNull(), // skill | hook-pack | bundle
+    visibility: text("visibility").notNull().default("public"), // public | private
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updated_at: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },
@@ -48,15 +50,22 @@ export const packageReleases = sqliteTable(
     artifact_key: text("artifact_key"), // R2 object key, populated by Phase 2
     artifact_digest: text("artifact_digest"), // sha256:<64 hex>
     artifact_size: integer("artifact_size"),
+    release_digest: text("release_digest"), // treeDigest of the file tree: sha256:<64 hex>
+    file_count: integer("file_count"),
+    tree_size: integer("tree_size"),
+    signed_manifest_key: text("signed_manifest_key"), // R2 key of the signed skillx.release/v1 manifest
     source_provenance: text("source_provenance"), // JSON: repo, ref, commit
     compatibility_json: text("compatibility_json"), // declared `compatible` map as JSON
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     published_at: integer("published_at", { mode: "timestamp_ms" }),
     yanked_at: integer("yanked_at", { mode: "timestamp_ms" }),
+    quarantined_at: integer("quarantined_at", { mode: "timestamp_ms" }),
   },
   (table) => [
     uniqueIndex("idx_package_releases_version").on(table.package_id, table.version),
     index("idx_package_releases_state").on(table.release_state),
+    // Not unique: one tree may be released under several versions or packages.
+    index("idx_package_releases_digest").on(table.release_digest),
   ]
 );
 
