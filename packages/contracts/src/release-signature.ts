@@ -7,18 +7,58 @@
  * `signatureAlgorithm` are signed too. The signature is the standard (padded)
  * base64 of the 64-byte Ed25519 signature, as in AgentKit's remote registry
  * manifests. WebCrypto `Ed25519` works in Workers, browsers and Node.js.
+ *
+ * Domain separation: there is no prefix before the payload. Every signed
+ * payload holds its own `schemaVersion`, every verifier requires its one
+ * schema version and rejects unknown members, and registry release keys sign
+ * nothing but these two schemas, so a signature over one document type never
+ * verifies as the other.
+ *
+ * Served documents are exactly `canonicalJson(document)`, signature included;
+ * verifiers parse with `parseCanonicalJson`, which rejects any other bytes.
  */
 
-import { issue } from "./validation";
-import type { ValidationIssue } from "./validation";
+import { CanonicalJsonError, canonicalJson, parseCanonicalJson } from "./canonical-json";
+import { issue, validationFail } from "./validation";
+import type { ValidationIssue, ValidationResult } from "./validation";
 
 export const RELEASE_SIGNATURE_ALGORITHM = "ed25519";
 /** Same key ID rule as AgentKit remote registry manifests. */
 export const RELEASE_KEY_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/;
 /** RFC 3339 UTC timestamp with whole seconds, e.g. `2026-10-13T04:30:00Z`. */
 export const RELEASE_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
-/** Padded standard base64 of a 64-byte Ed25519 signature. */
-export const RELEASE_SIGNATURE_PATTERN = /^[A-Za-z0-9+/]{86}==$/;
+/**
+ * Padded standard base64 of a 64-byte Ed25519 signature. The last data
+ * character carries 4 unused bits that must be zero, so each signature has
+ * exactly one accepted text.
+ */
+export const RELEASE_SIGNATURE_PATTERN = /^[A-Za-z0-9+/]{85}[AQgw]==$/;
+
+/**
+ * Checks that `input` lies in the canonical JSON value space (plain objects,
+ * dense arrays, non-negative safe integers, well-formed strings). Validators
+ * call this first so that no later step can throw on programmatic input.
+ */
+export function checkCanonicalValue(input: unknown, issues: ValidationIssue[]): boolean {
+  try {
+    canonicalJson(input);
+    return true;
+  } catch (error) {
+    if (!(error instanceof CanonicalJsonError)) throw error;
+    issues.push(issue("", "type", `is outside the canonical JSON value space: ${error.message}`));
+    return false;
+  }
+}
+
+/**
+ * Parses received document bytes for a verifier. Returns the value, or the
+ * failed result with `code` (e.g. `release.non_canonical`) when the bytes are
+ * not exactly the canonical JSON of their value.
+ */
+export function parseReceivedDocument(input: string | Uint8Array, code: string): { value: unknown } | ValidationResult {
+  const parsed = parseCanonicalJson(input);
+  return parsed.ok ? { value: parsed.value } : validationFail([issue("", code, `document ${parsed.reason}`)]);
+}
 
 /** Signature verification failure codes. */
 export const RELEASE_SIGNATURE_CODES = {
@@ -51,6 +91,17 @@ export function checkFields(
   for (const key of required) {
     if (!(key in value)) issues.push(issue(`${prefix}${key}`, "required", "is required"));
   }
+}
+
+/** `sha256:<64 lowercase hex>` of `bytes`, computed with WebCrypto. */
+export async function sha256Digest(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+  return `sha256:${Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/** Milliseconds since the epoch of a valid release timestamp. */
+export function timestampMs(value: string): number {
+  return Date.parse(value);
 }
 
 export function isReleaseTimestamp(value: unknown): boolean {

@@ -26,6 +26,7 @@ export const RELEASE_STATUS_PUBLISHED_FIXTURE: UnsignedReleaseStatus = {
   manifestDigest: RELEASE_FIXTURE_MANIFEST_DIGEST,
   state: "published",
   issuedAt: "2026-10-13T04:31:00Z",
+  expiresAt: "2026-10-14T04:31:00Z",
   sequence: 1,
   keyId: RELEASE_FIXTURE_KEY_ID,
   signatureAlgorithm: "ed25519",
@@ -39,6 +40,7 @@ export const RELEASE_STATUS_YANKED_FIXTURE: UnsignedReleaseStatus = {
   state: "yanked",
   reason: RELEASE_STATUS_FIXTURE_REASON,
   issuedAt: "2026-10-14T09:00:00Z",
+  expiresAt: "2026-10-15T09:00:00Z",
   sequence: 2,
   keyId: RELEASE_FIXTURE_KEY_ID,
   signatureAlgorithm: "ed25519",
@@ -50,16 +52,36 @@ function signedStatusDraft(base: UnsignedReleaseStatus): MutableFixture {
   return copy as unknown as MutableFixture;
 }
 
-function rejected(name: string, expectedIssueCode: string, mutate: (draft: MutableFixture) => void): FixtureCase {
+function variant(mutate: (draft: MutableFixture) => void): MutableFixture {
   const draft = signedStatusDraft(RELEASE_STATUS_YANKED_FIXTURE);
   mutate(draft);
-  return { name, group: "release-status", value: draft, expectedValid: false, expectedIssueCode };
+  return draft;
 }
+
+function accepted(name: string, mutate: (draft: MutableFixture) => void): FixtureCase {
+  return { name, group: "release-status", value: variant(mutate), expectedValid: true };
+}
+
+function rejected(name: string, expectedIssueCode: string, mutate: (draft: MutableFixture) => void): FixtureCase {
+  return { name, group: "release-status", value: variant(mutate), expectedValid: false, expectedIssueCode };
+}
+
+/** A reason of exactly 512 UTF-8 bytes but only 256 UTF-16 code units. */
+export const RELEASE_STATUS_MAX_REASON = String.fromCodePoint(0xe9).repeat(256);
 
 /** Structure-only cases for `validateReleaseStatus`; signatures are placeholders. */
 export const RELEASE_STATUS_FIXTURES: FixtureCase[] = [
   { name: "valid status without a reason", group: "release-status", value: signedStatusDraft(RELEASE_STATUS_PUBLISHED_FIXTURE), expectedValid: true },
   { name: "valid status with a reason", group: "release-status", value: signedStatusDraft(RELEASE_STATUS_YANKED_FIXTURE), expectedValid: true },
+  accepted("accepts a lifetime of exactly 7 days", (d) => {
+    d.expiresAt = "2026-10-21T09:00:00Z";
+  }),
+  accepted("accepts a reason of exactly 512 UTF-8 bytes", (d) => {
+    d.reason = RELEASE_STATUS_MAX_REASON;
+  }),
+  accepted("accepts a later status in a state no first status may have", (d) => {
+    d.state = "quarantined";
+  }),
   rejected("rejects an unknown state", "status.unknown_state", (d) => {
     d.state = "revoked";
   }),
@@ -67,7 +89,38 @@ export const RELEASE_STATUS_FIXTURES: FixtureCase[] = [
     delete d.state;
   }),
   rejected("rejects an unknown member", "unknown_field", (d) => {
-    d.expiresAt = "2027-01-01T00:00:00Z";
+    d.ttl = 86400;
+  }),
+  rejected("rejects a missing expiresAt", "required", (d) => {
+    delete d.expiresAt;
+  }),
+  rejected("rejects an expiresAt before issuedAt", "status.invalid_lifetime", (d) => {
+    d.expiresAt = "2026-10-14T08:59:59Z";
+  }),
+  rejected("rejects an expiresAt equal to issuedAt", "status.invalid_lifetime", (d) => {
+    d.expiresAt = d.issuedAt;
+  }),
+  rejected("rejects a lifetime longer than 7 days", "status.invalid_lifetime", (d) => {
+    d.expiresAt = "2026-10-21T09:00:01Z";
+  }),
+  rejected("rejects a first status that is yanked", "status.invalid_transition", (d) => {
+    d.sequence = 1;
+  }),
+  rejected("rejects a reason over 512 UTF-8 bytes", "length", (d) => {
+    d.reason = `${RELEASE_STATUS_MAX_REASON}a`;
+  }),
+  rejected("rejects a bidi override in the reason", "format", (d) => {
+    d.reason = `safe${String.fromCodePoint(0x202e)}hs.kcehc`;
+  }),
+  rejected("rejects a line separator in the reason", "format", (d) => {
+    d.reason = `line one${String.fromCodePoint(0x2028)}line two`;
+  }),
+  rejected("rejects a zero-width format character in the reason", "format", (d) => {
+    d.reason = `yan${String.fromCodePoint(0x200b)}ked`;
+  }),
+  rejected("rejects a sparse array value", "type", (d) => {
+    // eslint-disable-next-line no-sparse-arrays
+    d.reason = [, "x"] as unknown as string;
   }),
   rejected("rejects a missing signature", "required", (d) => {
     delete d.signature;

@@ -745,7 +745,7 @@ members; unknown members (including `state`) are rejected at every level.
 |--------|------|------|
 | `schemaVersion` | string | `skillx.release/v1` |
 | `identity` | string | `PACKAGE_NAME_PATTERN`, publisher and slug pass the tree segment rules; `@agentkit/*` is rejected (`identity.reserved_publisher`) |
-| `version` | string | semantic version |
+| `version` | string | SemVer 2.0 without build metadata (`+...`) or leading zeros in numeric identifiers, at most 128 characters (`RELEASE_VERSION_PATTERN`; stricter than the package-wide `SEMVER_PATTERN`) |
 | `channel` | string | `stable`, `beta`, `alpha` |
 | `kind` | string | `skill`, `hook-pack`, `bundle` |
 | `releaseDigest` | string | `sha256:<64 lowercase hex>`; equals the tree digest of `files` and is the release identity |
@@ -754,13 +754,13 @@ members; unknown members (including `state`) are rejected at every level.
 | `files` | array | non-empty, at most 4096 entries of `{ path, mode, sha256, size }`, sorted by raw UTF-8 path bytes, no duplicates or case-fold collisions; `path` passes the tree path, NFC and noise rules; `mode` is `100644` or `100755`; `sha256` is bare lowercase hex; `size` at most 32 MiB |
 | `fileCount` | integer | equals `files.length` |
 | `treeSize` | integer | sum of file sizes, at most 256 MiB |
-| `publisher` | object | `{ handle, verifiedBy }`; `handle` equals the identity publisher; `verifiedBy` is `none`, `github` or `admin` (`none` means not publisher-verified) |
+| `publisher` | object | `{ handle, verifiedBy }`; `handle` equals the identity publisher; `verifiedBy` is `none`, `github` or `admin` (`none` means not publisher-verified). The signature is a registry key, never a publisher key: AgentKit maps a verified registry signature with `verifiedBy` other than `none` to trust `registry-signed` (not `publisher-signed`), and `none` to `local-unverified` |
 | `sourceProvenance` | object or `null` | `{ repo, commit, path }`: https URL without credentials, full lowercase hex commit, package root path (`""` for the repository root). `null` when the release was not packed from a recorded git commit; consumers must label such a release "provenance unknown" |
 | `declaredScripts` | array | paths from `files`, unique and sorted like `files`; informational, never executed by SkillX |
 | `createdAt` | string | RFC 3339 UTC with whole seconds, e.g. `2026-10-13T04:30:00Z` |
 | `keyId` | string | `^[a-z0-9][a-z0-9._-]{1,63}$` |
 | `signatureAlgorithm` | string | `ed25519` |
-| `signature` | string | padded standard base64 of the 64-byte Ed25519 signature |
+| `signature` | string | padded standard base64 of the 64-byte Ed25519 signature: `^[A-Za-z0-9+/]{85}[AQgw]==$` (the unused trailing bits are zero, so each signature has one accepted text) |
 
 ### Signature bytes
 
@@ -779,10 +779,39 @@ space:
 Go's `encoding/json.Marshal` does not produce these bytes (it HTML-escapes and
 escapes U+2028/U+2029); a verifier must re-encode with the rules above.
 
+**Served bytes.** A served manifest or status document is exactly the
+canonical JSON of the whole document, `signature` included. A verifier parses
+the received bytes, re-encodes the parsed value with the rules above and
+rejects any byte difference (`release.non_canonical`, `status.non_canonical`).
+That one comparison rejects whitespace, member order, duplicate members
+(parsers disagree on which wins; Go keeps the last), escape variants, number
+forms such as `1e3` or `1.0`, a BOM, trailing bytes and invalid UTF-8, so
+every verifier signs and checks the same value. In Go: decode with
+`json.Decoder.UseNumber()` into `any`, re-encode, `bytes.Equal`.
+
+**Domain separation.** There is no prefix before the signed payload. Each
+payload carries its own `schemaVersion`, each verifier requires its one schema
+version and rejects unknown members, and registry release keys sign only these
+two schemas, so a signature over one document type never verifies as the other.
+
+**Tree digest.** `releaseDigest` must equal `sha256:` plus the hex SHA-256 of
+the `agentkit.skill-tree/v1` serialization of `files`
+(`agentkit.skill-tree/v1\n`, then `<mode> <sha256> <size> <path>\n` per file in
+UTF-8 path byte order). Signing refuses and verification rejects a mismatch
+(`release.tree_digest_mismatch`). `@skillx/skill-tree/rules` exports the pure
+`serializeTree`; `releaseTreeDigest` hashes it with WebCrypto.
+
+A verifier checks, in this order: canonical bytes, structure, tree digest,
+signature. Validators and verifiers never throw on document input.
+
 Cross-language vectors: `packages/contracts/src/fixtures/release-manifest-v1.json`
-(signed valid manifests with their exact signing payload and file contents,
-invalid-signature cases, invalid-manifest cases). The vector key is derived
-from a public seed text and must never be trusted outside tests.
+(signed valid documents with their exact signing payload, tree serialization
+and file contents, including paths whose UTF-8 order differs from UTF-16
+order; rejected documents with their single expected code: tampered, wrong
+key, unknown key, Go-escaped, tree digest mismatch, case-variant member and
+non-canonical byte variants; structure-only invalid-manifest cases). The
+vector key is derived from a public seed text and must never be trusted
+outside tests.
 
 ### Release status (`skillx.release-status/v1`)
 
@@ -796,9 +825,10 @@ base64). Source: `packages/contracts/src/release-status.ts`.
 | `releaseDigest` | string | `releaseDigest` of the manifest the status describes |
 | `manifestDigest` | string | `sha256:<64 lowercase hex>` of that manifest's signing payload (below); names exactly one release |
 | `state` | string | `draft`, `quarantined`, `published`, `yanked` |
-| `reason` | string, optional | 1 to 512 characters, no control characters; omit the member when there is none (never `null`) |
-| `issuedAt` | string | RFC 3339 UTC with whole seconds |
-| `sequence` | integer | strictly increasing per `manifestDigest`, starting at 1 |
+| `reason` | string, optional | 1 to 512 UTF-8 bytes; no `Cc`, `Cf` (including every bidi control), `Zl`, `Zp` or `Cs` code points; omit the member when there is none (never `null` or `""`) |
+| `issuedAt` | string | RFC 3339 UTC with whole seconds; not before the manifest's `createdAt` |
+| `expiresAt` | string | RFC 3339 UTC with whole seconds; after `issuedAt` and at most 7 days later |
+| `sequence` | integer | strictly increasing per `manifestDigest`, starting at 1; the status with sequence 1 is `draft` or `published` |
 | `keyId` | string | `^[a-z0-9][a-z0-9._-]{1,63}$` |
 | `signatureAlgorithm` | string | `ed25519` |
 | `signature` | string | padded standard base64 of the 64-byte Ed25519 signature |
@@ -811,27 +841,52 @@ exact bytes the manifest signature covers (`releaseManifestDigest`). It covers
 (`releaseDigest`) released under another identity or version has a different
 manifest digest, so a status never applies to a sibling release.
 
-A consumer checks, in this order, and fails closed:
+**Freshness.** Every status expires. The registry re-signs the current status
+of every release at least daily (a new `sequence`, same state), so a consumer
+that fetches normally always holds an unexpired one. A consumer may keep using
+an expired status only for content it already installed; an expired status
+never authorizes a new resolution or install.
 
-1. structure; a missing member is `required`; a `state` outside the list above
-   is `status.unknown_state`, even when correctly signed;
-2. `releaseDigest` equals the verified manifest's `releaseDigest`, else `status.digest_mismatch`;
-3. `manifestDigest` equals the verified manifest's manifest digest, else `status.manifest_mismatch`;
-4. the signature (`signature.unknown_key`, `signature.invalid_key`, `signature.mismatch`);
-5. against the last status it accepted for the same `manifestDigest`: a lower
+**Transitions.** Between consecutive statuses of one release:
+`draft` to `draft` or `published`; `published` to `published`, `yanked` or
+`quarantined`; `yanked` to `yanked` or `published`; `quarantined` to
+`quarantined` or `yanked`. Nothing returns to `draft`. When sequences were
+skipped, the new state must be reachable in at most the sequence gap steps.
+
+A consumer verifies the manifest first, then checks the received status
+document against it, in this order, and fails closed:
+
+1. canonical bytes, else `status.non_canonical`;
+2. structure: an unknown member is `unknown_field`, a missing member
+   `required`; a `state` outside the list above is `status.unknown_state`,
+   even when correctly signed; a bad lifetime is `status.invalid_lifetime`; a
+   first status that is not `draft` or `published` is
+   `status.invalid_transition`;
+3. `releaseDigest` equals the verified manifest's `releaseDigest`, else `status.digest_mismatch`;
+4. `manifestDigest` equals the verified manifest's manifest digest, else `status.manifest_mismatch`;
+5. `issuedAt` is not before the manifest's `createdAt`, else `status.issued_before_release`;
+6. the signature (`signature.unknown_key`, `signature.invalid_key`, `signature.mismatch`);
+7. `now` is not after `expiresAt`, else `status.expired`;
+8. against the last status it accepted for the same `manifestDigest`: a lower
    `sequence` is `status.rollback`; the same `sequence` with different signed
-   bytes is `status.conflict`; identical bytes are accepted.
+   bytes is `status.conflict` (identical bytes are accepted); a higher
+   `sequence` needs a later `issuedAt` (`status.issued_at_regression`) and an
+   allowed transition (`status.invalid_transition`).
 
 Storage (pinned read API work): the registry stores and serves the full signed
 status document as issued, so `reason` needs no database column; D1 keeps only
 the state, sequence and issue time used to issue the next status.
 
 Cross-language vectors: `packages/contracts/src/fixtures/release-status-v1.json`
-(the signed manifests with their manifest digests, including one tree under two
-versions; valid statuses with their signing payload and the previously accepted
-status; tampered, wrong-key, unknown-key, Go-escaped, rollback, conflict,
-unknown-state, other-tree, other-version, missing and wrong `manifestDigest`
-cases). Same public test key as the manifest vectors.
+(the signed manifest documents with their manifest digests, including one tree
+under two versions; each vector names its manifest, the consumer's `now`, the
+previously accepted status document and the received document; valid
+statuses with their signing payload, including a daily re-sign, a
+re-publication, a transition across a skipped sequence and a check exactly at
+`expiresAt`; invalid documents with their single expected code, covering every
+`status.*` code, tampering, wrong and unknown keys, Go escaping, non-canonical
+bytes, a case-variant member, injected empty or `null` reasons and reason
+rules). Same public test key as the manifest vectors.
 
 ### Database columns (migration `0011_release_tree_digest`)
 
@@ -841,7 +896,9 @@ cases). Same public test key as the manifest vectors.
 signed status; the state itself stays in `release_state`), and the non-unique
 index `idx_package_releases_digest`. `packages.visibility`
 (`public` default, `private`). `publishers.state` (`active` default,
-`suspended`, `revoked`). All additive; rollback SQL is in the migration header.
+`suspended`, `revoked`). All additive; rollback SQL is in the migration header
+and ends by deleting the `0011_release_tree_digest.sql` row from
+`d1_migrations`, so the migration can be applied again.
 
 ---
 

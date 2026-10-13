@@ -8,21 +8,34 @@
  * never changes; the mutable release state lives in the separately signed
  * `skillx.release-status/v1` document (`release-status.ts`). Signature rules
  * are in `release-signature.ts`: Ed25519 over the canonical JSON of every
- * member except `signature`.
+ * member except `signature`. `releaseDigest` must equal the tree digest of
+ * `files`; signing and verification both enforce it.
  *
- * Validators never throw on malformed input.
+ * Validators and verifiers never throw, whatever the input.
  */
 
-import { ERROR_CODES, SkillTreeError, checkCollisions, checkPublisher, isNoisePath, validatePath } from "@skillx/skill-tree/rules";
+import {
+  ERROR_CODES,
+  SkillTreeError,
+  checkCollisions,
+  checkPublisher,
+  compareUtf8,
+  isNoisePath,
+  serializeTree,
+  validatePath,
+} from "@skillx/skill-tree/rules";
 import { canonicalJsonBytes } from "./canonical-json";
-import { PACKAGE_NAME_PATTERN, RELEASE_CHANNELS, SEMVER_PATTERN, isPackageKind, PACKAGE_KINDS } from "./package-manifest";
+import { PACKAGE_NAME_PATTERN, RELEASE_CHANNELS, isPackageKind, PACKAGE_KINDS } from "./package-manifest";
 import type { PackageKind, ReleaseChannel } from "./package-manifest";
 import {
   RELEASE_SIGNATURE_ALGORITHM,
   ReleaseManifestError,
+  checkCanonicalValue,
   checkFields as checkSchemaFields,
   checkSignatureMembers,
   isReleaseTimestamp,
+  parseReceivedDocument,
+  sha256Digest,
   signPayload,
   verifyPayload,
 } from "./release-signature";
@@ -40,16 +53,36 @@ export {
   ReleaseManifestError,
 } from "./release-signature";
 export type { ReleasePublicKeys } from "./release-signature";
+export { compareUtf8 } from "@skillx/skill-tree/rules";
 
 export const SKILLX_RELEASE_SCHEMA_VERSION = "skillx.release/v1";
+
+/** Verification failure codes of the release manifest itself. */
+export const RELEASE_MANIFEST_CODES = {
+  /** The received bytes are not exactly the canonical JSON of the document. */
+  nonCanonical: "release.non_canonical",
+  /** `releaseDigest` is not the `agentkit.skill-tree/v1` digest of `files`. */
+  treeDigestMismatch: "release.tree_digest_mismatch",
+} as const;
+
+/**
+ * SemVer 2.0 version of a release: no build metadata (`+...` has no
+ * precedence, so two releases could not be ordered) and no leading zeros in
+ * numeric identifiers. Stricter than the package-wide `SEMVER_PATTERN`.
+ */
+export const RELEASE_VERSION_PATTERN =
+  /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*)(?:\.(?:0|[1-9]\d*|\d*[A-Za-z-][0-9A-Za-z-]*))*)?$/;
+const MAX_RELEASE_VERSION_LENGTH = 128;
 
 /** Mode classes of `agentkit.skill-tree/v1`. */
 export const RELEASE_FILE_MODES = ["100644", "100755"] as const;
 export type ReleaseFileMode = (typeof RELEASE_FILE_MODES)[number];
 
 /**
- * How SkillX verified that the publisher owns its handle. `none` means the
- * release is not publisher-verified, so AgentKit trusts it as `local-unverified`.
+ * How SkillX verified that the publisher owns its handle. The signature is a
+ * registry key, never a publisher key: AgentKit maps a verified registry
+ * signature with `verifiedBy != "none"` to trust `registry-signed` (not
+ * `publisher-signed`), and `none` to `local-unverified`.
  */
 export const PUBLISHER_VERIFICATIONS = ["none", "github", "admin"] as const;
 export type PublisherVerification = (typeof PUBLISHER_VERIFICATIONS)[number];
@@ -143,19 +176,6 @@ const MANIFEST_FIELDS = [
 const FILE_FIELDS = ["path", "mode", "sha256", "size"] as const;
 const PUBLISHER_FIELDS = ["handle", "verifiedBy"] as const;
 const PROVENANCE_FIELDS = ["repo", "commit", "path"] as const;
-
-/** Compares well-formed strings by UTF-8 bytes, which is code point order. */
-export function compareUtf8(a: string, b: string): number {
-  const ia = a[Symbol.iterator]();
-  const ib = b[Symbol.iterator]();
-  for (;;) {
-    const ca = ia.next();
-    const cb = ib.next();
-    if (ca.done || cb.done) return ca.done && cb.done ? 0 : ca.done ? -1 : 1;
-    const diff = ca.value.codePointAt(0)! - cb.value.codePointAt(0)!;
-    if (diff !== 0) return diff < 0 ? -1 : 1;
-  }
-}
 
 const isSize = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 
@@ -312,14 +332,25 @@ function validateDeclaredScripts(scripts: unknown, files: ReleaseFile[] | null, 
 function collectIssues(input: unknown, requireSignature: boolean): ValidationIssue[] {
   if (!isPlainObject(input)) return [issue("", "type", "release manifest must be an object")];
   const issues: ValidationIssue[] = [];
+  if (!checkCanonicalValue(input, issues)) return issues;
   checkFields(input, requireSignature ? [...MANIFEST_FIELDS, "signature"] : MANIFEST_FIELDS, "", issues);
 
   if (input.schemaVersion !== SKILLX_RELEASE_SCHEMA_VERSION) {
     issues.push(issue("schemaVersion", "unsupported_value", `must equal '${SKILLX_RELEASE_SCHEMA_VERSION}'`));
   }
   const handle = validateIdentityField(input.identity, issues);
-  if (typeof input.version !== "string" || !SEMVER_PATTERN.test(input.version)) {
-    issues.push(issue("version", "pattern", "must be a semantic version such as '0.1.0'"));
+  if (
+    typeof input.version !== "string" ||
+    input.version.length > MAX_RELEASE_VERSION_LENGTH ||
+    !RELEASE_VERSION_PATTERN.test(input.version)
+  ) {
+    issues.push(
+      issue(
+        "version",
+        "pattern",
+        `must be a SemVer 2.0 version without build metadata or leading zeros, at most ${MAX_RELEASE_VERSION_LENGTH} characters, such as '0.1.0'`,
+      ),
+    );
   }
   if (!oneOf(RELEASE_CHANNELS, input.channel)) {
     issues.push(issue("channel", "unsupported_value", `must be one of: ${RELEASE_CHANNELS.join(", ")}`));
@@ -390,14 +421,30 @@ export function releaseSigningPayload(manifest: UnsignedReleaseManifest | Skillx
  * under different identities or versions have different manifest digests.
  */
 export async function releaseManifestDigest(manifest: UnsignedReleaseManifest | SkillxReleaseManifest): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", releaseSigningPayload(manifest)));
-  return `sha256:${Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+  return sha256Digest(releaseSigningPayload(manifest));
+}
+
+/**
+ * The `agentkit.skill-tree/v1` digest of `files`, computed with WebCrypto over
+ * the pure serialization of `@skillx/skill-tree/rules`. Equal to `treeDigest`
+ * of `@skillx/skill-tree` for the same files.
+ */
+export async function releaseTreeDigest(files: readonly ReleaseFile[]): Promise<string> {
+  return sha256Digest(new TextEncoder().encode(serializeTree(files)));
+}
+
+async function treeDigestIssue(manifest: UnsignedReleaseManifest): Promise<ValidationIssue | null> {
+  const digest = await releaseTreeDigest(manifest.files);
+  return digest === manifest.releaseDigest
+    ? null
+    : issue("releaseDigest", RELEASE_MANIFEST_CODES.treeDigestMismatch, `is not the tree digest of files (${digest})`);
 }
 
 /**
  * Signs a valid unsigned manifest with an Ed25519 private key. The key ID and
  * algorithm are part of the signed payload. Throws `ReleaseManifestError` when
- * the manifest is invalid or the key cannot sign with Ed25519.
+ * the manifest is invalid, its `releaseDigest` is not the tree digest of its
+ * `files`, or the key cannot sign with Ed25519.
  */
 export async function signReleaseManifest(
   manifest: UnsignedReleaseManifest,
@@ -405,18 +452,30 @@ export async function signReleaseManifest(
 ): Promise<SkillxReleaseManifest> {
   const result = validateUnsignedReleaseManifest(manifest);
   if (!result.valid) throw new ReleaseManifestError("invalid release manifest", result.issues);
+  const mismatch = await treeDigestIssue(manifest);
+  if (mismatch !== null) throw new ReleaseManifestError("invalid release manifest", [mismatch]);
   return { ...manifest, signature: await signPayload(releaseSigningPayload(manifest), privateKey) };
 }
 
 /**
- * Validates a signed manifest and verifies its signature against `publicKeys`.
- * Fails closed: an invalid manifest, unknown key ID, malformed key or bad
- * signature is an invalid result, never an exception.
+ * Verifies a received manifest document against `publicKeys`, in this order:
+ * the bytes are exactly its canonical JSON (`release.non_canonical`), the
+ * structure is valid, `releaseDigest` is the tree digest of `files`
+ * (`release.tree_digest_mismatch`), and the signature verifies. Fails closed:
+ * every failure is an invalid result, never an exception. The verified
+ * manifest is the parsed `document`.
  */
-export async function verifyReleaseManifest(input: unknown, publicKeys: ReleasePublicKeys): Promise<ValidationResult> {
-  const structure = validateReleaseManifest(input);
+export async function verifyReleaseManifest(
+  document: string | Uint8Array,
+  publicKeys: ReleasePublicKeys,
+): Promise<ValidationResult> {
+  const parsed = parseReceivedDocument(document, RELEASE_MANIFEST_CODES.nonCanonical);
+  if (!("value" in parsed)) return parsed;
+  const structure = validateReleaseManifest(parsed.value);
   if (!structure.valid) return structure;
-  const manifest = input as SkillxReleaseManifest;
+  const manifest = parsed.value as SkillxReleaseManifest;
+  const mismatch = await treeDigestIssue(manifest);
+  if (mismatch !== null) return validationFail([mismatch]);
   const failure = await verifyPayload(releaseSigningPayload(manifest), manifest.signature, manifest.keyId, publicKeys);
   return failure === null ? validationOk() : validationFail([failure]);
 }

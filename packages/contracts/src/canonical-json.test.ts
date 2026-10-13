@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { CanonicalJsonError, canonicalJson, canonicalJsonBytes } from "./canonical-json";
+import { CanonicalJsonError, canonicalJson, canonicalJsonBytes, parseCanonicalJson } from "./canonical-json";
 
 // Built from code points so no editor or formatter can normalize them away.
 const E_ACUTE = String.fromCodePoint(0xe9);
@@ -56,11 +56,49 @@ describe("canonical JSON", () => {
     ["a Date", new Date(0)],
     ["a Map", new Map()],
     ["a bigint", 1n],
+    // eslint-disable-next-line no-sparse-arrays
+    ["a sparse array", [1, , 3]],
+    ["an array with a trailing hole", new Array(2)],
+    ["a null-prototype object", Object.create(null)],
   ])("rejects %s", (_name, value) => {
     expect(() => canonicalJson(value)).toThrow(CanonicalJsonError);
   });
 
   it("names the offending path", () => {
     expect(() => canonicalJson({ files: [{ size: 1.5 }] })).toThrow("files[0].size");
+    // eslint-disable-next-line no-sparse-arrays
+    expect(() => canonicalJson({ files: [1, , 3] })).toThrow("files[1]");
+  });
+});
+
+describe("parseCanonicalJson", () => {
+  const canonical = '{"a":[1,"x"],"b":null,"c":true}';
+
+  it("accepts exactly the canonical text, as a string or UTF-8 bytes", () => {
+    expect(parseCanonicalJson(canonical)).toEqual({ ok: true, value: { a: [1, "x"], b: null, c: true } });
+    expect(parseCanonicalJson(new TextEncoder().encode(canonical)).ok).toBe(true);
+    const unicode = `{"p":"caf${String.fromCodePoint(0xe9)} ${String.fromCodePoint(0x2028)} & <"}`;
+    expect(parseCanonicalJson(new TextEncoder().encode(unicode)).ok).toBe(true);
+  });
+
+  it.each<[string, string | Uint8Array]>([
+    ["whitespace", '{"a": [1,"x"],"b":null,"c":true}'],
+    ["member order", '{"b":null,"a":[1,"x"],"c":true}'],
+    ["a duplicate member", '{"a":[1,"x"],"a":[1,"x"],"b":null,"c":true}'],
+    ["a duplicate member whose last value wins", '{"a":[2],"a":[1,"x"],"b":null,"c":true}'],
+    ["an exponent", '{"a":[1e0,"x"],"b":null,"c":true}'],
+    ["a fraction", '{"a":[1.0,"x"],"b":null,"c":true}'],
+    ["a negative number", '{"a":[-1,"x"],"b":null,"c":true}'],
+    ["an escaped ASCII character", '{"a":[1,"\\u0078"],"b":null,"c":true}'],
+    ["an escaped solidus", '{"a":[1,"\\/"],"b":null,"c":true}'],
+    ["a byte order mark", `${String.fromCodePoint(0xfeff)}${canonical}`],
+    ["a trailing newline", `${canonical}\n`],
+    ["invalid UTF-8", new Uint8Array([0x22, 0xff, 0x22])],
+    ["a UTF-8 byte order mark", new Uint8Array([0xef, 0xbb, 0xbf, ...new TextEncoder().encode(canonical)])],
+    ["not JSON", "{"],
+    ["an escaped lone surrogate", '"\\ud800"'],
+  ])("rejects %s without throwing", (_name, input) => {
+    const result = parseCanonicalJson(input);
+    expect(result.ok).toBe(false);
   });
 });

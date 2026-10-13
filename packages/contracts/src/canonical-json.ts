@@ -70,7 +70,13 @@ function encode(value: unknown, path: string): string {
     return String(value);
   }
   if (Array.isArray(value)) {
-    return `[${value.map((item, i) => encode(item, `${path}[${i}]`)).join(",")}]`;
+    const items: string[] = [];
+    // An index loop, unlike `map`, sees the holes of a sparse array.
+    for (let i = 0; i < value.length; i++) {
+      if (!(i in value)) throw new CanonicalJsonError(`${path}[${i}]`, "sparse array hole");
+      items.push(encode(value[i], `${path}[${i}]`));
+    }
+    return `[${items.join(",")}]`;
   }
   if (typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype) {
     const record = value as Record<string, unknown>;
@@ -94,4 +100,42 @@ export function canonicalJson(value: unknown): string {
 /** The UTF-8 bytes of `canonicalJson(value)`. */
 export function canonicalJsonBytes(value: unknown): Uint8Array<ArrayBuffer> {
   return new TextEncoder().encode(canonicalJson(value));
+}
+
+export type CanonicalParseResult = { ok: true; value: unknown } | { ok: false; reason: string };
+
+/**
+ * Parses a received signed document and accepts it only when its bytes are
+ * exactly `canonicalJson` of the parsed value. This one comparison rejects
+ * whitespace, member-order and escape variants, duplicate members (parsers
+ * disagree on which wins), number forms such as `1e3`, `1.0` or `-0`, a BOM
+ * and invalid UTF-8, so every verifier sees the same value. Never throws.
+ */
+export function parseCanonicalJson(input: string | Uint8Array): CanonicalParseResult {
+  let text: string;
+  if (typeof input === "string") {
+    text = input;
+  } else {
+    try {
+      text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(input);
+    } catch {
+      return { ok: false, reason: "is not valid UTF-8" };
+    }
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch {
+    return { ok: false, reason: "is not JSON" };
+  }
+  let canonical: string;
+  try {
+    canonical = canonicalJson(value);
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
+  }
+  if (canonical !== text) {
+    return { ok: false, reason: "is not byte-for-byte the canonical JSON of its value (whitespace, member order, duplicates, escapes or number forms)" };
+  }
+  return { ok: true, value };
 }

@@ -3,7 +3,7 @@ import * as root from "../src/index";
 import * as rules from "../src/rules";
 import { LIMITS, treeDigest } from "../src/index";
 import type { TreeFile } from "../src/index";
-import { sha256Hex } from "../src/serialize";
+import { sha256Hex, sortFiles } from "../src/serialize";
 // The release contract lives in @skillx/contracts, which depends on this package, so the
 // guard that both packages agree on the tree imports it by path instead of by name.
 import { RELEASE_TREE_LIMITS } from "../../contracts/src/release-manifest";
@@ -12,6 +12,7 @@ import vectorFile from "../../contracts/src/fixtures/release-manifest-v1.json";
 interface ReleaseVector {
   name: string;
   manifest: { releaseDigest: string; files: TreeFile[]; fileCount: number; treeSize: number };
+  treeSerialization: string;
   fileContentsBase64: Record<string, string>;
 }
 
@@ -27,8 +28,9 @@ describe("skillx.release/v1 vectors against agentkit.skill-tree/v1", () => {
       const bytes = Buffer.from(vector.fileContentsBase64[f.path] ?? "", "base64");
       return { path: f.path, mode: f.mode, size: bytes.length, sha256: sha256Hex(bytes) };
     });
-    expect(files).toEqual(vector.manifest.files);
+    expect(sortFiles(files)).toEqual(vector.manifest.files);
     expect(treeDigest(files)).toBe(vector.manifest.releaseDigest);
+    expect(rules.serializeTree(files)).toBe(vector.treeSerialization);
     expect(vector.manifest.fileCount).toBe(files.length);
     expect(vector.manifest.treeSize).toBe(files.reduce((sum, f) => sum + f.size, 0));
   });
@@ -42,5 +44,15 @@ describe("skillx.release/v1 vectors against agentkit.skill-tree/v1", () => {
     expect(rules.checkPublisher).toBe(root.checkPublisher);
     expect(rules.foldKey).toBe(root.foldKey);
     expect(rules.SkillTreeError).toBe(root.SkillTreeError);
+    expect(rules.serializeTree).toBe(root.serializeTree);
+    expect(rules.compareUtf8).toBe(root.compareUtf8);
+    expect(rules.sortFiles).toBe(sortFiles);
+    expect(rules.TREE_SCHEMA).toBe(root.TREE_SCHEMA);
+  });
+
+  it("digests exactly the bytes the pure serializer renders", () => {
+    for (const vector of vectors) {
+      expect(`sha256:${sha256Hex(rules.serializeTree(vector.manifest.files))}`).toBe(vector.manifest.releaseDigest);
+    }
   });
 });

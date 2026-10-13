@@ -6,10 +6,11 @@ import {
   INGESTION_FIXTURES,
   PACKAGE_MANIFEST_FIXTURES,
   PACKAGE_MANIFEST_FIXTURE,
-  RELEASE_MANIFEST_FIXTURES,
-  RELEASE_STATUS_FIXTURES,
   VERIFICATION_EVIDENCE_FIXTURES,
 } from "./fixtures";
+import { RELEASE_MANIFEST_FIXTURES } from "./fixtures/release-fixtures";
+import { RELEASE_STATUS_FIXTURES } from "./fixtures/release-status-fixtures";
+import * as contracts from "./index";
 import { validateReleaseManifest } from "./release-manifest";
 import { validateReleaseStatus } from "./release-status";
 import {
@@ -36,18 +37,27 @@ const VALIDATOR_BY_GROUP: Record<string, (input: unknown) => { valid: boolean; i
   "release-status": validateReleaseStatus,
 };
 
+/** Every fixture case, including the test-only signed-release fixtures the root export leaves out. */
+const EVERY_FIXTURE = [...ALL_FIXTURES, ...RELEASE_MANIFEST_FIXTURES, ...RELEASE_STATUS_FIXTURES];
+
 describe("skillx.package/v1 fixtures", () => {
   it("covers both a valid and a rejected case for every contract group", () => {
-    const groups = new Set(ALL_FIXTURES.map((fixture) => fixture.group));
+    const groups = new Set(EVERY_FIXTURE.map((fixture) => fixture.group));
     expect(groups.size).toBe(8);
     for (const group of groups) {
-      const cases = ALL_FIXTURES.filter((fixture) => fixture.group === group);
+      const cases = EVERY_FIXTURE.filter((fixture) => fixture.group === group);
       expect(cases.some((c) => c.expectedValid), `${group} needs a valid fixture`).toBe(true);
       expect(cases.some((c) => !c.expectedValid), `${group} needs a rejected fixture`).toBe(true);
     }
   });
 
-  it.each(ALL_FIXTURES)("$group :: $name is valid=$expectedValid", ({ group, value, expectedValid, expectedIssueCode }) => {
+  it("keeps the test-only signed-release fixtures out of the package root", () => {
+    expect("RELEASE_MANIFEST_FIXTURES" in contracts).toBe(false);
+    expect("RELEASE_STATUS_FIXTURES" in contracts).toBe(false);
+    expect(ALL_FIXTURES.some((f) => f.group === "release-manifest" || f.group === "release-status")).toBe(false);
+  });
+
+  it.each(EVERY_FIXTURE)("$group :: $name is valid=$expectedValid", ({ group, value, expectedValid, expectedIssueCode }) => {
     const result = VALIDATOR_BY_GROUP[group]?.(value);
     expect(result, `no validator registered for group ${group}`).toBeDefined();
     expect(result?.valid).toBe(expectedValid);
@@ -69,9 +79,7 @@ describe("skillx.package/v1 fixtures", () => {
         VERIFICATION_EVIDENCE_FIXTURES.length +
         COLLECTION_MEMBER_FIXTURES.length +
         ENTITLEMENT_FIXTURES.length +
-        INGESTION_FIXTURES.length +
-        RELEASE_MANIFEST_FIXTURES.length +
-        RELEASE_STATUS_FIXTURES.length,
+        INGESTION_FIXTURES.length,
     );
   });
 });

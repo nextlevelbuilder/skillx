@@ -122,6 +122,24 @@ export const RELEASE_MANIFEST_FIXTURES: FixtureCase[] = [
     value: signedReleaseDraft(RELEASE_MANIFEST_MINIMAL_FIXTURE),
     expectedValid: true,
   },
+  rejected("rejects a version with build metadata", "pattern", (d) => {
+    d.version = "1.2.0+build.7";
+  }),
+  rejected("rejects a version with a leading zero", "pattern", (d) => {
+    d.version = "01.2.0";
+  }),
+  rejected("rejects a numeric prerelease identifier with a leading zero", "pattern", (d) => {
+    d.version = "1.2.0-beta.01";
+  }),
+  rejected("rejects an empty prerelease identifier", "pattern", (d) => {
+    d.version = "1.2.0-beta..1";
+  }),
+  rejected("rejects a version longer than 128 characters", "pattern", (d) => {
+    d.version = `1.2.0-${"a".repeat(123)}`;
+  }),
+  rejected("rejects a non-integer number anywhere", "type", (d) => {
+    d.artifactSize = 1.5;
+  }),
   rejected("rejects an unknown top-level field", "unknown_field", (d) => {
     d.price = 0;
   }),

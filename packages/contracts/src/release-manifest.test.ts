@@ -1,16 +1,21 @@
 import { describe, expect, it } from "vitest";
+import { canonicalJson } from "./canonical-json";
 import {
   RELEASE_FIXTURE_KEY_ID,
   RELEASE_FIXTURE_UNICODE_PATH,
   RELEASE_MANIFEST_FIXTURE,
   RELEASE_MANIFEST_MINIMAL_FIXTURE,
   signedReleaseDraft,
-} from "./fixtures";
+} from "./fixtures/release-fixtures";
 import {
+  RELEASE_MANIFEST_CODES,
   RELEASE_SIGNATURE_CODES,
+  RELEASE_SIGNATURE_PATTERN,
+  RELEASE_VERSION_PATTERN,
   ReleaseManifestError,
   compareUtf8,
   releaseSigningPayload,
+  releaseTreeDigest,
   signReleaseManifest,
   validateReleaseManifest,
   validateUnsignedReleaseManifest,
@@ -19,6 +24,7 @@ import {
 import type { SkillxReleaseManifest, UnsignedReleaseManifest } from "./release-manifest";
 
 const decoder = new TextDecoder();
+const doc = (value: unknown): string => canonicalJson(value);
 
 async function generateKey(): Promise<{ privateKey: CryptoKey; publicKey: Uint8Array }> {
   const pair = (await crypto.subtle.generateKey({ name: "Ed25519" }, true, ["sign", "verify"])) as CryptoKeyPair;
@@ -60,10 +66,46 @@ describe("skillx.release/v1 validation", () => {
     expect(result.issues).toContainEqual(expect.objectContaining({ path: "signature", code: "unknown_field" }));
   });
 
-  it("rejects non-object input without throwing", () => {
-    for (const input of [null, undefined, "skillx.release/v1", [], 7]) {
+  it("rejects any non-document input without throwing", () => {
+    // eslint-disable-next-line no-sparse-arrays
+    const sparseFiles = [, RELEASE_MANIFEST_FIXTURE.files[0]];
+    const inputs: unknown[] = [
+      null,
+      undefined,
+      "skillx.release/v1",
+      [],
+      7,
+      new Date(0),
+      new Map(),
+      Object.create(null),
+      { ...signedReleaseDraft(), files: sparseFiles },
+      { ...signedReleaseDraft(), files: [{ ...RELEASE_MANIFEST_FIXTURE.files[0], path: new String("SKILL.md") }] },
+      { ...signedReleaseDraft(), artifactSize: 10240n },
+      { ...signedReleaseDraft(), artifactSize: Number.POSITIVE_INFINITY },
+      { ...signedReleaseDraft(), identity: `@publisher/${String.fromCharCode(0xdc00)}` },
+    ];
+    for (const input of inputs) {
+      expect(() => validateReleaseManifest(input)).not.toThrow();
       expect(validateReleaseManifest(input).valid).toBe(false);
     }
+  });
+
+  it("accepts SemVer 2.0 versions without build metadata or leading zeros", () => {
+    for (const version of ["0.0.0", "1.2.3", "10.20.30", "1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-0.3.7", "1.0.0-x-y.z--", "1.0.0-0a"]) {
+      expect(RELEASE_VERSION_PATTERN.test(version), version).toBe(true);
+    }
+    for (const version of ["1.2", "v1.2.3", "01.2.3", "1.02.3", "1.2.03", "1.2.3-01", "1.2.3+build", "1.2.3-", "1.2.3-a..b", "1.2.3-a_b"]) {
+      expect(RELEASE_VERSION_PATTERN.test(version), version).toBe(false);
+    }
+    const at = (version: string) => ({ ...RELEASE_MANIFEST_FIXTURE, version });
+    expect(validateUnsignedReleaseManifest(at(`1.2.0-${"a".repeat(122)}`)).valid).toBe(true);
+    expect(validateUnsignedReleaseManifest(at(`1.2.0-${"a".repeat(123)}`)).issues.map((i) => i.path)).toEqual(["version"]);
+  });
+
+  it("accepts only the one canonical base64 text of a 64-byte signature", () => {
+    expect(RELEASE_SIGNATURE_PATTERN.test(`${"A".repeat(85)}w==`)).toBe(true);
+    expect(RELEASE_SIGNATURE_PATTERN.test(`${"A".repeat(85)}B==`)).toBe(false);
+    expect(RELEASE_SIGNATURE_PATTERN.test(`${"A".repeat(84)}AA=`)).toBe(false);
   });
 
   it("reports every missing field of an empty object", () => {
@@ -131,36 +173,68 @@ describe("skillx.release/v1 signing payload", () => {
   });
 });
 
+describe("skillx.release/v1 tree digest", () => {
+  it("recomputes the fixture release digests with WebCrypto", async () => {
+    expect(await releaseTreeDigest(RELEASE_MANIFEST_FIXTURE.files)).toBe(RELEASE_MANIFEST_FIXTURE.releaseDigest);
+    expect(await releaseTreeDigest(RELEASE_MANIFEST_MINIMAL_FIXTURE.files)).toBe(RELEASE_MANIFEST_MINIMAL_FIXTURE.releaseDigest);
+  });
+
+  it("refuses to sign a manifest whose releaseDigest is not the tree digest of its files", async () => {
+    const { privateKey } = await generateKey();
+    const wrong = { ...RELEASE_MANIFEST_FIXTURE, releaseDigest: RELEASE_MANIFEST_MINIMAL_FIXTURE.releaseDigest };
+    const error = await signReleaseManifest(wrong, privateKey).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(ReleaseManifestError);
+    expect((error as ReleaseManifestError).issues.map((i) => i.code)).toEqual([RELEASE_MANIFEST_CODES.treeDigestMismatch]);
+  });
+});
+
 describe("skillx.release/v1 signatures", () => {
-  it("verifies a manifest signed with the trusted key", async () => {
+  it("verifies a manifest signed with the trusted key, from text or bytes", async () => {
     const { privateKey, publicKey } = await generateKey();
     const signed = await signReleaseManifest(RELEASE_MANIFEST_FIXTURE, privateKey);
     const keys = new Map([[RELEASE_FIXTURE_KEY_ID, publicKey]]);
-    expect(await verifyReleaseManifest(signed, keys)).toEqual({ valid: true, issues: [] });
-    expect(await verifyReleaseManifest(reverseKeys(signed), keys)).toEqual({ valid: true, issues: [] });
+    expect(await verifyReleaseManifest(doc(signed), keys)).toEqual({ valid: true, issues: [] });
+    expect(await verifyReleaseManifest(new TextEncoder().encode(doc(signed)), keys)).toEqual({ valid: true, issues: [] });
   });
 
-  it.each<[string, (m: SkillxReleaseManifest) => void]>([
-    ["a changed version", (m) => void (m.version = "1.2.1")],
-    ["a changed file hash", (m) => void (m.files[0]!.sha256 = `${m.files[0]!.sha256.slice(0, 63)}0`)],
-    ["a changed release digest", (m) => void (m.releaseDigest = `sha256:${"e".repeat(64)}`)],
-    ["a changed publisher verification", (m) => void (m.publisher.verifiedBy = "admin")],
-    ["a flipped signature byte", (m) => void (m.signature = flipBase64Byte(m.signature))],
-  ])("rejects %s", async (_name, tamper) => {
+  it.each<[string, (text: string) => string]>([
+    ["reordered members", (t) => JSON.stringify(reverseKeys(JSON.parse(t)))],
+    ["pretty-printed", (t) => JSON.stringify(JSON.parse(t), null, 2)],
+    ["a duplicate member", (t) => t.replace("{", '{"version":"9.9.9",')],
+    ["an exponent number form", (t) => t.replace('"artifactSize":10240', '"artifactSize":1.024e4')],
+    ["an escaped slash", (t) => t.replace("scripts/check.sh", "scripts\\/check.sh")],
+  ])("rejects %s as non-canonical", async (_name, mangle) => {
+    const { privateKey, publicKey } = await generateKey();
+    const signed = await signReleaseManifest(RELEASE_MANIFEST_FIXTURE, privateKey);
+    const result = await verifyReleaseManifest(mangle(doc(signed)), new Map([[RELEASE_FIXTURE_KEY_ID, publicKey]]));
+    expect(result.issues.map((i) => i.code)).toEqual([RELEASE_MANIFEST_CODES.nonCanonical]);
+  });
+
+  it.each<[string, (m: SkillxReleaseManifest) => void, string]>([
+    ["a changed version", (m) => void (m.version = "1.2.1"), RELEASE_SIGNATURE_CODES.mismatch],
+    [
+      "a changed file hash",
+      (m) => void (m.files[0]!.sha256 = `${m.files[0]!.sha256.slice(0, 63)}0`),
+      RELEASE_MANIFEST_CODES.treeDigestMismatch,
+    ],
+    ["a changed release digest", (m) => void (m.releaseDigest = `sha256:${"e".repeat(64)}`), RELEASE_MANIFEST_CODES.treeDigestMismatch],
+    ["a changed publisher verification", (m) => void (m.publisher.verifiedBy = "admin"), RELEASE_SIGNATURE_CODES.mismatch],
+    ["a flipped signature byte", (m) => void (m.signature = flipBase64Byte(m.signature)), RELEASE_SIGNATURE_CODES.mismatch],
+  ])("rejects %s", async (_name, tamper, code) => {
     const { privateKey, publicKey } = await generateKey();
     const signed = clone(await signReleaseManifest(RELEASE_MANIFEST_FIXTURE, privateKey));
     tamper(signed);
     expect(validateReleaseManifest(signed).valid).toBe(true);
-    const result = await verifyReleaseManifest(signed, new Map([[RELEASE_FIXTURE_KEY_ID, publicKey]]));
+    const result = await verifyReleaseManifest(doc(signed), new Map([[RELEASE_FIXTURE_KEY_ID, publicKey]]));
     expect(result.valid).toBe(false);
-    expect(result.issues.map((i) => i.code)).toEqual([RELEASE_SIGNATURE_CODES.mismatch]);
+    expect(result.issues.map((i) => i.code)).toEqual([code]);
   });
 
   it("rejects a signature from another key under the trusted key ID", async () => {
     const signer = await generateKey();
     const trusted = await generateKey();
     const signed = await signReleaseManifest(RELEASE_MANIFEST_FIXTURE, signer.privateKey);
-    const result = await verifyReleaseManifest(signed, new Map([[RELEASE_FIXTURE_KEY_ID, trusted.publicKey]]));
+    const result = await verifyReleaseManifest(doc(signed), new Map([[RELEASE_FIXTURE_KEY_ID, trusted.publicKey]]));
     expect(result.issues.map((i) => i.code)).toEqual([RELEASE_SIGNATURE_CODES.mismatch]);
   });
 
@@ -174,27 +248,27 @@ describe("skillx.release/v1 signatures", () => {
       ["skillx-other-key", a.publicKey],
       ["skillx-third-key", b.publicKey],
     ]);
-    const result = await verifyReleaseManifest(signed, keys);
+    const result = await verifyReleaseManifest(doc(signed), keys);
     expect(result.issues.map((i) => i.code)).toEqual([RELEASE_SIGNATURE_CODES.mismatch]);
   });
 
   it("rejects an unknown key ID", async () => {
     const { privateKey, publicKey } = await generateKey();
     const signed = await signReleaseManifest(RELEASE_MANIFEST_FIXTURE, privateKey);
-    const result = await verifyReleaseManifest(signed, new Map([["skillx-other-key", publicKey]]));
+    const result = await verifyReleaseManifest(doc(signed), new Map([["skillx-other-key", publicKey]]));
     expect(result.issues.map((i) => i.code)).toEqual([RELEASE_SIGNATURE_CODES.unknownKey]);
   });
 
   it("rejects a malformed public key without throwing", async () => {
     const { privateKey } = await generateKey();
     const signed = await signReleaseManifest(RELEASE_MANIFEST_FIXTURE, privateKey);
-    const result = await verifyReleaseManifest(signed, new Map([[RELEASE_FIXTURE_KEY_ID, new Uint8Array(31)]]));
+    const result = await verifyReleaseManifest(doc(signed), new Map([[RELEASE_FIXTURE_KEY_ID, new Uint8Array(31)]]));
     expect(result.issues.map((i) => i.code)).toEqual([RELEASE_SIGNATURE_CODES.invalidKey]);
   });
 
   it("returns structural issues for an invalid manifest instead of verifying", async () => {
     const { publicKey } = await generateKey();
-    const result = await verifyReleaseManifest({ schemaVersion: "skillx.release/v1" }, new Map([[RELEASE_FIXTURE_KEY_ID, publicKey]]));
+    const result = await verifyReleaseManifest(doc({ schemaVersion: "skillx.release/v1" }), new Map([[RELEASE_FIXTURE_KEY_ID, publicKey]]));
     expect(result.valid).toBe(false);
     expect(result.issues.map((i) => i.code)).not.toContain(RELEASE_SIGNATURE_CODES.mismatch);
   });

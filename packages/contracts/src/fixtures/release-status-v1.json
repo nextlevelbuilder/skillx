@@ -1,13 +1,17 @@
 {
   "description": "skillx.release-status/v1 signed status vectors. The test key is derived from a public seed text and MUST NOT be trusted outside tests.",
-  "canonicalization": "same as skillx.release/v1: padded base64 Ed25519 over the UTF-8 canonical JSON of the status without its signature member; an absent reason is omitted, never null",
+  "canonicalization": "same as skillx.release/v1: padded base64 Ed25519 over the UTF-8 canonical JSON of the status without its signature member; an absent reason is omitted, never null or empty; a served document is exactly the canonical JSON including signature",
   "manifestDigestRule": "manifestDigest = 'sha256:' + lowercase hex SHA-256 of the manifest signing payload: the UTF-8 canonical JSON of the skillx.release/v1 manifest without its signature member (the exact bytes its signature covers)",
   "consumerRules": [
-    "validate the structure; a state outside draft|quarantined|published|yanked is status.unknown_state even when signed; a missing member is required",
+    "verify the manifest document first (skillx.release/v1 vectors); statuses are checked against that verified manifest",
+    "re-encode the received document canonically; any byte difference is status.non_canonical",
+    "validate the structure: unknown member unknown_field; missing member required; state outside draft|quarantined|published|yanked status.unknown_state even when signed; reason 1..512 UTF-8 bytes (length, null is type) without Cc, Cf (incl. bidi controls), Zl, Zp or Cs code points (format); issuedAt < expiresAt <= issuedAt + 7 days else status.invalid_lifetime; sequence 1 must be draft or published else status.invalid_transition",
     "require releaseDigest to equal the verified manifest's releaseDigest, else status.digest_mismatch",
     "require manifestDigest to equal the verified manifest's manifest digest, else status.manifest_mismatch",
+    "require issuedAt >= the manifest createdAt, else status.issued_before_release",
     "verify the signature with the trusted key for keyId: signature.unknown_key, signature.invalid_key or signature.mismatch",
-    "per manifestDigest, against the last accepted status: a lower sequence is status.rollback; the same sequence with different signed bytes is status.conflict; identical bytes are accepted"
+    "require now <= expiresAt, else status.expired; an expired status may only keep already-installed content, never authorize a new resolution or install",
+    "per manifestDigest, against the last accepted status: a lower sequence is status.rollback; the same sequence with different signed bytes is status.conflict (identical bytes are accepted); a higher sequence needs a later issuedAt (status.issued_at_regression) and a state reachable in at most (sequence gap) steps of draft->draft|published, published->published|yanked|quarantined, yanked->yanked|published, quarantined->quarantined|yanked (status.invalid_transition)"
   ],
   "testKey": {
     "keyId": "skillx-test-vector-1",
@@ -19,588 +23,366 @@
   "manifests": [
     {
       "name": "1.2.0 of the multi-file tree",
-      "manifest": {
-        "schemaVersion": "skillx.release/v1",
-        "identity": "@publisher/review-guardrails",
-        "version": "1.2.0",
-        "channel": "stable",
-        "kind": "skill",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        "artifactSize": 10240,
-        "files": [
-          {
-            "path": "SKILL.md",
-            "mode": "100644",
-            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
-            "size": 102
-          },
-          {
-            "path": "references/café & notes .md",
-            "mode": "100644",
-            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
-            "size": 34
-          },
-          {
-            "path": "scripts/check.sh",
-            "mode": "100755",
-            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
-            "size": 18
-          }
-        ],
-        "fileCount": 3,
-        "treeSize": 154,
-        "publisher": {
-          "handle": "publisher",
-          "verifiedBy": "github"
-        },
-        "sourceProvenance": {
-          "repo": "https://github.com/publisher/review-guardrails",
-          "commit": "0123456789abcdef0123456789abcdef01234567",
-          "path": "skills/review-guardrails"
-        },
-        "declaredScripts": [
-          "scripts/check.sh"
-        ],
-        "createdAt": "2026-10-13T04:30:00Z",
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "eHdqtSvMKJH6rIGay9PgwrQhibz6H41zziDqgnIeWMw6rAlOS3NXVTgpVLeMRo5Kn8s6o7K8xs5V/UY29WHmDg=="
-      },
+      "document": "{\"artifactDigest\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"artifactSize\":10240,\"channel\":\"stable\",\"createdAt\":\"2026-10-13T04:30:00Z\",\"declaredScripts\":[\"scripts/check.sh\"],\"fileCount\":3,\"files\":[{\"mode\":\"100644\",\"path\":\"SKILL.md\",\"sha256\":\"bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11\",\"size\":102},{\"mode\":\"100644\",\"path\":\"references/café & notes .md\",\"sha256\":\"d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f\",\"size\":34},{\"mode\":\"100755\",\"path\":\"scripts/check.sh\",\"sha256\":\"b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c\",\"size\":18}],\"identity\":\"@publisher/review-guardrails\",\"keyId\":\"skillx-test-vector-1\",\"kind\":\"skill\",\"publisher\":{\"handle\":\"publisher\",\"verifiedBy\":\"github\"},\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release/v1\",\"signature\":\"eHdqtSvMKJH6rIGay9PgwrQhibz6H41zziDqgnIeWMw6rAlOS3NXVTgpVLeMRo5Kn8s6o7K8xs5V/UY29WHmDg==\",\"signatureAlgorithm\":\"ed25519\",\"sourceProvenance\":{\"commit\":\"0123456789abcdef0123456789abcdef01234567\",\"path\":\"skills/review-guardrails\",\"repo\":\"https://github.com/publisher/review-guardrails\"},\"treeSize\":154,\"version\":\"1.2.0\"}",
       "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc"
     },
     {
       "name": "1.2.1 of the same tree",
-      "manifest": {
-        "schemaVersion": "skillx.release/v1",
-        "identity": "@publisher/review-guardrails",
-        "version": "1.2.1",
-        "channel": "stable",
-        "kind": "skill",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        "artifactSize": 10240,
-        "files": [
-          {
-            "path": "SKILL.md",
-            "mode": "100644",
-            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
-            "size": 102
-          },
-          {
-            "path": "references/café & notes .md",
-            "mode": "100644",
-            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
-            "size": 34
-          },
-          {
-            "path": "scripts/check.sh",
-            "mode": "100755",
-            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
-            "size": 18
-          }
-        ],
-        "fileCount": 3,
-        "treeSize": 154,
-        "publisher": {
-          "handle": "publisher",
-          "verifiedBy": "github"
-        },
-        "sourceProvenance": {
-          "repo": "https://github.com/publisher/review-guardrails",
-          "commit": "0123456789abcdef0123456789abcdef01234567",
-          "path": "skills/review-guardrails"
-        },
-        "declaredScripts": [
-          "scripts/check.sh"
-        ],
-        "createdAt": "2026-10-13T04:30:00Z",
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "luJjP0RMcubnl6QZf3boxrHDen2iAchsvxQ19zqAFkE79xqSO2DpevYIEDGmeL5Qw0LDOrbGxuc/uqHvWBqXCw=="
-      },
+      "document": "{\"artifactDigest\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"artifactSize\":10240,\"channel\":\"stable\",\"createdAt\":\"2026-10-13T04:30:00Z\",\"declaredScripts\":[\"scripts/check.sh\"],\"fileCount\":3,\"files\":[{\"mode\":\"100644\",\"path\":\"SKILL.md\",\"sha256\":\"bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11\",\"size\":102},{\"mode\":\"100644\",\"path\":\"references/café & notes .md\",\"sha256\":\"d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f\",\"size\":34},{\"mode\":\"100755\",\"path\":\"scripts/check.sh\",\"sha256\":\"b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c\",\"size\":18}],\"identity\":\"@publisher/review-guardrails\",\"keyId\":\"skillx-test-vector-1\",\"kind\":\"skill\",\"publisher\":{\"handle\":\"publisher\",\"verifiedBy\":\"github\"},\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release/v1\",\"signature\":\"luJjP0RMcubnl6QZf3boxrHDen2iAchsvxQ19zqAFkE79xqSO2DpevYIEDGmeL5Qw0LDOrbGxuc/uqHvWBqXCw==\",\"signatureAlgorithm\":\"ed25519\",\"sourceProvenance\":{\"commit\":\"0123456789abcdef0123456789abcdef01234567\",\"path\":\"skills/review-guardrails\",\"repo\":\"https://github.com/publisher/review-guardrails\"},\"treeSize\":154,\"version\":\"1.2.1\"}",
       "manifestDigest": "sha256:c598df8848000fea906e7e4d60237c30d927ef4ee26e5148b9091920eb0016a9"
     },
     {
       "name": "minimal release",
-      "manifest": {
-        "schemaVersion": "skillx.release/v1",
-        "identity": "@solo.dev/tiny_skill",
-        "version": "0.1.0-beta.1",
-        "channel": "beta",
-        "kind": "skill",
-        "releaseDigest": "sha256:2b80424f6839c7ae445108317a623797ecab4ee94fbb6cddbc9695326aed8544",
-        "artifactDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
-        "artifactSize": 1536,
-        "files": [
-          {
-            "path": "SKILL.md",
-            "mode": "100644",
-            "sha256": "7822f865b6a9be616262a844ffb54085d095857dcf35a172150523db31a3726d",
-            "size": 44
-          }
-        ],
-        "fileCount": 1,
-        "treeSize": 44,
-        "publisher": {
-          "handle": "solo.dev",
-          "verifiedBy": "none"
-        },
-        "sourceProvenance": null,
-        "declaredScripts": [],
-        "createdAt": "2026-10-13T05:00:00Z",
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "tEUDJBptJIcz6nVFciKaixGz3bUvTe5ZAVI6cYBFtWsK75DU3bTqSfauO8Tf2Te85zfHA3IbY0FOYPviKWS/Dw=="
-      },
+      "document": "{\"artifactDigest\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"artifactSize\":1536,\"channel\":\"beta\",\"createdAt\":\"2026-10-13T05:00:00Z\",\"declaredScripts\":[],\"fileCount\":1,\"files\":[{\"mode\":\"100644\",\"path\":\"SKILL.md\",\"sha256\":\"7822f865b6a9be616262a844ffb54085d095857dcf35a172150523db31a3726d\",\"size\":44}],\"identity\":\"@solo.dev/tiny_skill\",\"keyId\":\"skillx-test-vector-1\",\"kind\":\"skill\",\"publisher\":{\"handle\":\"solo.dev\",\"verifiedBy\":\"none\"},\"releaseDigest\":\"sha256:2b80424f6839c7ae445108317a623797ecab4ee94fbb6cddbc9695326aed8544\",\"schemaVersion\":\"skillx.release/v1\",\"signature\":\"tEUDJBptJIcz6nVFciKaixGz3bUvTe5ZAVI6cYBFtWsK75DU3bTqSfauO8Tf2Te85zfHA3IbY0FOYPviKWS/Dw==\",\"signatureAlgorithm\":\"ed25519\",\"sourceProvenance\":null,\"treeSize\":44,\"version\":\"0.1.0-beta.1\"}",
       "manifestDigest": "sha256:5979df5f8e7c400ac422183440040742bb34274bca37c9347d100948871e3596"
     }
   ],
   "valid": [
     {
       "name": "first status of a release",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T12:00:00Z",
       "previous": null,
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "AUULhdLU6L0sCQXUi7CXFISvhwvyF27XrIlW7Z1VVdeYLOLFGaS238Njby+XFXkgHCTKvHJe62Y+ZvelnPtTBQ=="
-      },
-      "signingPayload": "{\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
-      "signingPayloadSha256": "2cbea4f5fef221d394cb81997f40c7b5a68eff98035644789207181583c9933c"
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayload": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayloadSha256": "530fa7fca53abb9f7f68fcf122fcc0e05ef5bd50b91afb004a2ab9604efd3583"
     },
     {
       "name": "yanked with a reason after the published status",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "AUULhdLU6L0sCQXUi7CXFISvhwvyF27XrIlW7Z1VVdeYLOLFGaS238Njby+XFXkgHCTKvHJe62Y+ZvelnPtTBQ=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "bOkhfaBbnghfh1NtqndPv5jeqPKrdjzzEciLwbGYJrvIolqrEneseTWkAiYpBAUDVJIdgAZbkXd3QdpNvNRWCw=="
-      },
-      "signingPayload": "{\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
-      "signingPayloadSha256": "23aaf64b36bb65d12bc11e2d59807050107077087dd9e57d9f9d1c2b48ba31a4"
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "signingPayload": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "signingPayloadSha256": "145b51b5f2e76f6ca40ebb8cd0a29ac8e64eafe092154c23cd6c12956b3388a6"
     },
     {
       "name": "identical re-fetch of the accepted status",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "bOkhfaBbnghfh1NtqndPv5jeqPKrdjzzEciLwbGYJrvIolqrEneseTWkAiYpBAUDVJIdgAZbkXd3QdpNvNRWCw=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "bOkhfaBbnghfh1NtqndPv5jeqPKrdjzzEciLwbGYJrvIolqrEneseTWkAiYpBAUDVJIdgAZbkXd3QdpNvNRWCw=="
-      },
-      "signingPayload": "{\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
-      "signingPayloadSha256": "23aaf64b36bb65d12bc11e2d59807050107077087dd9e57d9f9d1c2b48ba31a4"
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "signingPayload": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "signingPayloadSha256": "145b51b5f2e76f6ca40ebb8cd0a29ac8e64eafe092154c23cd6c12956b3388a6"
     },
     {
       "name": "first status of another version of the same tree, tracked separately",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:c598df8848000fea906e7e4d60237c30d927ef4ee26e5148b9091920eb0016a9",
+      "manifest": "1.2.1 of the same tree",
+      "now": "2026-10-13T12:00:00Z",
       "previous": null,
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:c598df8848000fea906e7e4d60237c30d927ef4ee26e5148b9091920eb0016a9",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "XMbxiXFkPsciIx6e082vX7myNF6+EwSgoO/uuokUpZk9cgAEMWD3XlOXHZrZxHCCU2eCjWDAfGat/ZoUkqwnCA=="
-      },
-      "signingPayload": "{\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:c598df8848000fea906e7e4d60237c30d927ef4ee26e5148b9091920eb0016a9\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
-      "signingPayloadSha256": "6507e4a7925d17dff14749afdc06f714ec034da5e0347cca5d65e843d7ac7498"
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:c598df8848000fea906e7e4d60237c30d927ef4ee26e5148b9091920eb0016a9\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"DjNwD6CfPwAJtAV8fpwCM0xEp/M3Kyed6FuEY7n0YYPF08jUPsmqM8hp+x6Ab6Dt/h/X5AbemtygxbeuuTndCg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayload": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:c598df8848000fea906e7e4d60237c30d927ef4ee26e5148b9091920eb0016a9\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayloadSha256": "4c55983622dc089390e67b3401029e339a0a4028d553df33d54427ca5093fd65"
+    },
+    {
+      "name": "daily re-sign of the same state",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-15T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "document": "{\"expiresAt\":\"2026-10-16T09:00:00Z\",\"issuedAt\":\"2026-10-15T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":3,\"signature\":\"DOQKzwXbj9ZDHlJ+jtJ1HfIPXtaH3jER4UlbA/ErIpatbihfh/ZH9mlRqi48dJEU41bxmfjXQCNFs7vWobaXCw==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "signingPayload": "{\"expiresAt\":\"2026-10-16T09:00:00Z\",\"issuedAt\":\"2026-10-15T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":3,\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "signingPayloadSha256": "2fe57bfa8c9cf706f7a30d8d1ecfc14894212a52ec774fd31068240acf2083ec"
+    },
+    {
+      "name": "yanked release published again",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-15T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "document": "{\"expiresAt\":\"2026-10-16T09:00:00Z\",\"issuedAt\":\"2026-10-15T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":3,\"signature\":\"Pl9KFJ9s/uuN/iUc+kYQolwOWQGxTxI9yxTqwN/8ZERUjalg/S8p4hUX5U5/SGfhP14tDbAcNabPOaGTasHrBg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayload": "{\"expiresAt\":\"2026-10-16T09:00:00Z\",\"issuedAt\":\"2026-10-15T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":3,\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayloadSha256": "d85d87cec8314c03433130139e2f468da3715b188c97f2911af0e047ced06eb4"
+    },
+    {
+      "name": "quarantined to published across a skipped sequence (via yanked)",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-15T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"fSI1jAC48HfiOBo/Ofvfk5rc5VMuZpE1Hu7RHXPswDP+HlWz9NoUl2UkBO/3rABl/tpBpOCmyfMbXZ+uuWbdAQ==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"quarantined\"}",
+      "document": "{\"expiresAt\":\"2026-10-16T09:00:00Z\",\"issuedAt\":\"2026-10-15T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":4,\"signature\":\"s+AtFBEYn5iDaNEVAZs52mjkjbomoTMzp5YcTNKOK8Sfp8iPP3sYFN9CSBNnhuOG94qTFZboIfWzKxZ8OKmcBw==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayload": "{\"expiresAt\":\"2026-10-16T09:00:00Z\",\"issuedAt\":\"2026-10-15T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":4,\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayloadSha256": "185bc4059d938d67e7d423e48aa6429428e6dcb7c459dcd613fd15e5b055142c"
+    },
+    {
+      "name": "checked exactly at expiresAt",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T04:31:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayload": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayloadSha256": "530fa7fca53abb9f7f68fcf122fcc0e05ef5bd50b91afb004a2ab9604efd3583"
     }
   ],
   "invalid": [
     {
       "name": "state changed after signing",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "AUULhdLU6L0sCQXUi7CXFISvhwvyF27XrIlW7Z1VVdeYLOLFGaS238Njby+XFXkgHCTKvHJe62Y+ZvelnPtTBQ=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "published",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "bOkhfaBbnghfh1NtqndPv5jeqPKrdjzzEciLwbGYJrvIolqrEneseTWkAiYpBAUDVJIdgAZbkXd3QdpNvNRWCw=="
-      },
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
       "expectedCode": "signature.mismatch"
     },
     {
       "name": "reason changed after signing",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "AUULhdLU6L0sCQXUi7CXFISvhwvyF27XrIlW7Z1VVdeYLOLFGaS238Njby+XFXkgHCTKvHJe62Y+ZvelnPtTBQ=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes.",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "bOkhfaBbnghfh1NtqndPv5jeqPKrdjzzEciLwbGYJrvIolqrEneseTWkAiYpBAUDVJIdgAZbkXd3QdpNvNRWCw=="
-      },
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes.\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
       "expectedCode": "signature.mismatch"
     },
     {
       "name": "sequence raised after signing",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "bOkhfaBbnghfh1NtqndPv5jeqPKrdjzzEciLwbGYJrvIolqrEneseTWkAiYpBAUDVJIdgAZbkXd3QdpNvNRWCw=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 3,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "bOkhfaBbnghfh1NtqndPv5jeqPKrdjzzEciLwbGYJrvIolqrEneseTWkAiYpBAUDVJIdgAZbkXd3QdpNvNRWCw=="
-      },
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":3,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "expectedCode": "signature.mismatch"
+    },
+    {
+      "name": "expiry extended after signing",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-21T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
       "expectedCode": "signature.mismatch"
     },
     {
       "name": "signed by another key under the trusted key ID",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "AUULhdLU6L0sCQXUi7CXFISvhwvyF27XrIlW7Z1VVdeYLOLFGaS238Njby+XFXkgHCTKvHJe62Y+ZvelnPtTBQ=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "mNutFrw3UlBsoihubIpXLd0uDzsFL53ZMDslc+tkeqg4ygt6104NEn2hRN6OEKqpUG1OLQsXN9cP47mYUUb7Bw=="
-      },
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"OSfUAL28TXLpmGkqHYwhmGIU77vAXkaBEkuSE5jN3C9yVFLwstTYKMw3iOMrqG3QgSikwInDU9sJAVKMTyHVDQ==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
       "expectedCode": "signature.mismatch"
     },
     {
       "name": "unknown key ID",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "AUULhdLU6L0sCQXUi7CXFISvhwvyF27XrIlW7Z1VVdeYLOLFGaS238Njby+XFXkgHCTKvHJe62Y+ZvelnPtTBQ=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-unknown-key",
-        "signatureAlgorithm": "ed25519",
-        "signature": "bOkhfaBbnghfh1NtqndPv5jeqPKrdjzzEciLwbGYJrvIolqrEneseTWkAiYpBAUDVJIdgAZbkXd3QdpNvNRWCw=="
-      },
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-unknown-key\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
       "expectedCode": "signature.unknown_key"
     },
     {
       "name": "signature over an encoding/json-escaped payload",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "AUULhdLU6L0sCQXUi7CXFISvhwvyF27XrIlW7Z1VVdeYLOLFGaS238Njby+XFXkgHCTKvHJe62Y+ZvelnPtTBQ=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "OngrStlS3ffBcROhE5/LaiSASqqoR8tDqFNyhZ9/pmJzndXqIwwTTWrXJ58zLwYikmCKLuY7bq55DW9MA01mAw=="
-      },
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"nKS2hxRzrYba8CtRTFSSO7aI27KHPkGhOAhtNcQGQCb0l1gwkj+9fXgr8cDxXNiNC+BFvxY0YcRY5ZbRZz73Aw==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
       "expectedCode": "signature.mismatch"
     },
     {
-      "name": "lower sequence than the accepted status (rollback)",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "bOkhfaBbnghfh1NtqndPv5jeqPKrdjzzEciLwbGYJrvIolqrEneseTWkAiYpBAUDVJIdgAZbkXd3QdpNvNRWCw=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "AUULhdLU6L0sCQXUi7CXFISvhwvyF27XrIlW7Z1VVdeYLOLFGaS238Njby+XFXkgHCTKvHJe62Y+ZvelnPtTBQ=="
-      },
-      "expectedCode": "status.rollback"
+      "name": "pretty-printed",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "{\n  \"schemaVersion\": \"skillx.release-status/v1\",\n  \"releaseDigest\": \"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\n  \"manifestDigest\": \"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\n  \"state\": \"yanked\",\n  \"reason\": \"Yanked: unsafe script <scripts/check.sh> & café notes\",\n  \"issuedAt\": \"2026-10-14T09:00:00Z\",\n  \"expiresAt\": \"2026-10-15T09:00:00Z\",\n  \"sequence\": 2,\n  \"keyId\": \"skillx-test-vector-1\",\n  \"signatureAlgorithm\": \"ed25519\",\n  \"signature\": \"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\"\n}",
+      "expectedCode": "status.non_canonical"
     },
     {
-      "name": "same sequence with different content (conflict)",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "bOkhfaBbnghfh1NtqndPv5jeqPKrdjzzEciLwbGYJrvIolqrEneseTWkAiYpBAUDVJIdgAZbkXd3QdpNvNRWCw=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "published",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "1QO+vcKl/Py+KlkINlH1YCFvvlj4C7ZobdaKN8zqONW9vix64W20AfJEH5go7F1glDT46pwN5d+L6JuKIYbSDA=="
-      },
-      "expectedCode": "status.conflict"
+      "name": "members in insertion order",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "{\"schemaVersion\":\"skillx.release-status/v1\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"state\":\"yanked\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"expiresAt\":\"2026-10-15T09:00:00Z\",\"sequence\":2,\"keyId\":\"skillx-test-vector-1\",\"signatureAlgorithm\":\"ed25519\",\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\"}",
+      "expectedCode": "status.non_canonical"
+    },
+    {
+      "name": "duplicate member",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "{\"state\":\"published\",\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "expectedCode": "status.non_canonical"
+    },
+    {
+      "name": "exponent number form",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2e0,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "expectedCode": "status.non_canonical"
+    },
+    {
+      "name": "escaped ASCII character",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed2551\\u0039\",\"state\":\"yanked\"}",
+      "expectedCode": "status.non_canonical"
+    },
+    {
+      "name": "byte order mark",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "﻿{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "expectedCode": "status.non_canonical"
+    },
+    {
+      "name": "member differing from a known one only by case, correctly signed",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "{\"State\":\"published\",\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"JjrrNahUVS+3nP7o+xuYy9B2WRljDuiiyBdXyZpeEMVTac56hg8zL0faEDunMa9EW3BhtaKwJaW0S3k85h7gBA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "expectedCode": "unknown_field"
+    },
+    {
+      "name": "empty reason injected, correctly signed",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"DhxVFeMmfwzQ5r2fX7toj3bFGfuPek2Pa9sK0vNnxa6CJbAMtZ+uJmrqWl0gnM4ZkBxFvRA+eX2ACgyQEimsAw==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "length"
+    },
+    {
+      "name": "null reason injected, correctly signed",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":null,\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"MLOwD7Rw21+Gx+OaoyqFVdC3TK+SbVaK5a13j8PFH1bWbPDwhATJ29eji7Cq2ppvUcam47UGTUV0NAs/J3dxDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "type"
     },
     {
       "name": "unknown state, correctly signed",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "bOkhfaBbnghfh1NtqndPv5jeqPKrdjzzEciLwbGYJrvIolqrEneseTWkAiYpBAUDVJIdgAZbkXd3QdpNvNRWCw=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "revoked",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 3,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "/Fwqm9JZtFZRn/+2juzQKxsmctcsjVkaARtDulsalIS7aKwRSMty/tQUJ0UriJfyL0Uo+y3T4+u3duE/zeqSBg=="
-      },
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":3,\"signature\":\"JFNEQS/elLwLb11XInYk+hX+w77CPsqEEp3LasgFctnpPo4aHKybfvWwsvWkJoOhvkCrABJNUQnBrNHMpgWbAg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"revoked\"}",
       "expectedCode": "status.unknown_state"
     },
     {
-      "name": "status of another release tree",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
+      "name": "missing manifestDigest, correctly signed",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T12:00:00Z",
       "previous": null,
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:2b80424f6839c7ae445108317a623797ecab4ee94fbb6cddbc9695326aed8544",
-        "manifestDigest": "sha256:5979df5f8e7c400ac422183440040742bb34274bca37c9347d100948871e3596",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "ZOZz9Gji6upxt6uIOH5RBfOHBnDhI7SXCEcXyqLhDzO0a+XkM9O+DecmW++ATHoYEB1KW8pt+4nbdVqmWi9qBw=="
-      },
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"BJtPNJpKFBxvfqtdG6Qb9iPZQ5zaL654Eko3OYSQZwhMBPo2yEAGTzuJ4sH7LMDWfivDXVrzhqOlLodUl3p9Ag==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "required"
+    },
+    {
+      "name": "missing expiresAt, correctly signed",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T12:00:00Z",
+      "previous": null,
+      "document": "{\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"AUULhdLU6L0sCQXUi7CXFISvhwvyF27XrIlW7Z1VVdeYLOLFGaS238Njby+XFXkgHCTKvHJe62Y+ZvelnPtTBQ==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "required"
+    },
+    {
+      "name": "expiresAt before issuedAt, correctly signed",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-13T04:30:59Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"O+gZkw8lHhtJ7zefbstOGSXJPPe4cYsPHeIrWN5h16hGotkWYGChChtaxYFBwNYPiICICDImGvadjASh/nnECg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "status.invalid_lifetime"
+    },
+    {
+      "name": "lifetime longer than 7 days, correctly signed",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-20T04:31:01Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"WUlp2TnLSkmeQHFiv3Jok2AEU4bPJO+5PWjITX8SO8JCIXq9vLKThLZ+jRdF/cFfoW4JhV9wxSFYZt+0yPc7Bw==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "status.invalid_lifetime"
+    },
+    {
+      "name": "first status that is yanked, correctly signed",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"PWR/QEPHvJRut0Gnwjo948jiFrZFvXKyC5eNPDittTL3kXLZwXeP4QeSwYqgn++JkBHK3QEqio+Ed0Xi7pvYDw==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "expectedCode": "status.invalid_transition"
+    },
+    {
+      "name": "reason over 512 UTF-8 bytes, correctly signed",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé.\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"ll+/hBkM2OBu/lGLyIc9PqRcmh6P80kVqSriBjA40iMgcUzLKm3qT1Cd/oOUo/8lgCcY0OBDOIb0qihIxkbdDQ==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "expectedCode": "length"
+    },
+    {
+      "name": "bidi override in the reason, correctly signed",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"see ‮hs.kcehc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"qN86bLtTH7GNNgJwmx/3SKzdbvBW8rKxDGPGbRnzy1Dj433gyBHLsQTxuGh/zc81lzwPfHqBCgzBlJCHDbRyBw==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "expectedCode": "format"
+    },
+    {
+      "name": "status of another release tree",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:5979df5f8e7c400ac422183440040742bb34274bca37c9347d100948871e3596\",\"releaseDigest\":\"sha256:2b80424f6839c7ae445108317a623797ecab4ee94fbb6cddbc9695326aed8544\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"vjp2IFJqOHK+v0xHvQSHnXTZZYcjYbLxH9QQB5e4O1bfZ1OkIWCUWt0AL8pjXJ+L6Fci0DjBdhsATDth7HCxBg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
       "expectedCode": "status.digest_mismatch"
     },
     {
       "name": "status of another version of the same tree",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "AUULhdLU6L0sCQXUi7CXFISvhwvyF27XrIlW7Z1VVdeYLOLFGaS238Njby+XFXkgHCTKvHJe62Y+ZvelnPtTBQ=="
-      },
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:c598df8848000fea906e7e4d60237c30d927ef4ee26e5148b9091920eb0016a9",
-        "state": "yanked",
-        "reason": "Yanked: unsafe script <scripts/check.sh> & café notes",
-        "issuedAt": "2026-10-14T09:00:00Z",
-        "sequence": 2,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "rKAqPl+D+SOgMhSvX8FKHZ2VmUvAxilg744OKej/gGrpyvuHf8yYHui4sQ5+GBCrjpHKUG3Z6284vAwlVDW7BA=="
-      },
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:c598df8848000fea906e7e4d60237c30d927ef4ee26e5148b9091920eb0016a9\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"GCa4fNHeaF4H9SkeRXVZja8UWPtbQeMSLC4R8txof1gFfLY7G666mrneli0STnizR53dxfcSMs2bxnUxcUoODA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
       "expectedCode": "status.manifest_mismatch"
-    },
-    {
-      "name": "missing manifestDigest, correctly signed",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
-      "previous": null,
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "Lt3PlElJm6IihJxCgc3V1Md3UnkrNEiBle7RpIHLmG6iuoEp8sJRVvG7lz6ZdT0OLwYW8VkaTIJTtqnx+KyBDA=="
-      },
-      "expectedCode": "required"
     },
     {
       "name": "wrong manifestDigest, correctly signed",
-      "expectedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-      "expectedManifestDigest": "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T12:00:00Z",
       "previous": null,
-      "status": {
-        "schemaVersion": "skillx.release-status/v1",
-        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
-        "manifestDigest": "sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
-        "state": "published",
-        "issuedAt": "2026-10-13T04:31:00Z",
-        "sequence": 1,
-        "keyId": "skillx-test-vector-1",
-        "signatureAlgorithm": "ed25519",
-        "signature": "pD8ZqKLe0csnXK+uN46nAzwEb9K0O5qnpK1qiLS9cXOKEnx9jYPu4FCBi2nbiz/MwTUfPzQ+QRQjv/znoSz0DA=="
-      },
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"RZmIudxDeH0v5lTPc2EYQM4u/wQupwR2gaJF7KrNkyneWQyjCKyNMOEj1lopIuOGFSPZm0TldmHoOIq6peafCw==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
       "expectedCode": "status.manifest_mismatch"
+    },
+    {
+      "name": "issued before the manifest was created",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-14T04:29:59Z\",\"issuedAt\":\"2026-10-13T04:29:59Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"9ovE7/Rbq/dIFL5Aigbagfzb9BUbLT6+gVz8R4mdSyhtwxcl7IFj+RLxkpl9K3RvfpV6yPu9TZmFBdcOYc2oCg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "status.issued_before_release"
+    },
+    {
+      "name": "expired one second after expiresAt",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T04:31:01Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "status.expired"
+    },
+    {
+      "name": "lower sequence than the accepted status (rollback)",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "status.rollback"
+    },
+    {
+      "name": "same sequence with different content (conflict)",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"yBF2lq3npr1NOJaMNM1xinpOh9RBX/9uy4ahiJHobRkl3ZRgNzir0zkagSrVl+NnPlRILNi/II1BjvI26dcGBw==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "status.conflict"
+    },
+    {
+      "name": "higher sequence issued no later (issuedAt regression)",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":3,\"signature\":\"YFTjuOtuMygvouP2+R54t6NtQVSI6iAqxTvc6txDjvD5ZNzXyXCs/z6tbyV03HYR+n8lRwtHFKpPw+3UEbpiDA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "expectedCode": "status.issued_at_regression"
+    },
+    {
+      "name": "yanked back to draft",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-15T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABA==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "document": "{\"expiresAt\":\"2026-10-16T09:00:00Z\",\"issuedAt\":\"2026-10-15T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":3,\"signature\":\"gHc+lCAgq8O5/xxaceuBBSKwjUbPNr8UL9aG0I/Xful+LfLQgS2d4a4NAGuX5aXnSHBi/DrSvmBi1rPGrSUbBw==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"draft\"}",
+      "expectedCode": "status.invalid_transition"
+    },
+    {
+      "name": "quarantined straight to published",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-15T12:00:00Z",
+      "previous": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"fSI1jAC48HfiOBo/Ofvfk5rc5VMuZpE1Hu7RHXPswDP+HlWz9NoUl2UkBO/3rABl/tpBpOCmyfMbXZ+uuWbdAQ==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"quarantined\"}",
+      "document": "{\"expiresAt\":\"2026-10-16T09:00:00Z\",\"issuedAt\":\"2026-10-15T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":3,\"signature\":\"Pl9KFJ9s/uuN/iUc+kYQolwOWQGxTxI9yxTqwN/8ZERUjalg/S8p4hUX5U5/SGfhP14tDbAcNabPOaGTasHrBg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "status.invalid_transition"
     }
   ]
 }
