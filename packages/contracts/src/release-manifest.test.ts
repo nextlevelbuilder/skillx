@@ -70,7 +70,8 @@ describe("skillx.release/v1 validation", () => {
     const paths = validateReleaseManifest({}).issues.filter((i) => i.code === "required").map((i) => i.path);
     expect(paths).toContain("releaseDigest");
     expect(paths).toContain("signature");
-    expect(paths).toHaveLength(19);
+    expect(paths).toHaveLength(18);
+    expect(paths).not.toContain("state");
   });
 
   it("rejects unknown nested publisher and provenance fields", () => {
@@ -140,7 +141,7 @@ describe("skillx.release/v1 signatures", () => {
   });
 
   it.each<[string, (m: SkillxReleaseManifest) => void]>([
-    ["a changed state", (m) => void (m.state = "yanked")],
+    ["a changed version", (m) => void (m.version = "1.2.1")],
     ["a changed file hash", (m) => void (m.files[0]!.sha256 = `${m.files[0]!.sha256.slice(0, 63)}0`)],
     ["a changed release digest", (m) => void (m.releaseDigest = `sha256:${"e".repeat(64)}`)],
     ["a changed publisher verification", (m) => void (m.publisher.verifiedBy = "admin")],
@@ -198,9 +199,9 @@ describe("skillx.release/v1 signatures", () => {
     expect(result.issues.map((i) => i.code)).not.toContain(RELEASE_SIGNATURE_CODES.mismatch);
   });
 
-  it("refuses to sign an invalid manifest", async () => {
+  it("refuses to sign a manifest that carries a mutable release state", async () => {
     const { privateKey } = await generateKey();
-    const invalid = { ...RELEASE_MANIFEST_FIXTURE, state: "blocked" } as unknown as UnsignedReleaseManifest;
+    const invalid = { ...RELEASE_MANIFEST_FIXTURE, state: "published" } as unknown as UnsignedReleaseManifest;
     await expect(signReleaseManifest(invalid, privateKey)).rejects.toBeInstanceOf(ReleaseManifestError);
   });
 

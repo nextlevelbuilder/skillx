@@ -4,34 +4,44 @@
  * A release manifest pins one immutable package version to the canonical
  * `agentkit.skill-tree/v1` tree of its files. `releaseDigest` is the tree
  * digest and the release identity; `artifactDigest` covers only the bytes of
- * the transport archive. The registry signs the manifest with Ed25519 over
- * `releaseSigningPayload`: the canonical JSON (see `canonical-json.ts`) of
- * every member except `signature`, so `keyId` and `signatureAlgorithm` are
- * signed too. The signature is the standard (padded) base64 of the 64-byte
- * Ed25519 signature, as in AgentKit's remote registry manifests.
+ * the transport archive. The manifest is signed once per `releaseDigest` and
+ * never changes; the mutable release state lives in the separately signed
+ * `skillx.release-status/v1` document (`release-status.ts`). Signature rules
+ * are in `release-signature.ts`: Ed25519 over the canonical JSON of every
+ * member except `signature`.
  *
- * Validators never throw on malformed input. Signing and verification use the
- * WebCrypto `Ed25519` algorithm, available in Workers, browsers and Node.js.
+ * Validators never throw on malformed input.
  */
 
 import { ERROR_CODES, SkillTreeError, checkCollisions, checkPublisher, isNoisePath, validatePath } from "@skillx/skill-tree/rules";
 import { canonicalJsonBytes } from "./canonical-json";
+import { PACKAGE_NAME_PATTERN, RELEASE_CHANNELS, SEMVER_PATTERN, isPackageKind, PACKAGE_KINDS } from "./package-manifest";
+import type { PackageKind, ReleaseChannel } from "./package-manifest";
 import {
-  PACKAGE_NAME_PATTERN,
-  RELEASE_CHANNELS,
-  SEMVER_PATTERN,
-  isPackageKind,
-  isReleaseState,
-  PACKAGE_KINDS,
-  RELEASE_STATES,
-} from "./package-manifest";
-import type { PackageKind, ReleaseChannel, ReleaseState } from "./package-manifest";
+  RELEASE_SIGNATURE_ALGORITHM,
+  ReleaseManifestError,
+  checkFields as checkSchemaFields,
+  checkSignatureMembers,
+  isReleaseTimestamp,
+  signPayload,
+  verifyPayload,
+} from "./release-signature";
+import type { ReleasePublicKeys } from "./release-signature";
 import { isPlainObject, issue, validationFail, validationOk } from "./validation";
 import type { ValidationIssue, ValidationResult } from "./validation";
 import { RELEASE_DIGEST_PATTERN } from "./verification-evidence";
 
+export {
+  RELEASE_KEY_ID_PATTERN,
+  RELEASE_SIGNATURE_ALGORITHM,
+  RELEASE_SIGNATURE_CODES,
+  RELEASE_SIGNATURE_PATTERN,
+  RELEASE_TIMESTAMP_PATTERN,
+  ReleaseManifestError,
+} from "./release-signature";
+export type { ReleasePublicKeys } from "./release-signature";
+
 export const SKILLX_RELEASE_SCHEMA_VERSION = "skillx.release/v1";
-export const RELEASE_SIGNATURE_ALGORITHM = "ed25519";
 
 /** Mode classes of `agentkit.skill-tree/v1`. */
 export const RELEASE_FILE_MODES = ["100644", "100755"] as const;
@@ -44,16 +54,10 @@ export type ReleaseFileMode = (typeof RELEASE_FILE_MODES)[number];
 export const PUBLISHER_VERIFICATIONS = ["none", "github", "admin"] as const;
 export type PublisherVerification = (typeof PUBLISHER_VERIFICATIONS)[number];
 
-/** Same key ID rule as AgentKit remote registry manifests. */
-export const RELEASE_KEY_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{1,63}$/;
 /** Per-file content hash: bare lowercase hex SHA-256. */
 export const FILE_SHA256_PATTERN = /^[a-f0-9]{64}$/;
 /** A full SHA-1 or SHA-256 git object name in lowercase hex. */
 export const SOURCE_COMMIT_PATTERN = /^(?:[a-f0-9]{40}|[a-f0-9]{64})$/;
-/** RFC 3339 UTC timestamp with whole seconds, e.g. `2026-10-13T04:30:00Z`. */
-export const RELEASE_TIMESTAMP_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/;
-/** Padded standard base64 of a 64-byte Ed25519 signature. */
-export const RELEASE_SIGNATURE_PATTERN = /^[A-Za-z0-9+/]{86}==$/;
 const MAX_SOURCE_REPO_LENGTH = 512;
 
 /** Tree limits of `agentkit.skill-tree/v1`; equal to `LIMITS` of `@skillx/skill-tree` (guarded by a test). */
@@ -100,10 +104,11 @@ export interface UnsignedReleaseManifest {
   files: ReleaseFile[];
   fileCount: number;
   treeSize: number;
-  /** Release state at signing time; a state change is a newly signed manifest for the same digest. */
-  state: ReleaseState;
   publisher: ReleasePublisher;
-  /** `null` when the release was not packed from a recorded git commit. */
+  /**
+   * `null` when the release was not packed from a recorded git commit.
+   * Consumers MUST label such a release "provenance unknown".
+   */
   sourceProvenance: ReleaseSourceProvenance | null;
   /** Paths of `files` the package declares as scripts, sorted like `files`. Never executed by SkillX. */
   declaredScripts: string[];
@@ -128,7 +133,6 @@ const MANIFEST_FIELDS = [
   "files",
   "fileCount",
   "treeSize",
-  "state",
   "publisher",
   "sourceProvenance",
   "declaredScripts",
@@ -139,23 +143,6 @@ const MANIFEST_FIELDS = [
 const FILE_FIELDS = ["path", "mode", "sha256", "size"] as const;
 const PUBLISHER_FIELDS = ["handle", "verifiedBy"] as const;
 const PROVENANCE_FIELDS = ["repo", "commit", "path"] as const;
-
-/** Signature verification failure codes. */
-export const RELEASE_SIGNATURE_CODES = {
-  unknownKey: "signature.unknown_key",
-  invalidKey: "signature.invalid_key",
-  mismatch: "signature.mismatch",
-} as const;
-
-/** Thrown by `signReleaseManifest` for an invalid manifest or key. */
-export class ReleaseManifestError extends Error {
-  readonly issues: ValidationIssue[];
-  constructor(message: string, issues: ValidationIssue[] = []) {
-    super(issues.length === 0 ? message : `${message}: ${issues.map((i) => `${i.path} ${i.code}`).join(", ")}`);
-    this.name = "ReleaseManifestError";
-    this.issues = issues;
-  }
-}
 
 /** Compares well-formed strings by UTF-8 bytes, which is code point order. */
 export function compareUtf8(a: string, b: string): number {
@@ -177,13 +164,7 @@ function oneOf<T extends string>(values: readonly T[], value: unknown): value is
 }
 
 function checkFields(value: Record<string, unknown>, allowed: readonly string[], path: string, issues: ValidationIssue[]): void {
-  const prefix = path === "" ? "" : `${path}.`;
-  for (const key of Object.keys(value)) {
-    if (!allowed.includes(key)) issues.push(issue(`${prefix}${key}`, "unknown_field", "is not a skillx.release/v1 field"));
-  }
-  for (const key of allowed) {
-    if (!(key in value)) issues.push(issue(`${prefix}${key}`, "required", "is required"));
-  }
+  checkSchemaFields(value, allowed, path, SKILLX_RELEASE_SCHEMA_VERSION, issues);
 }
 
 function treeIssue(path: string, error: SkillTreeError): ValidationIssue {
@@ -328,13 +309,6 @@ function validateDeclaredScripts(scripts: unknown, files: ReleaseFile[] | null, 
   });
 }
 
-function isReleaseTimestamp(value: unknown): boolean {
-  if (typeof value !== "string" || !RELEASE_TIMESTAMP_PATTERN.test(value)) return false;
-  const ms = Date.parse(value);
-  // Round-tripping rejects calendar overflow such as 2026-02-30.
-  return Number.isFinite(ms) && new Date(ms).toISOString() === `${value.slice(0, -1)}.000Z`;
-}
-
 function collectIssues(input: unknown, requireSignature: boolean): ValidationIssue[] {
   if (!isPlainObject(input)) return [issue("", "type", "release manifest must be an object")];
   const issues: ValidationIssue[] = [];
@@ -377,26 +351,13 @@ function collectIssues(input: unknown, requireSignature: boolean): ValidationIss
     issues.push(issue("treeSize", "mismatch", "must equal the sum of file sizes"));
   }
 
-  if (!isReleaseState(input.state)) {
-    issues.push(issue("state", "unsupported_value", `must be one of: ${RELEASE_STATES.join(", ")}`));
-  }
   validatePublisher(input.publisher, handle, issues);
   validateProvenance(input.sourceProvenance, issues);
   validateDeclaredScripts(input.declaredScripts, files, issues);
   if (!isReleaseTimestamp(input.createdAt)) {
     issues.push(issue("createdAt", "format", "must be an RFC 3339 UTC timestamp with whole seconds, e.g. 2026-10-13T04:30:00Z"));
   }
-  if (typeof input.keyId !== "string" || !RELEASE_KEY_ID_PATTERN.test(input.keyId)) {
-    issues.push(issue("keyId", "pattern", `must match ${RELEASE_KEY_ID_PATTERN.source}`));
-  }
-  if (input.signatureAlgorithm !== RELEASE_SIGNATURE_ALGORITHM) {
-    issues.push(issue("signatureAlgorithm", "unsupported_value", `must equal '${RELEASE_SIGNATURE_ALGORITHM}'`));
-  }
-  if (requireSignature && "signature" in input) {
-    if (typeof input.signature !== "string" || !RELEASE_SIGNATURE_PATTERN.test(input.signature)) {
-      issues.push(issue("signature", "pattern", "must be padded base64 of a 64-byte Ed25519 signature"));
-    }
-  }
+  checkSignatureMembers(input, requireSignature, issues);
   return issues;
 }
 
@@ -421,22 +382,6 @@ export function releaseSigningPayload(manifest: UnsignedReleaseManifest | Skillx
   return canonicalJsonBytes(payload);
 }
 
-function toBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}
-
-function fromBase64(text: string): Uint8Array<ArrayBuffer> {
-  const binary = atob(text);
-  const out = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
-  return out;
-}
-
-const ED25519 = { name: "Ed25519" } as const;
-const ED25519_PUBLIC_KEY_BYTES = 32;
-
 /**
  * Signs a valid unsigned manifest with an Ed25519 private key. The key ID and
  * algorithm are part of the signed payload. Throws `ReleaseManifestError` when
@@ -448,17 +393,8 @@ export async function signReleaseManifest(
 ): Promise<SkillxReleaseManifest> {
   const result = validateUnsignedReleaseManifest(manifest);
   if (!result.valid) throw new ReleaseManifestError("invalid release manifest", result.issues);
-  let signature: ArrayBuffer;
-  try {
-    signature = await crypto.subtle.sign(ED25519, privateKey, releaseSigningPayload(manifest));
-  } catch (cause) {
-    throw new ReleaseManifestError(`cannot sign with the given key: ${cause instanceof Error ? cause.message : String(cause)}`);
-  }
-  return { ...manifest, signature: toBase64(new Uint8Array(signature)) };
+  return { ...manifest, signature: await signPayload(releaseSigningPayload(manifest), privateKey) };
 }
-
-/** A key set: key ID to raw 32-byte Ed25519 public key. */
-export type ReleasePublicKeys = ReadonlyMap<string, Uint8Array>;
 
 /**
  * Validates a signed manifest and verifies its signature against `publicKeys`.
@@ -469,22 +405,6 @@ export async function verifyReleaseManifest(input: unknown, publicKeys: ReleaseP
   const structure = validateReleaseManifest(input);
   if (!structure.valid) return structure;
   const manifest = input as SkillxReleaseManifest;
-  const raw = publicKeys.get(manifest.keyId);
-  if (raw === undefined) {
-    return validationFail([issue("keyId", RELEASE_SIGNATURE_CODES.unknownKey, `no trusted key ${JSON.stringify(manifest.keyId)}`)]);
-  }
-  if (raw.length !== ED25519_PUBLIC_KEY_BYTES) {
-    return validationFail([issue("keyId", RELEASE_SIGNATURE_CODES.invalidKey, `key ${JSON.stringify(manifest.keyId)} is not 32 bytes`)]);
-  }
-  let verified = false;
-  try {
-    const key = await crypto.subtle.importKey("raw", new Uint8Array(raw), ED25519, false, ["verify"]);
-    verified = await crypto.subtle.verify(ED25519, key, fromBase64(manifest.signature), releaseSigningPayload(manifest));
-  } catch (cause) {
-    const detail = cause instanceof Error ? cause.message : String(cause);
-    return validationFail([issue("keyId", RELEASE_SIGNATURE_CODES.invalidKey, `key ${JSON.stringify(manifest.keyId)} is unusable: ${detail}`)]);
-  }
-  return verified
-    ? validationOk()
-    : validationFail([issue("signature", RELEASE_SIGNATURE_CODES.mismatch, "signature does not verify for the canonical payload")]);
+  const failure = await verifyPayload(releaseSigningPayload(manifest), manifest.signature, manifest.keyId, publicKeys);
+  return failure === null ? validationOk() : validationFail([failure]);
 }

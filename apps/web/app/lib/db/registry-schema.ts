@@ -60,6 +60,9 @@ export const packageReleases = sqliteTable(
     published_at: integer("published_at", { mode: "timestamp_ms" }),
     yanked_at: integer("yanked_at", { mode: "timestamp_ms" }),
     quarantined_at: integer("quarantined_at", { mode: "timestamp_ms" }),
+    // Last signed skillx.release-status/v1 document: strictly increasing sequence and its issuedAt.
+    status_sequence: integer("status_sequence"),
+    status_issued_at: integer("status_issued_at", { mode: "timestamp_ms" }),
   },
   (table) => [
     uniqueIndex("idx_package_releases_version").on(table.package_id, table.version),

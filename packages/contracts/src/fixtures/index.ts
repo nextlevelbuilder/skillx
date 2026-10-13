@@ -12,12 +12,14 @@ import {
   INGESTION_FIXTURES,
 } from "./collection-fixtures";
 import { RELEASE_MANIFEST_FIXTURES } from "./release-fixtures";
+import { RELEASE_STATUS_FIXTURES } from "./release-status-fixtures";
 import type { FixtureCase } from "./types";
 
 export * from "./types";
 export * from "./manifest-fixtures";
 export * from "./collection-fixtures";
 export * from "./release-fixtures";
+export * from "./release-status-fixtures";
 
 export const ALL_FIXTURES: FixtureCase[] = [
   ...PACKAGE_MANIFEST_FIXTURES,
@@ -26,4 +28,5 @@ export const ALL_FIXTURES: FixtureCase[] = [
   ...ENTITLEMENT_FIXTURES,
   ...INGESTION_FIXTURES,
   ...RELEASE_MANIFEST_FIXTURES,
+  ...RELEASE_STATUS_FIXTURES,
 ];

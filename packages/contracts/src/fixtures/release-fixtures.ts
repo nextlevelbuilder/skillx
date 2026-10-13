@@ -35,7 +35,7 @@ export const RELEASE_FIXTURE_CONTENTS: Readonly<Record<"full" | "minimal", Reado
   },
 };
 
-/** A published, publisher-verified multi-file release with git provenance and a declared script. */
+/** A publisher-verified multi-file release with git provenance and a declared script. */
 export const RELEASE_MANIFEST_FIXTURE: UnsignedReleaseManifest = {
   schemaVersion: "skillx.release/v1",
   identity: "@publisher/review-guardrails",
@@ -57,7 +57,6 @@ export const RELEASE_MANIFEST_FIXTURE: UnsignedReleaseManifest = {
   ],
   fileCount: 3,
   treeSize: 154,
-  state: "published",
   publisher: { handle: "publisher", verifiedBy: "github" },
   sourceProvenance: {
     repo: "https://github.com/publisher/review-guardrails",
@@ -70,7 +69,7 @@ export const RELEASE_MANIFEST_FIXTURE: UnsignedReleaseManifest = {
   signatureAlgorithm: "ed25519",
 };
 
-/** A quarantined, unverified single-file prerelease without provenance: covers `null` and empty arrays. */
+/** An unverified single-file prerelease without provenance ("provenance unknown"): covers `null` and empty arrays. */
 export const RELEASE_MANIFEST_MINIMAL_FIXTURE: UnsignedReleaseManifest = {
   schemaVersion: "skillx.release/v1",
   identity: "@solo.dev/tiny_skill",
@@ -83,7 +82,6 @@ export const RELEASE_MANIFEST_MINIMAL_FIXTURE: UnsignedReleaseManifest = {
   files: [{ path: "SKILL.md", mode: "100644", sha256: "7822f865b6a9be616262a844ffb54085d095857dcf35a172150523db31a3726d", size: 44 }],
   fileCount: 1,
   treeSize: 44,
-  state: "quarantined",
   publisher: { handle: "solo.dev", verifiedBy: "none" },
   sourceProvenance: null,
   declaredScripts: [],
@@ -165,8 +163,8 @@ export const RELEASE_MANIFEST_FIXTURES: FixtureCase[] = [
   rejected("rejects an uppercase file hash", "pattern", (d) => {
     d.files[0]!.sha256 = String(d.files[0]!.sha256).toUpperCase();
   }),
-  rejected("rejects a release state outside the enum", "unsupported_value", (d) => {
-    d.state = "blocked";
+  rejected("rejects a release state member, which belongs to the status document", "unknown_field", (d) => {
+    d.state = "published";
   }),
   rejected("rejects the reserved @agentkit publisher", "identity.reserved_publisher", (d) => {
     d.identity = "@agentkit/review-guardrails";

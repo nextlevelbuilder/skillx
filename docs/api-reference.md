@@ -736,8 +736,10 @@ publisher pipeline and pinned read API build on it. Source:
 `packages/contracts/src/canonical-json.ts`.
 
 A release manifest pins one immutable `@publisher/slug@version` to the
-`agentkit.skill-tree/v1` tree of its files. It is a JSON object with exactly
-these members; unknown members are rejected at every level.
+`agentkit.skill-tree/v1` tree of its files. It is signed once and never
+changes; the release lifecycle state is a separate signed document
+(`skillx.release-status/v1`, below). It is a JSON object with exactly these
+members; unknown members (including `state`) are rejected at every level.
 
 | Member | Type | Rule |
 |--------|------|------|
@@ -752,9 +754,8 @@ these members; unknown members are rejected at every level.
 | `files` | array | non-empty, at most 4096 entries of `{ path, mode, sha256, size }`, sorted by raw UTF-8 path bytes, no duplicates or case-fold collisions; `path` passes the tree path, NFC and noise rules; `mode` is `100644` or `100755`; `sha256` is bare lowercase hex; `size` at most 32 MiB |
 | `fileCount` | integer | equals `files.length` |
 | `treeSize` | integer | sum of file sizes, at most 256 MiB |
-| `state` | string | `draft`, `quarantined`, `published`, `yanked` at signing time; a state change produces a newly signed manifest for the same `releaseDigest` |
 | `publisher` | object | `{ handle, verifiedBy }`; `handle` equals the identity publisher; `verifiedBy` is `none`, `github` or `admin` (`none` means not publisher-verified) |
-| `sourceProvenance` | object or `null` | `{ repo, commit, path }`: https URL without credentials, full lowercase hex commit, package root path (`""` for the repository root) |
+| `sourceProvenance` | object or `null` | `{ repo, commit, path }`: https URL without credentials, full lowercase hex commit, package root path (`""` for the repository root). `null` when the release was not packed from a recorded git commit; consumers must label such a release "provenance unknown" |
 | `declaredScripts` | array | paths from `files`, unique and sorted like `files`; informational, never executed by SkillX |
 | `createdAt` | string | RFC 3339 UTC with whole seconds, e.g. `2026-10-13T04:30:00Z` |
 | `keyId` | string | `^[a-z0-9][a-z0-9._-]{1,63}$` |
@@ -783,11 +784,45 @@ Cross-language vectors: `packages/contracts/src/fixtures/release-manifest-v1.jso
 invalid-signature cases, invalid-manifest cases). The vector key is derived
 from a public seed text and must never be trusted outside tests.
 
+### Release status (`skillx.release-status/v1`)
+
+The mutable state of a release is a separately signed document with the same
+signature bytes rules (canonical JSON without `signature`, Ed25519, padded
+base64). Source: `packages/contracts/src/release-status.ts`.
+
+| Member | Type | Rule |
+|--------|------|------|
+| `schemaVersion` | string | `skillx.release-status/v1` |
+| `releaseDigest` | string | `releaseDigest` of the manifest the status describes |
+| `state` | string | `draft`, `quarantined`, `published`, `yanked` |
+| `reason` | string, optional | 1 to 512 characters, no control characters; omit the member when there is none (never `null`) |
+| `issuedAt` | string | RFC 3339 UTC with whole seconds |
+| `sequence` | integer | strictly increasing per release, starting at 1 |
+| `keyId` | string | `^[a-z0-9][a-z0-9._-]{1,63}$` |
+| `signatureAlgorithm` | string | `ed25519` |
+| `signature` | string | padded standard base64 of the 64-byte Ed25519 signature |
+
+A consumer checks, in this order, and fails closed:
+
+1. structure; a `state` outside the list above is `status.unknown_state`, even when correctly signed;
+2. `releaseDigest` equals the verified manifest's `releaseDigest`, else `status.digest_mismatch`;
+3. the signature (`signature.unknown_key`, `signature.invalid_key`, `signature.mismatch`);
+4. against the last status it accepted for the release: a lower `sequence` is
+   `status.rollback`; the same `sequence` with different signed bytes is
+   `status.conflict`; identical bytes are accepted.
+
+Cross-language vectors: `packages/contracts/src/fixtures/release-status-v1.json`
+(valid statuses with their signing payload and the previously accepted status;
+tampered, wrong-key, unknown-key, Go-escaped, rollback, conflict, unknown-state
+and other-release cases). Same public test key as the manifest vectors.
+
 ### Database columns (migration `0011_release_tree_digest`)
 
 `package_releases`: `release_digest`, `file_count`, `tree_size`,
-`signed_manifest_key` (R2 key of the signed manifest), `quarantined_at`, and the
-non-unique index `idx_package_releases_digest`. `packages.visibility`
+`signed_manifest_key` (R2 key of the signed manifest), `quarantined_at`,
+`status_sequence` and `status_issued_at` (sequence and issue time of the last
+signed status; the state itself stays in `release_state`), and the non-unique
+index `idx_package_releases_digest`. `packages.visibility`
 (`public` default, `private`). `publishers.state` (`active` default,
 `suspended`, `revoked`). All additive; rollback SQL is in the migration header.
 

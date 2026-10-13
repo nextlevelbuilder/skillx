@@ -114,7 +114,15 @@ describe("migration 0011_release_tree_digest", () => {
     const byName = (table: string) => Object.fromEntries(columns(raw, table).map((c) => [c.name, c]));
     expect(byName("publishers").state).toMatchObject({ notnull: 1, dflt_value: "'active'" });
     expect(byName("packages").visibility).toMatchObject({ notnull: 1, dflt_value: "'public'" });
-    for (const column of ["release_digest", "file_count", "tree_size", "signed_manifest_key", "quarantined_at"]) {
+    for (const column of [
+      "release_digest",
+      "file_count",
+      "tree_size",
+      "signed_manifest_key",
+      "quarantined_at",
+      "status_sequence",
+      "status_issued_at",
+    ]) {
       expect(byName("package_releases")[column], column).toMatchObject({ notnull: 0, dflt_value: null });
     }
     expect(indexes(raw, "package_releases")).toContain("idx_package_releases_digest");
@@ -143,7 +151,7 @@ describe("migration 0011_release_tree_digest", () => {
     expect(
       raw
         .prepare(
-          "SELECT count(*) AS n FROM package_releases WHERE release_digest IS NULL AND file_count IS NULL AND tree_size IS NULL AND signed_manifest_key IS NULL AND quarantined_at IS NULL",
+          "SELECT count(*) AS n FROM package_releases WHERE release_digest IS NULL AND file_count IS NULL AND tree_size IS NULL AND signed_manifest_key IS NULL AND quarantined_at IS NULL AND status_sequence IS NULL AND status_issued_at IS NULL",
         )
         .get(),
     ).toEqual({ n: 3 });
