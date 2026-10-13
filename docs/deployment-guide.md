@@ -204,9 +204,25 @@ wrangler secret list --environment production
 The release publish API (`POST /api/v1/packages/@publisher/slug/releases`,
 see [API reference](./api-reference.md#publishing-releases)) answers `404`
 until the `SKILLX_RELEASES_API` var in `apps/web/wrangler.jsonc` is `"1"`.
-Before enabling it:
 
-1. Apply migration `0012_api_key_scopes` (adds nullable `api_keys.scopes`).
+**Before deploying any build that contains it, whatever the flag:** apply
+migration `0012_api_key_scopes` (adds nullable `api_keys.scopes`) to the
+production D1. Production is deployed manually and the deploy script does not
+migrate (`deploy` is `build && wrangler deploy`), so run this first:
+
+```bash
+cd apps/web
+pnpm run db:migrate:remote   # applies 0012 to the remote D1
+pnpm run deploy              # only after the migration succeeded
+```
+
+The legacy API-key routes (`authenticateRequest`, skill install, usage
+report) never read `scopes`, so CLI auth keeps working even if this order
+is missed, but the API keys page and the release API need the column.
+
+Before enabling the flag:
+
+1. Confirm migration 0012 is applied (above).
 2. Set the registry signing secrets. The key is an Ed25519 private key as
    base64 PKCS #8 DER; its id must match the published registry key
    (`skillx-reg-993cd14a011f7b76`). Paste values at the prompt; never put the
@@ -218,11 +234,36 @@ Before enabling it:
    Without them every upload fails closed with `503 release.signing_unavailable`.
 3. Publishers create a key with `POST /api/user/api-keys` and
    `{"scopes": ["releases:publish:@handle"]}` and store it as the
-   `SKILLX_PUBLISH_KEY` secret for `.github/workflows/publish-release.yml`.
+   `SKILLX_PUBLISH_KEY` secret of the `skillx-publish` environment used by
+   `.github/workflows/publish-release.yml`.
 
-Rollback: set `SKILLX_RELEASES_API` back to `"0"` and redeploy. Stored R2
-objects and release rows are immutable and stay in place; migration 0012's
-header holds the SQL to revoke scoped keys and drop the column.
+**Subrequest budget.** Every D1 query and R2 call of a publish counts as a
+subrequest; one publish costs one R2 put per distinct file plus a fixed ~16.
+The `skillx-web` worker runs on **Workers Paid** (verified 2026-10-13 from
+request volume: 250k-415k requests/day, above the free plan's 100k/day cap),
+which allows 10,000 subrequests per request by default. The var
+`SKILLX_RELEASE_SUBREQUEST_BUDGET` (default `"5000"`, half of that) caps a
+publish; a larger plan is refused with `413 tree.limit_exceeded` before any
+R2 write. If the worker ever moves to a free account (1,000 cap), lower the
+var to about `600`; uploads above roughly 580 distinct files are then refused.
+
+**Rollback, in this order:**
+
+1. Set `SKILLX_RELEASES_API` back to `"0"` and redeploy (the release API
+   answers 404 again).
+2. Revoke every scoped key before reverting or redeploying older code:
+   ```sql
+   UPDATE api_keys SET revoked_at = CAST(strftime('%s','now') AS INTEGER) * 1000
+    WHERE scopes IS NOT NULL AND revoked_at IS NULL;
+   ```
+   Scoped keys are stored under a domain-separated hash, so even code that
+   predates scopes cannot authenticate them as full-account keys; revoking
+   them first is still the required step, since their only purpose is gone.
+3. Revert the code and redeploy.
+4. Optionally run the rest of the rollback SQL in the header of
+   `0012_api_key_scopes.sql` (drops the column, clears `d1_migrations`).
+
+Stored R2 objects and release rows are immutable and stay in place.
 
 ### Phase 4: Domain & SSL Setup
 

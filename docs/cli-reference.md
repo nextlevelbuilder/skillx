@@ -184,7 +184,9 @@ Packs like `release pack`, then uploads to
 `POST /api/v1/packages/@publisher/slug/releases`. Needs an API key scoped to
 `releases:publish:@publisher` (`SKILLX_API_KEY` or the config). Releases are
 immutable: re-publishing identical content is a no-op, different content for
-an existing version is rejected.
+an existing version is rejected. The command fails if the registry reports a
+`releaseDigest` (or, for a new release, an `artifactDigest`) other than the
+one packed locally.
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -195,7 +197,7 @@ an existing version is rejected.
 | `--kind <kind>` | `skill`, `hook-pack` or `bundle` | `skill` |
 | `--repo <https-url>` | Provenance repository URL | `origin` remote (https form) |
 | `--script <path>` | Declare a packaged script (repeatable) | — |
-| `--registry <url>` | Registry base URL | configured base URL |
+| `--registry <url>` | Registry base URL; `https` only (`http` only for localhost) | configured base URL |
 | `--json` | Print the result as JSON | — |
 
 ```bash
@@ -204,7 +206,8 @@ SKILLX_API_KEY=sx_... skillx release publish skills/my-skill --name @acme/my-ski
 
 CI: `.github/workflows/publish-release.yml` (manual dispatch or
 `workflow_call`, never on pull requests) runs the same command with a pinned
-CLI version and the `SKILLX_PUBLISH_KEY` secret.
+CLI version, in the `skillx-publish` environment, with its
+`SKILLX_PUBLISH_KEY` secret.
 
 ---
 

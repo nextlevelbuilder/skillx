@@ -544,7 +544,8 @@ Generate a new API key. Plaintext returned **once** — not stored.
 A scoped key is accepted only by endpoints that check its scope (today the
 release publish API). Endpoints that take unscoped keys (`authenticateRequest`,
 skill install and usage reports) reject scoped keys, so a CI publish key cannot
-act as the user anywhere else.
+act as the user anywhere else. A scoped key is stored under a domain-separated
+hash (`hashScopedApiKey`), so this also holds for code that predates scopes.
 
 #### `DELETE /api/user/api-keys`
 
@@ -947,11 +948,18 @@ Unscoped keys are rejected (`auth.scope_missing`).
 - `Content-Type: application/x-tar`: an uncompressed tar (gzip is rejected).
   At most 32 MiB, 1000 files, 32 MiB per file and in total; the server limits
   are tighter than the `agentkit.skill-tree/v1` client limits and only reject.
+  A publish also has a subrequest budget (Worker var
+  `SKILLX_RELEASE_SUBREQUEST_BUDGET`, default 5000): one R2 put per distinct
+  file plus a fixed 16; a plan above it is refused with `413
+  tree.limit_exceeded` before any R2 write.
 - `X-SkillX-Release`: base64 of a UTF-8 JSON object, at most 16 KiB:
   `version` (SemVer without build metadata, required), `channel`
   (`stable` default, `beta`, `alpha`), `kind` (`skill` default, `hook-pack`,
   `bundle`), `sourceProvenance` (`{repo, commit, path}` or `null`) and
   `declaredScripts` (packaged paths). Unknown members are rejected.
+  `sourceProvenance` is asserted by the publisher and not verified (GitHub
+  OIDC is a follow-up); the registry signature covers it but does not vouch
+  for it.
 
 **Processing**, each step rejecting before the next runs: name and reserved
 namespaces, key and ownership, signing key, metadata, capped body, tar read
@@ -960,10 +968,18 @@ symlinks, hardlinks, devices and duplicate paths fail), version conflict, the
 release scan, the signed `skillx.release/v1` manifest, then R2 writes, and the
 D1 row last. Uploaded bytes are stored exactly; nothing is sanitized.
 
-The scan only decides the initial state: secrets in any text file, and
-prompt-injection or other `danger` patterns in Markdown, make the release
-`quarantined` instead of `published`. Findings are `danger:<rule>:<path>`
-and never echo the matched text.
+The scan only decides the initial state. Any of these makes the release
+`quarantined` instead of `published`:
+
+- a secret pattern in any file, binary included (searched over the raw bytes);
+- an instruction document (`.md`, `.markdown`, `.mdx`, `.txt`), script or
+  text config (by extension, a `scripts/` directory or a `#!` line) that is
+  not NUL-free UTF-8 (`danger:non-utf8-text`), since such bytes would hide
+  content from the scan while agents still read the file;
+- prompt injection or another `danger` rule of the SKILL.md scanner in an
+  instruction document.
+
+Findings are `danger:<rule>:<path>` and never echo the matched text.
 
 **R2 layout** (all create-only via `If-None-Match: *`, with R2 SHA-256
 integrity checks): `artifacts/sha256/<hex>.tar` (the upload),
