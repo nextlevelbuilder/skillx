@@ -1,15 +1,24 @@
 /**
  * Pinned whole-tree read API. Every endpoint: 404 while `SKILLX_RELEASES_API`
  * is off, then viewer (unscoped Bearer API key or session; never a query
- * string token), then the KV rate limit, then the access rules of
- * `release-access`. Stored bytes are streamed from the R2 body exactly as
- * written by the publish path (no redirect, no transformation, served as
- * opaque downloads so a browser never renders them).
+ * string token; a bad key is 401), then the rate limit binding, then the
+ * access rules of `release-access`. Stored bytes are streamed from the R2
+ * body exactly as written by the publish path (no redirect, no
+ * transformation, served as opaque downloads so a browser never renders
+ * them).
+ *
+ * Caching: every error is `no-store`; every success varies on
+ * `Authorization, Cookie` because the selected release can depend on the
+ * viewer. Public file and artifact bytes are `immutable` for a year, so a
+ * later quarantine cannot recall copies already held by browsers or proxies;
+ * it only stops new fetches from this API.
  */
 import { RELEASE_KEY_ID_PATTERN, RELEASE_SIGNATURE_ALGORITHM, validateReleaseManifest } from "@skillx/contracts";
 import type { SkillxReleaseManifest } from "@skillx/contracts";
 import { validatePath } from "@skillx/skill-tree";
+import { authenticateApiKey } from "~/lib/auth/authenticate-api-key";
 import { authenticateRequest } from "~/lib/auth/authenticate-request";
+import { getDb } from "~/lib/db";
 import { blobKey } from "./r2-create-only";
 import {
   listPackageReleases,
@@ -42,6 +51,27 @@ export interface ReadContext {
 
 type Params = Record<string, string | undefined>;
 
+/**
+ * The viewer of a read request. A present `Authorization` header must carry
+ * a valid unscoped API key as `Bearer <key>`; anything else (another scheme,
+ * an unknown or revoked key, a scoped publish key) is `401 invalid_api_key`
+ * rather than a silent fall back to anonymous, so a misconfigured CLI never
+ * sees a private package as "not found". Without the header the session
+ * decides, and no session means anonymous.
+ */
+async function resolveViewer(request: Request, env: ReleaseReadEnv): Promise<string | null> {
+  const header = request.headers.get("Authorization");
+  if (header !== null) {
+    const key = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
+    // authenticateApiKey matches unscoped keys only (scoped keys hash differently) and rejects "".
+    const owner = await authenticateApiKey(getDb(env.DB), key);
+    if (owner === null) throw releaseError(401, "invalid_api_key", "the Authorization header does not carry a valid read API key");
+    return owner.userId;
+  }
+  const viewer = await authenticateRequest(request, env);
+  return viewer?.userId ?? null;
+}
+
 /** Runs one read endpoint behind the flag, viewer resolution and the rate limit. */
 export async function serveReleaseRead(
   request: Request,
@@ -50,14 +80,12 @@ export async function serveReleaseRead(
 ): Promise<Response> {
   if (!releasesApiEnabled(env)) return notFoundResponse();
   try {
-    // authenticateRequest only accepts unscoped keys; a scoped publish key reads as anonymous.
-    const viewer = await authenticateRequest(request, env);
-    const userId = viewer?.userId ?? null;
-    const decision = await checkReleaseRateLimit(env.KV, rateLimitCaller(request, userId));
+    const userId = await resolveViewer(request, env);
+    const decision = await checkReleaseRateLimit(env.RELEASE_READ_LIMITER, rateLimitCaller(request, userId));
     if (!decision.allowed) {
-      return Response.json(
-        { error: { code: "rate_limited", message: `too many requests; retry after ${decision.retryAfterSeconds} seconds` } },
-        { status: 429, headers: { "Retry-After": String(decision.retryAfterSeconds) } },
+      return errorResponse(
+        releaseError(429, "rate_limited", `too many requests; retry after ${decision.retryAfterSeconds} seconds`),
+        { "Retry-After": String(decision.retryAfterSeconds) },
       );
     }
     return await handler({ db: env.DB, bucket: env.R2, userId, request });
@@ -108,8 +136,11 @@ function notModified(request: Request, etag: string): boolean {
   });
 }
 
+/** Which release a request selects can depend on who asks (entitlements). */
+const VARY_VIEWER = { Vary: "Authorization, Cookie" };
+
 function bytesResponse(request: Request, object: R2ObjectBody, etag: string, headers: Record<string, string>): Response {
-  const all = { ...headers, ETag: etag };
+  const all = { ...headers, ...VARY_VIEWER, ETag: etag };
   if (notModified(request, etag)) {
     // The body is not needed; release the R2 stream.
     void object.body.cancel().catch(() => undefined);
@@ -156,7 +187,7 @@ export async function readReleaseList(ctx: ReadContext, params: Params): Promise
         createdAt: new Date(release.createdAt).toISOString(),
       })),
     },
-    { headers: { "Cache-Control": cacheControl(list, SHORT_TTL_SECONDS, false) } },
+    { headers: { "Cache-Control": cacheControl(list, SHORT_TTL_SECONDS, false), ...VARY_VIEWER } },
   );
 }
 

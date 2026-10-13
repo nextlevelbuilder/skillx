@@ -1044,10 +1044,16 @@ Read-only, behind the same flag: unless `SKILLX_RELEASES_API` is `"1"` or
 | `GET /api/v1/keys` | `{"algorithm": "ed25519", "active": [...], "revoked": [...]}` registry key IDs |
 
 **Auth**: optional. `Authorization: Bearer sx_...` with an unscoped API key,
-or the web session. Scoped publish keys do not authenticate reads (they read
-as anonymous). Tokens are never accepted in the query string.
+or the web session. Without an `Authorization` header the session decides,
+and no session means anonymous. A present header that does not carry a valid
+unscoped key (unknown, revoked, malformed, another scheme, or a scoped
+publish key, which never authenticates reads) answers `401 invalid_api_key`;
+it never falls back to the session or to anonymous. Tokens are never accepted
+in the query string.
 
-**Access and state rules** (same answer on every endpoint):
+**Access and state rules** (same answer on every endpoint, checked in this
+order: unknown or unentitled `404`, then quarantined `403`, then publisher
+revoked `403`, then yanked):
 
 - Private package (`packages.visibility = 'private'`): needs an unrevoked
   entitlement of the caller for the package (`release_id` NULL) or the
@@ -1056,7 +1062,10 @@ as anonymous). Tokens are never accepted in the query string.
   disclosed. A release-only entitlement lists only the entitled releases.
   Publishers have no implicit access: they read their own private packages
   through an entitlement, like any other caller.
-- Publisher `suspended` or `revoked`: `403 publisher_revoked`.
+- Publisher `suspended` or `revoked`: `403 publisher_revoked` (after
+  quarantine: a quarantined release of a revoked publisher answers
+  `release_quarantined`). The listing has no tree of its own, so it answers
+  `publisher_revoked` and hides quarantined releases.
 - `quarantined`: `403 release_quarantined` on every endpoint. Quarantine is
   a judgement about the bytes, so it fails closed across the whole tree: if
   any release sharing a `releaseDigest` (in any package) is quarantined,
@@ -1081,7 +1090,9 @@ as anonymous). Tokens are never accepted in the query string.
     may read count, a quarantined tree is `403`, then a published
     release of an active publisher wins over a yanked one, then the earliest
     created. The served manifest may therefore belong to another version of
-    the same tree.
+    the same tree. The lookup reads at most 50 rows of the tree, ordered so
+    that only rows that could not win are dropped; the quarantine check
+    covers the whole tree regardless of that bound.
   - `X-SkillX-Identity` and `X-SkillX-Version` name the release served.
 
 **Bytes**: stored bytes are served exactly as published, never transformed
@@ -1100,23 +1111,36 @@ from the key recorded in D1.
 **Caching**: files and artifacts are digest-addressed and immutable
 (`max-age=31536000, immutable`); listings, manifests and keys use
 `max-age=60` because state can change. Private packages use `private`,
-public ones `public`.
+public ones `public`. Every success except `/keys` carries `Vary:
+Authorization, Cookie`, because the selected release can depend on the
+caller's entitlements. Every JSON error (including `401`, `429` and the
+flag-off `404`) is `Cache-Control: no-store`. A `304` carries the same
+`ETag`, `Cache-Control` and `Vary`. Caveat: public file and artifact bytes
+cached for a year by a browser or proxy cannot be recalled by a later
+quarantine; quarantine only stops new fetches from this API.
 
 **Size caps**: manifests up to 4 MiB, files up to 32 MiB, artifacts up to
 32 MiB (the publish limits). A stored object that is missing, over its cap or
 of a different size than recorded is never served (`500
 release.storage_inconsistent`).
 
-**Rate limit**: 300 requests per 60-second window per caller (the user ID when
-authenticated, else the client IP), counted in Workers KV (binding `KV`).
-Over the limit: `429 rate_limited` with `Retry-After` in seconds. The KV count
-is approximate (eventual consistency) and a KV failure lets the request
-through.
+**Rate limit**: 300 requests per 60 seconds per caller (the user ID when
+authenticated, else the client IP), through the Workers Rate Limiting binding
+`RELEASE_READ_LIMITER` (`ratelimits` in `apps/web/wrangler.jsonc`). The
+binding counts per Cloudflare location, so the limit is approximate; it costs
+no KV or D1 write. Over the limit: `429 rate_limited` with `Retry-After: 60`
+(the binding does not report when its window ends). A missing or failing
+binding lets the request through and logs once per isolate. Authenticated API
+key reads still record the key's `last_used_at` in D1 on every request (shared
+`authenticateApiKey` behaviour).
 
 **Keys**: `active` is `SKILLX_REGISTRY_SIGNING_KEY_ID`; `revoked` is the
-optional comma-separated worker var `SKILLX_REGISTRY_REVOKED_KEY_IDS` (a
-revoked ID is never listed as active). Set it in the Cloudflare dashboard, not
-in `wrangler.jsonc` vars, which a deploy would apply over dashboard values. Informational only: clients trust the
+optional comma-separated `SKILLX_REGISTRY_REVOKED_KEY_IDS` (a revoked ID is
+never listed as active). Set it as a secret:
+`wrangler secret put SKILLX_REGISTRY_REVOKED_KEY_IDS --name skillx-web` (or
+type "Secret" in the dashboard). Do not use a `wrangler.jsonc` var or a
+dashboard plain var: a deploy removes dashboard plain vars missing from the
+config, and only secrets survive it. Informational only: clients trust the
 public keys they embed. The private key is never read by this endpoint.
 
 **Errors** use `{"error": {"code", "message"}}`:
@@ -1124,6 +1148,7 @@ public keys they embed. The private key is never read by this endpoint.
 | Status | Codes |
 |--------|-------|
 | 400 | `invalid_digest`, `invalid_path` (not one valid tree path after a single percent-decode: NUL, backslash, `..`, empty segment, absolute, bad escape), `invalid_version`, `identity.invalid` |
+| 401 | `invalid_api_key` (an `Authorization` header without a valid unscoped key) |
 | 403 | `publisher_revoked`, `release_quarantined` |
 | 404 | `not_found` (unknown, unentitled, path not in the manifest, or API disabled) |
 | 410 | `release_yanked` |

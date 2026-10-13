@@ -20,11 +20,19 @@ export function releaseError(status: number, code: string, message: string): Rel
   return new ReleaseHttpError(status, code, message);
 }
 
-export function errorResponse(error: ReleaseHttpError): Response {
-  return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status });
+/** Errors depend on the viewer and on mutable state, so no cache may keep them. */
+const ERROR_HEADERS = { "Cache-Control": "no-store" };
+
+export function errorResponse(error: ReleaseHttpError, headers: Record<string, string> = {}): Response {
+  return Response.json({ error: { code: error.code, message: error.message } }, { status: error.status, headers: { ...headers, ...ERROR_HEADERS } });
 }
 
-/** The flag-off answer: indistinguishable from an unknown route. */
+/**
+ * The flag-off answer: the same JSON body as an unknown or unentitled
+ * release, so no package or release state leaks. It is not the HTML 404 of
+ * an unknown route, and other methods still get the framework's 405, so the
+ * existence of the routes themselves is not hidden.
+ */
 export function notFoundResponse(): Response {
-  return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
+  return errorResponse(new ReleaseHttpError(404, "not_found", "Not found"));
 }

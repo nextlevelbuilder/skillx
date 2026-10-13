@@ -1,22 +1,42 @@
 /**
- * Per-caller rate limit of the release read API: a fixed-window counter in
- * Workers KV (binding `KV`), keyed by the authenticated user or, for
- * anonymous callers, the client IP.
+ * Per-caller rate limit of the release read API through the Workers Rate
+ * Limiting binding `RELEASE_READ_LIMITER` (`ratelimits` in wrangler.jsonc:
+ * 300 requests per 60 seconds), keyed by the authenticated user or, for
+ * anonymous callers, the client IP. The binding counts in memory at each
+ * Cloudflare location, so the limit is per location and approximate; it
+ * costs no KV or D1 write.
  *
- * KV is eventually consistent and accepts about one write per second per
- * key, so the count is approximate under bursts and across locations. A KV
- * failure is logged and lets the request through: the limit protects cost,
- * not confidentiality, and Cloudflare's edge DDoS protection still applies.
+ * A missing binding (local dev without it, a misconfigured deploy) or a
+ * failing binding lets the request through and is logged once per isolate:
+ * the limit protects cost, not confidentiality.
  */
 
-/** Requests one caller may make per window. */
+/** Requests one caller may make per window; must match `ratelimits[].simple.limit` in wrangler.jsonc. */
 export const RELEASE_READ_RATE_LIMIT = 300;
-/** Window length; also the smallest TTL Workers KV accepts. */
+/** Window length in seconds; must match `ratelimits[].simple.period` in wrangler.jsonc (10 or 60). */
 export const RELEASE_READ_RATE_WINDOW_SECONDS = 60;
 
 const MAX_CALLER_LENGTH = 128;
 
+/** The part of the Workers `RateLimit` binding this module uses. */
+export interface ReleaseReadLimiter {
+  limit(options: { key: string }): Promise<{ success: boolean }>;
+}
+
 export type RateLimitDecision = { allowed: true } | { allowed: false; retryAfterSeconds: number };
+
+let warnedUnavailable = false;
+
+function warnOnce(message: string): void {
+  if (warnedUnavailable) return;
+  warnedUnavailable = true;
+  console.warn(`release read API: ${message}; rate limiting is off`);
+}
+
+/** Test hook: lets the next missing or failing binding log again. */
+export function resetRateLimitWarning(): void {
+  warnedUnavailable = false;
+}
 
 /** Rate-limit identity of a request: `user:<id>` when authenticated, else `ip:<client ip>`. */
 export function rateLimitCaller(request: Request, userId: string | null): string {
@@ -24,33 +44,20 @@ export function rateLimitCaller(request: Request, userId: string | null): string
   return caller.slice(0, MAX_CALLER_LENGTH);
 }
 
-/** KV key of the counter of `caller` in the window containing `nowMs`. */
-export function rateLimitKey(caller: string, nowMs: number): string {
-  return `releases-read-rl:${caller}:${Math.floor(nowMs / 1000 / RELEASE_READ_RATE_WINDOW_SECONDS)}`;
-}
-
-/** Counts one request of `caller`; refuses it once the window already holds `limit` requests. */
-export async function checkReleaseRateLimit(
-  kv: KVNamespace | undefined,
-  caller: string,
-  limit = RELEASE_READ_RATE_LIMIT,
-  nowMs = Date.now(),
-): Promise<RateLimitDecision> {
-  if (kv === undefined) {
-    console.warn("release read API: no KV binding; rate limiting is off");
+/**
+ * Counts one request of `caller`. The binding does not say when the window
+ * ends, so a refusal asks the caller to retry after one full window.
+ */
+export async function checkReleaseRateLimit(limiter: ReleaseReadLimiter | undefined, caller: string): Promise<RateLimitDecision> {
+  if (limiter === undefined || typeof limiter.limit !== "function") {
+    warnOnce("no RELEASE_READ_LIMITER binding");
     return { allowed: true };
   }
-  const key = rateLimitKey(caller, nowMs);
-  const windowEndSeconds = (Math.floor(nowMs / 1000 / RELEASE_READ_RATE_WINDOW_SECONDS) + 1) * RELEASE_READ_RATE_WINDOW_SECONDS;
   try {
-    const count = Number.parseInt((await kv.get(key)) ?? "0", 10) || 0;
-    if (count >= limit) {
-      return { allowed: false, retryAfterSeconds: Math.max(1, windowEndSeconds - Math.floor(nowMs / 1000)) };
-    }
-    await kv.put(key, String(count + 1), { expirationTtl: RELEASE_READ_RATE_WINDOW_SECONDS * 2 });
-    return { allowed: true };
+    const { success } = await limiter.limit({ key: caller });
+    return success ? { allowed: true } : { allowed: false, retryAfterSeconds: RELEASE_READ_RATE_WINDOW_SECONDS };
   } catch (error) {
-    console.warn("release read API: rate limit check failed:", error instanceof Error ? error.message : String(error));
+    warnOnce(`rate limit check failed (${error instanceof Error ? error.message : String(error)})`);
     return { allowed: true };
   }
 }

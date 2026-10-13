@@ -1,14 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { verifyReleaseManifest } from "@skillx/contracts";
-import { RELEASE_READ_RATE_LIMIT, rateLimitKey } from "~/lib/releases/release-rate-limit";
+import { RELEASE_READ_RATE_LIMIT, RELEASE_READ_RATE_WINDOW_SECONDS, resetRateLimitWarning } from "~/lib/releases/release-rate-limit";
+import { MAX_DIGEST_ROWS } from "~/lib/releases/release-access";
 import { loader as listLoader } from "~/routes/api.v1.package-releases";
 import { loader as manifestLoader } from "~/routes/api.v1.release-manifest";
 import { loader as fileLoader } from "~/routes/api.v1.release-file";
 import { loader as artifactLoader } from "~/routes/api.v1.release-artifact";
 import { loader as keysLoader } from "~/routes/api.v1.signing-keys";
-import { FakeKV } from "./fake-kv";
 import { GET_CHUNK_BYTES } from "./fake-r2";
+import { FakeRateLimiter } from "./fake-rate-limiter";
 import { createHarness, file, tarOf, TEST_KEY_ID } from "./release-harness";
 
 /** The web session is the only part of authentication that is faked; API keys run the real lookup. */
@@ -40,12 +41,13 @@ const skillFiles = () => [
 ];
 
 let h: Harness;
-let kv: FakeKV;
+let limiter: FakeRateLimiter;
 let readerKey: string;
 
 beforeEach(async () => {
   h = await createHarness();
-  kv = new FakeKV();
+  limiter = new FakeRateLimiter(RELEASE_READ_RATE_LIMIT);
+  resetRateLimitWarning();
   session.user = null;
   readerKey = await h.createKey("user-b", null);
 });
@@ -61,7 +63,7 @@ function call(loader: Loader, path: string, params: Record<string, string>, opti
     SKILLX_RELEASES_API: "1",
     DB: h.deps.db,
     R2: h.deps.bucket,
-    KV: kv.asKV(),
+    RELEASE_READ_LIMITER: limiter,
     SKILLX_REGISTRY_SIGNING_KEY_ID: TEST_KEY_ID,
     ...options.env,
   };
@@ -151,11 +153,58 @@ describe("release read: happy path over real HTTP bodies", () => {
     expect(await bytesOf(await api.file(digest, "scripts/run.sh"))).toEqual(RAW_SCRIPT);
   });
 
-  it("answers 304 to a matching If-None-Match", async () => {
+  it("answers 304 to a matching If-None-Match on file, manifest and artifact (strong, weak, list and *)", async () => {
+    const { tar, digest } = await publish();
+    const [manifestKey] = h.r2.keys("manifests/");
+    const manifestTag = `"${/([0-9a-f]{64})\.json$/.exec(manifestKey!)![1]}"`;
+    const fileTag = `"${sha(skillFiles()[0]!.bytes)}"`;
+    const artifactTag = `"${sha(tar)}"`;
+    const cases: Array<[(o: CallOptions) => Promise<Response>, string]> = [
+      [(o) => api.file(digest, "SKILL.md", o), fileTag],
+      [(o) => api.manifest(digest, o), manifestTag],
+      [(o) => api.version("@alpha/demo", "1.0.0", o), manifestTag],
+      [(o) => api.artifact(digest, o), artifactTag],
+    ];
+    for (const [get, tag] of cases) {
+      for (const condition of [tag, `W/${tag}`, `"other", ${tag}`, "*"]) {
+        const res = await get({ headers: { "If-None-Match": condition } });
+        expect(res.status).toBe(304);
+        expect(res.headers.get("ETag")).toBe(tag);
+        expect(res.headers.get("Vary")).toBe("Authorization, Cookie");
+        expect(await res.text()).toBe("");
+      }
+      const miss = await get({ headers: { "If-None-Match": `"${"0".repeat(64)}"` } });
+      expect(miss.status).toBe(200);
+      expect(miss.headers.get("ETag")).toBe(tag);
+    }
+  });
+
+  it("varies every viewer-dependent success on Authorization and Cookie", async () => {
     const { digest } = await publish();
-    const res = await api.file(digest, "SKILL.md", { headers: { "If-None-Match": `"${sha(skillFiles()[0]!.bytes)}"` } });
-    expect(res.status).toBe(304);
-    expect(await res.text()).toBe("");
+    for (const res of [
+      await api.list("@alpha/demo"),
+      await api.version("@alpha/demo", "1.0.0"),
+      await api.manifest(digest),
+      await api.file(digest, "SKILL.md"),
+      await api.artifact(digest),
+    ]) {
+      expect(res.status).toBe(200);
+      expect(res.headers.get("Vary")).toBe("Authorization, Cookie");
+    }
+  });
+
+  it("marks every JSON error no-store", async () => {
+    const { digest } = await publish();
+    for (const res of [
+      await api.manifest(`sha256:${"0".repeat(64)}`),
+      await api.manifest("bad"),
+      await api.file(digest, "%2FSKILL.md"),
+      await api.list("@alpha/demo", { key: "sx_nope" }),
+      await api.list("@alpha/demo", { env: { SKILLX_RELEASES_API: "0" } }),
+    ]) {
+      expect(res.status).toBeGreaterThanOrEqual(400);
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+    }
   });
 
   it("streams the artifact tar same-origin, byte-identical to the upload", async () => {
@@ -254,16 +303,77 @@ describe("release read: private packages", () => {
     }
   }
 
-  it("answers unentitled callers exactly like an unknown package (anonymous, session, API key, scoped key)", async () => {
+  it("answers unentitled callers exactly like an unknown package (anonymous, session, API key)", async () => {
     const { digest } = await publish();
     makePrivate();
     const unknownBody = await (await api.list("@alpha/nope")).text();
     await expectAllNotFound(await everyEndpoint(digest), unknownBody);
     await expectAllNotFound(await everyEndpoint(digest, { key: readerKey }), unknownBody);
-    // A scoped publish key never authenticates a read; even the owner's reads as anonymous.
-    await expectAllNotFound(await everyEndpoint(digest, { key: h.alphaKey }), unknownBody);
     session.user = { id: "user-session" };
     await expectAllNotFound(await everyEndpoint(digest), unknownBody);
+  });
+
+  it("answers 401 invalid_api_key to a scoped publish key, an unknown, revoked or malformed key, and another scheme", async () => {
+    const { digest } = await publish();
+    makePrivate();
+    grant("user-b");
+    const revokedKey = await h.createKey("user-b", null, true);
+    const attempts: CallOptions[] = [
+      // A scoped publish key never authenticates a read, not even the owner's.
+      { key: h.alphaKey },
+      { key: `sx_${"0".repeat(64)}` },
+      { key: revokedKey },
+      { key: "" },
+      { headers: { Authorization: readerKey } },
+      { headers: { Authorization: "Basic dXNlcjpwYXNz" } },
+    ];
+    for (const options of attempts) {
+      for (const res of await everyEndpoint(digest, options)) await expectError(res, 401, "invalid_api_key");
+    }
+    // A bad key never falls back to the session.
+    session.user = { id: "user-b" };
+    await expectError(api.manifest(digest, { key: h.alphaKey }), 401, "invalid_api_key");
+    // No header: the session decides.
+    expect((await api.manifest(digest)).status).toBe(200);
+  });
+
+  it("serves only the entitled release to a release-only entitlement", async () => {
+    await publish("@alpha/demo", skillFiles(), "1.0.0");
+    const other = await publish("@alpha/demo", [...skillFiles(), file("extra.md", "other tree\n")], "2.0.0");
+    makePrivate();
+    const [row] = h.d1.raw.prepare("SELECT id, release_digest FROM package_releases WHERE version = '1.0.0'").all() as Array<{
+      id: string;
+      release_digest: string;
+    }>;
+    grant("user-b", null, row!.id);
+    const reader = { key: readerKey };
+
+    const list = await api.list("@alpha/demo", reader);
+    expect(list.status).toBe(200);
+    expect((await list.json()).releases.map((r: { version: string }) => r.version)).toEqual(["1.0.0"]);
+    for (const res of await everyEndpoint(row!.release_digest, reader)) expect(res.status).toBe(200);
+
+    const unknownBody = await (await api.list("@alpha/nope")).text();
+    await expectAllNotFound(
+      [
+        await api.version("@alpha/demo", "2.0.0", reader),
+        await api.manifest(other.digest, reader),
+        await api.file(other.digest, "SKILL.md", reader),
+        await api.artifact(other.digest, reader),
+      ],
+      unknownBody,
+    );
+  });
+
+  it("answers an unentitled caller 404, not 403, for a private quarantined release", async () => {
+    const { digest } = await publish();
+    makePrivate();
+    setState("1.0.0", "quarantined");
+    const unknownBody = await (await api.list("@alpha/nope")).text();
+    await expectAllNotFound(await everyEndpoint(digest), unknownBody);
+    await expectAllNotFound(await everyEndpoint(digest, { key: readerKey }), unknownBody);
+    grant("user-b");
+    await expectError(api.manifest(digest, { key: readerKey }), 403, "release_quarantined");
   });
 
   it("serves an entitled API key and session with a private cache, and stops on revocation", async () => {
@@ -343,6 +453,40 @@ describe("release read: release and publisher state", () => {
     await expectError(api.file(digest, "SKILL.md"), 403, "publisher_revoked");
     await expectError(api.artifact(digest), 403, "publisher_revoked");
   });
+
+  it("answers release_quarantined before publisher_revoked, by version and by digest", async () => {
+    const { digest } = await publish();
+    setState("1.0.0", "quarantined");
+    sql("UPDATE publishers SET state = 'revoked' WHERE handle = 'alpha'");
+    await expectError(api.version("@alpha/demo", "1.0.0"), 403, "release_quarantined");
+    await expectError(api.manifest(digest), 403, "release_quarantined");
+    await expectError(api.manifest(digest, { query: "?version=1.0.0" }), 403, "release_quarantined");
+    await expectError(api.file(digest, "SKILL.md"), 403, "release_quarantined");
+    await expectError(api.artifact(digest), 403, "release_quarantined");
+    // The listing has no tree of its own; it answers for the publisher.
+    await expectError(api.list("@alpha/demo"), 403, "publisher_revoked");
+  });
+
+  it("answers publisher_revoked before release_yanked by version", async () => {
+    await publish();
+    setState("1.0.0", "yanked");
+    sql("UPDATE publishers SET state = 'suspended' WHERE handle = 'alpha'");
+    await expectError(api.version("@alpha/demo", "1.0.0"), 403, "publisher_revoked");
+  });
+
+  it(`bounds a digest lookup to ${MAX_DIGEST_ROWS} rows and still serves the earliest published release`, async () => {
+    const { digest } = await publish("@alpha/demo", skillFiles(), "1.0.0");
+    for (let minor = 1; minor <= MAX_DIGEST_ROWS + 4; minor++) await publish("@alpha/demo", skillFiles(), `1.${minor}.0`);
+    // Make the published winner the newest row; every older row is yanked.
+    sql("UPDATE package_releases SET release_state = 'yanked', yanked_at = 2 WHERE version <> ?", `1.${MAX_DIGEST_ROWS + 4}.0`);
+    const res = await api.manifest(digest);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-SkillX-Release-State")).toBe("published");
+    expect(res.headers.get("X-SkillX-Version")).toBe(`1.${MAX_DIGEST_ROWS + 4}.0`);
+    // A quarantine anywhere in the tree is still seen, whichever rows the bound keeps.
+    sql("UPDATE package_releases SET release_state = 'quarantined' WHERE version = '1.0.0'");
+    await expectError(api.manifest(digest), 403, "release_quarantined");
+  }, 30_000);
 
   it("completes an artifact stream with consistent bytes when the release is yanked mid-stream", async () => {
     const big = file("references/big.md", `${"Long reference text line.\n".repeat(8_000)}`);
@@ -471,33 +615,104 @@ describe("release read: version selector on digest endpoints", () => {
   });
 });
 
+describe("release read: storage integrity", () => {
+  const STORAGE = "release.storage_inconsistent";
+
+  async function published() {
+    const { tar, digest } = await publish();
+    const blob = `blobs/sha256/${sha(skillFiles()[0]!.bytes)}`;
+    const [manifestKey] = h.r2.keys("manifests/");
+    const [artifactKey] = h.r2.keys("artifacts/");
+    expect(h.r2.objects.has(blob)).toBe(true);
+    return { tar, digest, blob, manifestKey: manifestKey!, artifactKey: artifactKey! };
+  }
+
+  async function expectStorageError(res: Promise<Response>) {
+    const response = await res;
+    expect(response.headers.get("Cache-Control")).toBe("no-store");
+    await expectError(response, 500, STORAGE);
+  }
+
+  it("refuses a missing file blob, and a blob whose size differs from the manifest", async () => {
+    const { digest, blob } = await published();
+    const stored = h.r2.objects.get(blob)!;
+    h.r2.objects.set(blob, { ...stored, bytes: new Uint8Array([...stored.bytes, 0x0a]) });
+    await expectStorageError(api.file(digest, "SKILL.md"));
+    h.r2.objects.delete(blob);
+    await expectStorageError(api.file(digest, "SKILL.md"));
+    // Other files of the tree are unaffected.
+    expect((await api.file(digest, "references/notes.md")).status).toBe(200);
+  });
+
+  it("refuses a missing, oversized or unparsable manifest", async () => {
+    const { digest, manifestKey } = await published();
+    const stored = h.r2.objects.get(manifestKey)!;
+
+    h.r2.objects.set(manifestKey, { ...stored, bytes: new Uint8Array(4 * 1024 * 1024 + 1).fill(0x20) });
+    await expectStorageError(api.manifest(digest));
+    await expectStorageError(api.version("@alpha/demo", "1.0.0"));
+    await expectStorageError(api.file(digest, "SKILL.md"));
+
+    h.r2.objects.set(manifestKey, { ...stored, bytes: enc.encode("{not json") });
+    await expectStorageError(api.file(digest, "SKILL.md"));
+
+    h.r2.objects.delete(manifestKey);
+    await expectStorageError(api.manifest(digest));
+    await expectStorageError(api.file(digest, "SKILL.md"));
+  });
+
+  it("refuses a missing artifact, and one whose size differs from the release", async () => {
+    const { digest, artifactKey } = await published();
+    const stored = h.r2.objects.get(artifactKey)!;
+    h.r2.objects.set(artifactKey, { ...stored, bytes: stored.bytes.slice(0, stored.bytes.length - 512) });
+    await expectStorageError(api.artifact(digest));
+    h.r2.objects.delete(artifactKey);
+    await expectStorageError(api.artifact(digest));
+  });
+});
+
 describe("release read: rate limit and flag", () => {
-  it("answers 429 with Retry-After once a caller exhausts its window, per IP and per user", async () => {
-    vi.useFakeTimers({ toFake: ["Date"] });
-    vi.setSystemTime(new Date("2026-10-13T12:00:15Z"));
+  it("answers 429 no-store with Retry-After once a caller exhausts its budget, per IP and per user", async () => {
     const { digest } = await publish();
+    limiter.budget = 2;
     const ip = { "CF-Connecting-IP": "203.0.113.9" };
 
     expect((await api.manifest(digest, { headers: ip })).status).toBe(200);
-    expect(kv.values.get(rateLimitKey("ip:203.0.113.9", Date.now()))).toBe("1");
+    expect((await api.file(digest, "SKILL.md", { headers: ip })).status).toBe(200);
+    expect(limiter.counts.get("ip:203.0.113.9")).toBe(2);
 
-    kv.values.set(rateLimitKey("ip:203.0.113.9", Date.now()), String(RELEASE_READ_RATE_LIMIT));
     const limited = await api.manifest(digest, { headers: ip });
     expect(limited.status).toBe(429);
-    expect(limited.headers.get("Retry-After")).toBe("45");
+    expect(limited.headers.get("Retry-After")).toBe(String(RELEASE_READ_RATE_WINDOW_SECONDS));
+    expect(limited.headers.get("Cache-Control")).toBe("no-store");
     expect(await limited.json()).toEqual({ error: { code: "rate_limited", message: expect.any(String) } });
     // Another client is unaffected.
     expect((await api.manifest(digest, { headers: { "CF-Connecting-IP": "198.51.100.7" } })).status).toBe(200);
 
     // An authenticated caller is counted per user, not per IP.
-    kv.values.set(rateLimitKey("user:user-b", Date.now()), String(RELEASE_READ_RATE_LIMIT));
-    expect((await api.artifact(digest, { key: readerKey, headers: { "CF-Connecting-IP": "198.51.100.7" } })).status).toBe(429);
+    const asReader = { key: readerKey, headers: { "CF-Connecting-IP": "203.0.113.9" } };
+    expect((await api.artifact(digest, asReader)).status).toBe(200);
+    expect(limiter.counts.get("user:user-b")).toBe(1);
+    limiter.counts.set("user:user-b", 2);
+    expect((await api.artifact(digest, asReader)).status).toBe(429);
   });
 
-  it("lets requests through when KV fails (fail open)", async () => {
+  it("lets requests through, logging once, when the binding is missing or failing (fail open)", async () => {
     const { digest } = await publish();
-    kv.failing = true;
-    expect((await api.manifest(digest)).status).toBe(200);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      limiter.failing = true;
+      expect((await api.manifest(digest)).status).toBe(200);
+      expect((await api.manifest(digest)).status).toBe(200);
+      expect(warn).toHaveBeenCalledTimes(1);
+
+      resetRateLimitWarning();
+      for (let i = 0; i < 3; i++) expect((await api.manifest(digest, { env: { RELEASE_READ_LIMITER: undefined } })).status).toBe(200);
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(String(warn.mock.calls[1]![0])).toContain("no RELEASE_READ_LIMITER binding");
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("answers 404 on every endpoint while SKILLX_RELEASES_API is off, before any work", async () => {
@@ -516,6 +731,6 @@ describe("release read: rate limit and flag", () => {
         expect(await res.json()).toEqual({ error: { code: "not_found", message: "Not found" } });
       }
     }
-    expect(kv.values.size).toBe(0);
+    expect(limiter.counts.size).toBe(0);
   });
 });

@@ -1,6 +1,9 @@
 /**
  * Who may read which release, and in which state. Shared by every pinned
- * read endpoint so they all reach the same answer for the same inputs.
+ * read endpoint so they all reach the same answer for the same inputs, in
+ * one precedence order: unknown or unentitled (404), then quarantined (403),
+ * then publisher revoked (403), then yanked (410 by version, served with its
+ * state by digest).
  *
  * - A private package needs an unrevoked entitlement of the viewer (whole
  *   stream, or the release itself), decided by the shared payload-access
@@ -165,8 +168,8 @@ function strip({ publisherState: _p, entitled: _e, treeQuarantined: _q, ...relea
 export async function resolveReleaseByVersion(db: D1Database, identity: string, version: string, userId: string | null): Promise<ReadableRelease> {
   const [row] = await queryReleases(db, "p.name = ? AND r.version = ?", userId, identity, version);
   if (row === undefined || !viewerMayRead(row, userId)) throw notFound();
-  if (row.publisherState !== "active") throw publisherRevoked();
   if (isQuarantined(row)) throw quarantined();
+  if (row.publisherState !== "active") throw publisherRevoked();
   if (row.state === "yanked") throw releaseError(410, "release_yanked", `${identity}@${version} was yanked; pin it by digest or choose another version`);
   return strip(row);
 }
@@ -189,17 +192,31 @@ export async function resolveReleaseByDigest(
   userId: string | null,
   version: string | null = null,
 ): Promise<ReadableRelease> {
-  const found =
-    version === null
-      ? await queryReleases(db, "r.release_digest = ? ORDER BY r.created_at, r.id", userId, releaseDigest)
-      : await queryReleases(db, "r.release_digest = ? AND r.version = ? ORDER BY r.created_at, r.id", userId, releaseDigest, version);
+  const where = version === null ? "r.release_digest = ?" : "r.release_digest = ? AND r.version = ?";
+  const found = await queryReleases(db, `${where} ${DIGEST_ORDER} LIMIT ?`, userId, releaseDigest, ...(version === null ? [] : [version]), MAX_DIGEST_ROWS);
   const rows = found.filter((row) => viewerMayRead(row, userId));
   if (rows.length === 0) throw notFound();
+  // Every row of one digest carries the same tree-wide flag, so the row bound cannot hide a quarantine.
   if (rows.some(isQuarantined)) throw quarantined();
   const active = rows.filter((row) => row.publisherState === "active");
   if (active.length === 0) throw publisherRevoked();
-  return strip(active.find((row) => row.state === "published") ?? active[0]!);
+  active.sort((a, b) => publishedFirst(a) - publishedFirst(b) || a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+  return strip(active[0]!);
 }
+
+/** Most rows one digest lookup reads; one tree republished more often than this is still served. */
+export const MAX_DIGEST_ROWS = 50;
+
+/**
+ * Bounds the digest lookup deterministically: rows the viewer may read come
+ * first (public, then entitled), then rows of active publishers, then
+ * published before yanked, then the earliest. So the bound only drops rows
+ * that could not have won.
+ */
+const DIGEST_ORDER = `ORDER BY p.visibility = 'public' DESC, entitled DESC, pub.state = 'active' DESC,
+                               r.release_state = 'published' DESC, r.created_at, r.id`;
+
+const publishedFirst = (row: ReleaseRowAccess) => (row.state === "published" ? 0 : 1);
 
 export interface PackageReleaseList {
   identity: string;

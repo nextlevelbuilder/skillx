@@ -37,6 +37,19 @@
   "ai": {
     "binding": "AI"
   },
+  // Per-caller limit of the release read API (user ID or client IP), counted per Cloudflare location.
+  // Keep limit/period in sync with RELEASE_READ_RATE_LIMIT / _WINDOW_SECONDS in release-rate-limit.ts.
+  // namespace_id is a positive integer unique within the Cloudflare account.
+  "ratelimits": [
+    {
+      "name": "RELEASE_READ_LIMITER",
+      "namespace_id": "5401",
+      "simple": {
+        "limit": 300,
+        "period": 60
+      }
+    }
+  ],
   "vars": {
     "ENVIRONMENT": "production",
     // Release publish API (POST /api/v1/packages/@handle/slug/releases). "0" = off (404).

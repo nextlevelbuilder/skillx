@@ -159,6 +159,7 @@ Read here: `./docs/deployment-guide.md`
 | `KV` | KV Namespace |
 | `R2` | R2 Bucket |
 | `AI` | Workers AI |
+| `RELEASE_READ_LIMITER` | Workers Rate Limiting (release read API, 300/60s per caller) |
 
 ## Documentation
 
