@@ -309,7 +309,7 @@ Run this supervised, by a maintainer, in order. Stop at the first failure.
      `{"from":"published","to":"yanked","reason":"activation smoke"}`), then
      replay the same body and expect `409 state_conflict`;
    - confirm the audit rows:
-     `SELECT outcome, from_state, to_state FROM release_state_audit ORDER BY created_at DESC LIMIT 5`.
+     `SELECT outcome, from_state, to_state FROM release_state_audit ORDER BY created_at DESC, rowid DESC LIMIT 5`.
    The smoke release stays yanked; nothing is deleted.
 
 **Containing a yanked release** (for example malware found after a yank;

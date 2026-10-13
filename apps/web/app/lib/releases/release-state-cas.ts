@@ -95,8 +95,10 @@ export async function compareAndSet(db: D1Database, attempt: Attempt, plan: CasP
           AND (SELECT count(*) FROM release_state_audit WHERE id IN (${edgeIds.map(() => "?").join(", ")}) AND outcome = 'applied') = ?`,
     )
     .bind(input.to, ...(plan.extraBinds ?? []), subjectId, input.from, ...edgeIds, edgeIds.length);
-  const results = await db.batch([refused, ...edges, update]);
-  if ((results[results.length - 1]?.meta.changes ?? 0) === 1) return "applied";
+  await db.batch([refused, ...edges, update]);
+  // Decide from the audit rows, not `meta.changes`: the batch is one transaction, so a
+  // missing refused row means every edge row and the update were applied together.
   const row = await db.prepare("SELECT outcome FROM release_state_audit WHERE id = ?").bind(requestRowId).first<{ outcome: string }>();
-  return row?.outcome === "denied" ? "denied" : "stale";
+  if (!row) return "applied";
+  return row.outcome === "denied" ? "denied" : "stale";
 }
