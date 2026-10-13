@@ -1,12 +1,16 @@
 /**
  * `skillx.release-status/v1` signed release status contract.
  *
- * The `skillx.release/v1` manifest is signed once per `releaseDigest` and
- * never changes. The mutable lifecycle state of that release (published,
- * yanked, quarantined, ...) is a separate document, signed with the same
- * canonical-bytes and Ed25519 rules (`release-signature.ts`). Each new status
- * for a release carries a strictly higher `sequence`, so a consumer that keeps
- * the last status it accepted can reject a replayed older one:
+ * The `skillx.release/v1` manifest is signed once and never changes. The
+ * mutable lifecycle state of that release (published, yanked, quarantined,
+ * ...) is a separate document, signed with the same canonical-bytes and
+ * Ed25519 rules (`release-signature.ts`). A status names exactly one release
+ * by `manifestDigest` (`releaseManifestDigest`), because the same tree
+ * (`releaseDigest`) may be released under several identities or versions.
+ *
+ * Each new status for a release carries a strictly higher `sequence`, tracked
+ * per `manifestDigest`, so a consumer that keeps the last status it accepted
+ * for that manifest can reject a replayed older one:
  *
  * - a status whose `sequence` is lower than the last accepted one is a
  *   rollback (`status.rollback`);
@@ -43,6 +47,7 @@ export const RELEASE_STATUS_REASON_MAX_LENGTH = 512;
 export const RELEASE_STATUS_CODES = {
   unknownState: "status.unknown_state",
   digestMismatch: "status.digest_mismatch",
+  manifestMismatch: "status.manifest_mismatch",
   rollback: "status.rollback",
   conflict: "status.conflict",
 } as const;
@@ -51,6 +56,8 @@ export interface UnsignedReleaseStatus {
   schemaVersion: typeof SKILLX_RELEASE_STATUS_SCHEMA_VERSION;
   /** The `releaseDigest` of the `skillx.release/v1` manifest this status describes. */
   releaseDigest: string;
+  /** `releaseManifestDigest` of that manifest: names exactly one release. */
+  manifestDigest: string;
   state: ReleaseState;
   /** Optional human-readable explanation, e.g. why a release was yanked. Omit the member when there is none. */
   reason?: string;
@@ -68,14 +75,17 @@ export interface SkillxReleaseStatus extends UnsignedReleaseStatus {
 export interface ReleaseStatusVerifyOptions {
   /** The `releaseDigest` of the verified release manifest the status must describe. */
   releaseDigest: string;
+  /** `releaseManifestDigest` of that verified manifest. */
+  manifestDigest: string;
   /**
-   * The status this consumer last accepted for the same release, if any. It
-   * must be a status this function accepted before; an invalid one throws.
+   * The status this consumer last accepted for the same `manifestDigest`, if
+   * any. It must be a status this function accepted before; an invalid one,
+   * or one for another manifest, throws.
    */
   previous?: SkillxReleaseStatus | null;
 }
 
-const STATUS_FIELDS = ["schemaVersion", "releaseDigest", "state", "issuedAt", "sequence", "keyId", "signatureAlgorithm"] as const;
+const STATUS_FIELDS = ["schemaVersion", "releaseDigest", "manifestDigest", "state", "issuedAt", "sequence", "keyId", "signatureAlgorithm"] as const;
 const OPTIONAL_STATUS_FIELDS = ["reason"] as const;
 
 function validateReason(reason: unknown, issues: ValidationIssue[]): void {
@@ -97,8 +107,11 @@ function collectIssues(input: unknown, requireSignature: boolean): ValidationIss
   if (input.schemaVersion !== SKILLX_RELEASE_STATUS_SCHEMA_VERSION) {
     issues.push(issue("schemaVersion", "unsupported_value", `must equal '${SKILLX_RELEASE_STATUS_SCHEMA_VERSION}'`));
   }
-  if (typeof input.releaseDigest !== "string" || !RELEASE_DIGEST_PATTERN.test(input.releaseDigest)) {
-    issues.push(issue("releaseDigest", "pattern", "must match sha256:<64 lowercase hex>"));
+  for (const field of ["releaseDigest", "manifestDigest"] as const) {
+    const value = input[field];
+    if (field in input && (typeof value !== "string" || !RELEASE_DIGEST_PATTERN.test(value))) {
+      issues.push(issue(field, "pattern", "must match sha256:<64 lowercase hex>"));
+    }
   }
   if ("state" in input && !isReleaseState(input.state)) {
     issues.push(issue("state", RELEASE_STATUS_CODES.unknownState, `must be one of: ${RELEASE_STATES.join(", ")}`));
@@ -144,7 +157,8 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 }
 
 /**
- * Validates a signed status, binds it to `options.releaseDigest`, verifies its
+ * Validates a signed status, binds it to `options.releaseDigest` and
+ * `options.manifestDigest`, verifies its
  * signature against `publicKeys` and, when `options.previous` is given,
  * enforces the monotonic sequence. Fails closed on every malformed input, an
  * unknown state, an unknown or malformed key, a bad signature, a rollback or
@@ -159,7 +173,12 @@ export async function verifyReleaseStatus(
   if (!structure.valid) return structure;
   const status = input as SkillxReleaseStatus;
   if (status.releaseDigest !== options.releaseDigest) {
-    return validationFail([issue("releaseDigest", RELEASE_STATUS_CODES.digestMismatch, "does not describe the expected release")]);
+    return validationFail([issue("releaseDigest", RELEASE_STATUS_CODES.digestMismatch, "does not describe the expected release tree")]);
+  }
+  if (status.manifestDigest !== options.manifestDigest) {
+    return validationFail([
+      issue("manifestDigest", RELEASE_STATUS_CODES.manifestMismatch, "describes another release manifest of the same tree"),
+    ]);
   }
   const payload = releaseStatusSigningPayload(status);
   const failure = await verifyPayload(payload, status.signature, status.keyId, publicKeys);
@@ -168,8 +187,8 @@ export async function verifyReleaseStatus(
   const previous = options.previous;
   if (previous === undefined || previous === null) return validationOk();
   const previousResult = validateReleaseStatus(previous);
-  if (!previousResult.valid || previous.releaseDigest !== options.releaseDigest) {
-    throw new ReleaseManifestError("previous status is not an accepted status of this release", previousResult.issues);
+  if (!previousResult.valid || previous.releaseDigest !== options.releaseDigest || previous.manifestDigest !== options.manifestDigest) {
+    throw new ReleaseManifestError("previous status is not an accepted status of this release manifest", previousResult.issues);
   }
   if (status.sequence < previous.sequence) {
     return validationFail([

@@ -14,10 +14,16 @@ import type { FixtureCase, MutableFixture } from "./types";
  */
 export const RELEASE_STATUS_FIXTURE_REASON = `Yanked: unsafe script <scripts/check.sh> & caf${String.fromCodePoint(0xe9)} notes`;
 
+/** `releaseManifestDigest(RELEASE_MANIFEST_FIXTURE)`; recomputed by a test. */
+export const RELEASE_FIXTURE_MANIFEST_DIGEST = "sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc";
+/** `releaseManifestDigest(RELEASE_MANIFEST_MINIMAL_FIXTURE)`; recomputed by a test. */
+export const RELEASE_MINIMAL_FIXTURE_MANIFEST_DIGEST = "sha256:5979df5f8e7c400ac422183440040742bb34274bca37c9347d100948871e3596";
+
 /** The first status of the full fixture release. */
 export const RELEASE_STATUS_PUBLISHED_FIXTURE: UnsignedReleaseStatus = {
   schemaVersion: "skillx.release-status/v1",
   releaseDigest: RELEASE_MANIFEST_FIXTURE.releaseDigest,
+  manifestDigest: RELEASE_FIXTURE_MANIFEST_DIGEST,
   state: "published",
   issuedAt: "2026-10-13T04:31:00Z",
   sequence: 1,
@@ -29,6 +35,7 @@ export const RELEASE_STATUS_PUBLISHED_FIXTURE: UnsignedReleaseStatus = {
 export const RELEASE_STATUS_YANKED_FIXTURE: UnsignedReleaseStatus = {
   schemaVersion: "skillx.release-status/v1",
   releaseDigest: RELEASE_MANIFEST_FIXTURE.releaseDigest,
+  manifestDigest: RELEASE_FIXTURE_MANIFEST_DIGEST,
   state: "yanked",
   reason: RELEASE_STATUS_FIXTURE_REASON,
   issuedAt: "2026-10-14T09:00:00Z",
@@ -85,6 +92,12 @@ export const RELEASE_STATUS_FIXTURES: FixtureCase[] = [
   }),
   rejected("rejects a bare-hex releaseDigest", "pattern", (d) => {
     d.releaseDigest = "c".repeat(64);
+  }),
+  rejected("rejects a missing manifestDigest", "required", (d) => {
+    delete d.manifestDigest;
+  }),
+  rejected("rejects an uppercase manifestDigest", "pattern", (d) => {
+    d.manifestDigest = String(d.manifestDigest).toUpperCase();
   }),
   rejected("rejects a timestamp with an offset", "format", (d) => {
     d.issuedAt = "2026-10-14T16:00:00+07:00";

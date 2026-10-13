@@ -383,6 +383,18 @@ export function releaseSigningPayload(manifest: UnsignedReleaseManifest | Skillx
 }
 
 /**
+ * The manifest digest that binds a `skillx.release-status/v1` document to one
+ * release: `sha256:<64 lowercase hex>` of `releaseSigningPayload(manifest)`,
+ * the exact bytes the manifest signature covers (so it includes `keyId` and
+ * `signatureAlgorithm` but not `signature`). Two releases of the same tree
+ * under different identities or versions have different manifest digests.
+ */
+export async function releaseManifestDigest(manifest: UnsignedReleaseManifest | SkillxReleaseManifest): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", releaseSigningPayload(manifest)));
+  return `sha256:${Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("")}`;
+}
+
+/**
  * Signs a valid unsigned manifest with an Ed25519 private key. The key ID and
  * algorithm are part of the signed payload. Throws `ReleaseManifestError` when
  * the manifest is invalid or the key cannot sign with Ed25519.

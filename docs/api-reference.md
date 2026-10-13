@@ -794,27 +794,44 @@ base64). Source: `packages/contracts/src/release-status.ts`.
 |--------|------|------|
 | `schemaVersion` | string | `skillx.release-status/v1` |
 | `releaseDigest` | string | `releaseDigest` of the manifest the status describes |
+| `manifestDigest` | string | `sha256:<64 lowercase hex>` of that manifest's signing payload (below); names exactly one release |
 | `state` | string | `draft`, `quarantined`, `published`, `yanked` |
 | `reason` | string, optional | 1 to 512 characters, no control characters; omit the member when there is none (never `null`) |
 | `issuedAt` | string | RFC 3339 UTC with whole seconds |
-| `sequence` | integer | strictly increasing per release, starting at 1 |
+| `sequence` | integer | strictly increasing per `manifestDigest`, starting at 1 |
 | `keyId` | string | `^[a-z0-9][a-z0-9._-]{1,63}$` |
 | `signatureAlgorithm` | string | `ed25519` |
 | `signature` | string | padded standard base64 of the 64-byte Ed25519 signature |
 
+**Manifest digest.** `manifestDigest` is `sha256:` followed by the lowercase
+hex SHA-256 of the manifest signing payload: the UTF-8 canonical JSON of the
+signed `skillx.release/v1` manifest with only `signature` removed, i.e. the
+exact bytes the manifest signature covers (`releaseManifestDigest`). It covers
+`keyId` and `signatureAlgorithm` but not the signature encoding. The same tree
+(`releaseDigest`) released under another identity or version has a different
+manifest digest, so a status never applies to a sibling release.
+
 A consumer checks, in this order, and fails closed:
 
-1. structure; a `state` outside the list above is `status.unknown_state`, even when correctly signed;
+1. structure; a missing member is `required`; a `state` outside the list above
+   is `status.unknown_state`, even when correctly signed;
 2. `releaseDigest` equals the verified manifest's `releaseDigest`, else `status.digest_mismatch`;
-3. the signature (`signature.unknown_key`, `signature.invalid_key`, `signature.mismatch`);
-4. against the last status it accepted for the release: a lower `sequence` is
-   `status.rollback`; the same `sequence` with different signed bytes is
-   `status.conflict`; identical bytes are accepted.
+3. `manifestDigest` equals the verified manifest's manifest digest, else `status.manifest_mismatch`;
+4. the signature (`signature.unknown_key`, `signature.invalid_key`, `signature.mismatch`);
+5. against the last status it accepted for the same `manifestDigest`: a lower
+   `sequence` is `status.rollback`; the same `sequence` with different signed
+   bytes is `status.conflict`; identical bytes are accepted.
+
+Storage (pinned read API work): the registry stores and serves the full signed
+status document as issued, so `reason` needs no database column; D1 keeps only
+the state, sequence and issue time used to issue the next status.
 
 Cross-language vectors: `packages/contracts/src/fixtures/release-status-v1.json`
-(valid statuses with their signing payload and the previously accepted status;
-tampered, wrong-key, unknown-key, Go-escaped, rollback, conflict, unknown-state
-and other-release cases). Same public test key as the manifest vectors.
+(the signed manifests with their manifest digests, including one tree under two
+versions; valid statuses with their signing payload and the previously accepted
+status; tampered, wrong-key, unknown-key, Go-escaped, rollback, conflict,
+unknown-state, other-tree, other-version, missing and wrong `manifestDigest`
+cases). Same public test key as the manifest vectors.
 
 ### Database columns (migration `0011_release_tree_digest`)
 
