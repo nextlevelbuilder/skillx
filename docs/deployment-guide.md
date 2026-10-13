@@ -227,9 +227,13 @@ Before enabling the flag:
    base64 PKCS #8 DER; its id must match the published registry key
    (`skillx-reg-993cd14a011f7b76`). Paste values at the prompt; never put the
    key in a file under the repo, a command line or logs.
+   `wrangler.jsonc` declares no named environments, so the production worker is
+   `skillx-web` itself; do not pass `--env`/`--environment` (that targets a
+   separate `skillx-web-production` worker). Both secrets are already set on
+   `skillx-web` as of 2026-10-13.
    ```bash
-   wrangler secret put SKILLX_REGISTRY_SIGNING_KEY --environment production
-   wrangler secret put SKILLX_REGISTRY_SIGNING_KEY_ID --environment production
+   wrangler secret put SKILLX_REGISTRY_SIGNING_KEY --name skillx-web
+   wrangler secret put SKILLX_REGISTRY_SIGNING_KEY_ID --name skillx-web
    ```
    Without them every upload fails closed with `503 release.signing_unavailable`.
 3. Publishers create a key with `POST /api/user/api-keys` and
