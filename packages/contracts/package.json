@@ -11,6 +11,9 @@
   "scripts": {
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@skillx/skill-tree": "workspace:*"
+  },
   "devDependencies": {
     "typescript": "^5.9.2"
   }

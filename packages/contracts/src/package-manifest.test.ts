@@ -6,8 +6,10 @@ import {
   INGESTION_FIXTURES,
   PACKAGE_MANIFEST_FIXTURES,
   PACKAGE_MANIFEST_FIXTURE,
+  RELEASE_MANIFEST_FIXTURES,
   VERIFICATION_EVIDENCE_FIXTURES,
 } from "./fixtures";
+import { validateReleaseManifest } from "./release-manifest";
 import {
   PACKAGE_KINDS,
   RELEASE_STATES,
@@ -28,12 +30,13 @@ const VALIDATOR_BY_GROUP: Record<string, (input: unknown) => { valid: boolean; i
   entitlement: validateEntitlement,
   "listing-import": validateListingImport,
   "release-publish": validateReleasePublish,
+  "release-manifest": validateReleaseManifest,
 };
 
 describe("skillx.package/v1 fixtures", () => {
   it("covers both a valid and a rejected case for every contract group", () => {
     const groups = new Set(ALL_FIXTURES.map((fixture) => fixture.group));
-    expect(groups.size).toBe(6);
+    expect(groups.size).toBe(7);
     for (const group of groups) {
       const cases = ALL_FIXTURES.filter((fixture) => fixture.group === group);
       expect(cases.some((c) => c.expectedValid), `${group} needs a valid fixture`).toBe(true);
@@ -56,12 +59,14 @@ describe("skillx.package/v1 fixtures", () => {
     expect(COLLECTION_MEMBER_FIXTURES.length).toBeGreaterThan(0);
     expect(ENTITLEMENT_FIXTURES.length).toBeGreaterThan(0);
     expect(INGESTION_FIXTURES.length).toBeGreaterThan(0);
+    expect(RELEASE_MANIFEST_FIXTURES.length).toBeGreaterThan(0);
     expect(ALL_FIXTURES.length).toBe(
       PACKAGE_MANIFEST_FIXTURES.length +
         VERIFICATION_EVIDENCE_FIXTURES.length +
         COLLECTION_MEMBER_FIXTURES.length +
         ENTITLEMENT_FIXTURES.length +
-        INGESTION_FIXTURES.length,
+        INGESTION_FIXTURES.length +
+        RELEASE_MANIFEST_FIXTURES.length,
     );
   });
 });

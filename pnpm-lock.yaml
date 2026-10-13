@@ -111,6 +111,10 @@ importers:
         version: 5.9.3
 
   packages/contracts:
+    dependencies:
+      '@skillx/skill-tree':
+        specifier: workspace:*
+        version: link:../skill-tree
     devDependencies:
       typescript:
         specifier: ^5.9.2

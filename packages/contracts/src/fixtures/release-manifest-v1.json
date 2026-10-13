@@ -1,0 +1,1865 @@
+{
+  "description": "skillx.release/v1 signed manifest vectors. The test key is derived from a public seed text and MUST NOT be trusted outside tests.",
+  "canonicalization": "signature = padded base64 Ed25519 over UTF-8 canonical JSON (RFC 8785 subset: members sorted by UTF-16 code units, no whitespace, non-negative safe integers only, only quote/backslash/C0 controls escaped, everything else raw UTF-8) of the manifest without its signature member; see packages/contracts/src/canonical-json.ts",
+  "testKey": {
+    "keyId": "skillx-test-vector-1",
+    "seedText": "skillx.release/v1 test vector key; public, never trusted",
+    "seedHex": "1ec7ec7c27d6e97182ca8a8c0e2f3f2af27f4f7174f70ba70dbfd54f6c12c575",
+    "publicKeyHex": "8029f998dfaf0fd73e5bdc7762280fbb0a9805af218308d2df9213c64cdfadb2",
+    "publicKeyBase64": "gCn5mN+vD9c+W9x3YigPuwqYBa8hgwjS35ITxkzfrbI="
+  },
+  "valid": [
+    {
+      "name": "published multi-file release",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "X7m1EkEXrg5sIbEcG/d2MPXB4J5o/QsEOYvBMWvzJy0LKAgZN3hqCNZeknJR9XzUdpp4eRtmjPgvalTo+0L3DQ=="
+      },
+      "signingPayload": "{\"artifactDigest\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"artifactSize\":10240,\"channel\":\"stable\",\"createdAt\":\"2026-10-13T04:30:00Z\",\"declaredScripts\":[\"scripts/check.sh\"],\"fileCount\":3,\"files\":[{\"mode\":\"100644\",\"path\":\"SKILL.md\",\"sha256\":\"bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11\",\"size\":102},{\"mode\":\"100644\",\"path\":\"references/café & notes .md\",\"sha256\":\"d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f\",\"size\":34},{\"mode\":\"100755\",\"path\":\"scripts/check.sh\",\"sha256\":\"b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c\",\"size\":18}],\"identity\":\"@publisher/review-guardrails\",\"keyId\":\"skillx-test-vector-1\",\"kind\":\"skill\",\"publisher\":{\"handle\":\"publisher\",\"verifiedBy\":\"github\"},\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release/v1\",\"signatureAlgorithm\":\"ed25519\",\"sourceProvenance\":{\"commit\":\"0123456789abcdef0123456789abcdef01234567\",\"path\":\"skills/review-guardrails\",\"repo\":\"https://github.com/publisher/review-guardrails\"},\"state\":\"published\",\"treeSize\":154,\"version\":\"1.2.0\"}",
+      "signingPayloadSha256": "2dbd8ec2f29ac3582e0e754efc8b2c3a4766f23f05e173abfd6038ab25242214",
+      "fileContentsBase64": {
+        "SKILL.md": "LS0tCm5hbWU6IHJldmlldy1ndWFyZHJhaWxzCmRlc2NyaXB0aW9uOiBSZXZpZXcgZ3VhcmRyYWlscyBmb3IgcHVsbCByZXF1ZXN0cy4KLS0tCiMgUmV2aWV3IGd1YXJkcmFpbHMK",
+        "references/café & notes .md": "Tm90ZXMgd2l0aCBhIGxpbmUgc2VwYXJhdG9yIHBhdGguCg==",
+        "scripts/check.sh": "IyEvYmluL3NoCmVjaG8gb2sK"
+      }
+    },
+    {
+      "name": "quarantined minimal prerelease",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@solo.dev/tiny_skill",
+        "version": "0.1.0-beta.1",
+        "channel": "beta",
+        "kind": "skill",
+        "releaseDigest": "sha256:2b80424f6839c7ae445108317a623797ecab4ee94fbb6cddbc9695326aed8544",
+        "artifactDigest": "sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "artifactSize": 1536,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "7822f865b6a9be616262a844ffb54085d095857dcf35a172150523db31a3726d",
+            "size": 44
+          }
+        ],
+        "fileCount": 1,
+        "treeSize": 44,
+        "state": "quarantined",
+        "publisher": {
+          "handle": "solo.dev",
+          "verifiedBy": "none"
+        },
+        "sourceProvenance": null,
+        "declaredScripts": [],
+        "createdAt": "2026-10-13T05:00:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "4/jiQH7dCgeJ+ZSR52FVtR9FJXDlOoxAwFT5g6HytAe/lN7NpAJDnzBwLXN5biN2jCaJRhUyIG/2UHWuU6n0Dw=="
+      },
+      "signingPayload": "{\"artifactDigest\":\"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd\",\"artifactSize\":1536,\"channel\":\"beta\",\"createdAt\":\"2026-10-13T05:00:00Z\",\"declaredScripts\":[],\"fileCount\":1,\"files\":[{\"mode\":\"100644\",\"path\":\"SKILL.md\",\"sha256\":\"7822f865b6a9be616262a844ffb54085d095857dcf35a172150523db31a3726d\",\"size\":44}],\"identity\":\"@solo.dev/tiny_skill\",\"keyId\":\"skillx-test-vector-1\",\"kind\":\"skill\",\"publisher\":{\"handle\":\"solo.dev\",\"verifiedBy\":\"none\"},\"releaseDigest\":\"sha256:2b80424f6839c7ae445108317a623797ecab4ee94fbb6cddbc9695326aed8544\",\"schemaVersion\":\"skillx.release/v1\",\"signatureAlgorithm\":\"ed25519\",\"sourceProvenance\":null,\"state\":\"quarantined\",\"treeSize\":44,\"version\":\"0.1.0-beta.1\"}",
+      "signingPayloadSha256": "c26ee8e521c41bf3e116225e79d3b2a5973e77dfbe22c3f4962b63b1263d4fd7",
+      "fileContentsBase64": {
+        "SKILL.md": "LS0tCm5hbWU6IHRpbnkKZGVzY3JpcHRpb246IFRpbnkgc2tpbGwuCi0tLQo="
+      }
+    }
+  ],
+  "invalidSignature": [
+    {
+      "name": "state changed after signing",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "yanked",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "X7m1EkEXrg5sIbEcG/d2MPXB4J5o/QsEOYvBMWvzJy0LKAgZN3hqCNZeknJR9XzUdpp4eRtmjPgvalTo+0L3DQ=="
+      },
+      "expectedCode": "signature.mismatch"
+    },
+    {
+      "name": "flipped signature byte",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "Xrm1EkEXrg5sIbEcG/d2MPXB4J5o/QsEOYvBMWvzJy0LKAgZN3hqCNZeknJR9XzUdpp4eRtmjPgvalTo+0L3DQ=="
+      },
+      "expectedCode": "signature.mismatch"
+    },
+    {
+      "name": "signed by another key under the trusted key ID",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "xHoZb1jFtQRzh2cNjc16ptow+NB9zuvO7KCdvqqWrBLWwPVAQ8IoS2D550rCj+Usqe4holIV3alFOYfgIL5sDg=="
+      },
+      "expectedCode": "signature.mismatch"
+    },
+    {
+      "name": "unknown key ID",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-unknown-key",
+        "signatureAlgorithm": "ed25519",
+        "signature": "X7m1EkEXrg5sIbEcG/d2MPXB4J5o/QsEOYvBMWvzJy0LKAgZN3hqCNZeknJR9XzUdpp4eRtmjPgvalTo+0L3DQ=="
+      },
+      "expectedCode": "signature.unknown_key"
+    },
+    {
+      "name": "signature over an encoding/json-escaped payload",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "0/2aFw3vNJA1qTvsyWiwpI4YQVZTo3H43udjoWG+E+H9zZuBiLCgySXpa/qUn01dqm6tJbS3o4ykXjLQFLfSDQ=="
+      },
+      "expectedCode": "signature.mismatch"
+    }
+  ],
+  "invalidManifest": [
+    {
+      "name": "rejects an unknown top-level field",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA==",
+        "price": 0
+      },
+      "expectedCode": "unknown_field"
+    },
+    {
+      "name": "rejects an unknown file field",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102,
+            "executable": false
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "unknown_field"
+    },
+    {
+      "name": "rejects a missing signature",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519"
+      },
+      "expectedCode": "required"
+    },
+    {
+      "name": "rejects an uppercase releaseDigest",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4C2EAC09C7BA5FC5E0D642959C7E38B65A53CA08E65B8E728D6CA5798E458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "pattern"
+    },
+    {
+      "name": "rejects a bare-hex artifactDigest",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "pattern"
+    },
+    {
+      "name": "rejects a parent-directory path",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "../x",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "tree.unsafe_path"
+    },
+    {
+      "name": "rejects a duplicate path",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "duplicate"
+    },
+    {
+      "name": "rejects unsorted files",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "order"
+    },
+    {
+      "name": "rejects a case-colliding path",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "Scripts/check.sh",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "tree.case_collision"
+    },
+    {
+      "name": "rejects a non-NFC path",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café.md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "tree.non_nfc_path"
+    },
+    {
+      "name": "rejects excluded noise",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/.DS_Store",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "tree.unsafe_path"
+    },
+    {
+      "name": "rejects an unknown file mode",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "120000",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "unsupported_value"
+    },
+    {
+      "name": "rejects an uppercase file hash",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "BCFDC953C1AF6A7FDFDE9D0A99D73BFBA6A5FAD8BB81D484B3BB416461AB5B11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "pattern"
+    },
+    {
+      "name": "rejects a release state outside the enum",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "blocked",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "unsupported_value"
+    },
+    {
+      "name": "rejects the reserved @agentkit publisher",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@agentkit/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "agentkit",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "identity.reserved_publisher"
+    },
+    {
+      "name": "rejects an identity with a reserved device-name slug",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/con",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "identity.invalid"
+    },
+    {
+      "name": "rejects a publisher handle that differs from the identity",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "someone-else",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "mismatch"
+    },
+    {
+      "name": "rejects an unknown publisher verification",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "self"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "unsupported_value"
+    },
+    {
+      "name": "rejects a wrong fileCount",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 4,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "mismatch"
+    },
+    {
+      "name": "rejects a wrong treeSize",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 155,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "mismatch"
+    },
+    {
+      "name": "rejects a declared script missing from files",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/missing.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "not_found"
+    },
+    {
+      "name": "rejects a non-https source repo",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "http://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "format"
+    },
+    {
+      "name": "rejects an abbreviated source commit",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "pattern"
+    },
+    {
+      "name": "rejects a timestamp with fractional seconds",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00.000Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "format"
+    },
+    {
+      "name": "rejects an impossible calendar date",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-02-30T00:00:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "format"
+    },
+    {
+      "name": "rejects a key ID outside the registry pattern",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "Key ID",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "pattern"
+    },
+    {
+      "name": "rejects another signature algorithm",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "rsa-pss",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "unsupported_value"
+    },
+    {
+      "name": "rejects an unpadded signature",
+      "manifest": {
+        "schemaVersion": "skillx.release/v1",
+        "identity": "@publisher/review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "state": "published",
+        "publisher": {
+          "handle": "publisher",
+          "verifiedBy": "github"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/publisher/review-guardrails",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "skills/review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "expectedCode": "pattern"
+    }
+  ]
+}

@@ -10,6 +10,8 @@ export * from "./semver-range";
 export * from "./verification-evidence";
 export * from "./compatibility";
 export * from "./package-manifest";
+export * from "./canonical-json";
+export * from "./release-manifest";
 export * from "./collections";
 export * from "./ingestion";
 export * from "./dto";
