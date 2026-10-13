@@ -1,0 +1,141 @@
+# Publishes one immutable SkillX release from a committed git tree.
+#
+# The tree is packed by the same `skillx release pack` code that runs locally,
+# so the releaseDigest computed here matches a maintainer's machine. The
+# registry countersigns the manifest; this workflow never holds a signing key.
+#
+# Triggers: manual dispatch and workflow_call only. It never runs on pull
+# requests (including forks), and the job-level guard below keeps it that way
+# if a caller wires it into a PR-triggered workflow.
+#
+# Caller example:
+#   jobs:
+#     publish:
+#       uses: nextlevelbuilder/skillx/.github/workflows/publish-release.yml@main
+#       with: { name: "@acme/my-skill", version: "1.2.0", path: "skills/my-skill", cli-version: "0.9.0" }
+#       secrets: { SKILLX_PUBLISH_KEY: ${{ secrets.SKILLX_PUBLISH_KEY }} }
+name: Publish SkillX release
+
+on:
+  workflow_dispatch:
+    inputs:
+      name:
+        description: "Package identity, @publisher/slug"
+        required: true
+        type: string
+      version:
+        description: "SemVer release version (no build metadata)"
+        required: true
+        type: string
+      path:
+        description: "Package directory inside the repository"
+        required: true
+        type: string
+      channel:
+        description: "Release channel"
+        required: false
+        default: stable
+        type: choice
+        options: [stable, beta, alpha]
+      kind:
+        description: "Package kind"
+        required: false
+        default: skill
+        type: choice
+        options: [skill, hook-pack, bundle]
+      registry-url:
+        description: "Registry base URL"
+        required: false
+        default: https://skillx.sh
+        type: string
+      cli-version:
+        description: "Exact skillx-sh CLI version used to pack and upload"
+        required: true
+        type: string
+  workflow_call:
+    inputs:
+      name: { required: true, type: string }
+      version: { required: true, type: string }
+      path: { required: true, type: string }
+      channel: { required: false, default: stable, type: string }
+      kind: { required: false, default: skill, type: string }
+      registry-url: { required: false, default: https://skillx.sh, type: string }
+      cli-version: { required: true, type: string }
+    secrets:
+      SKILLX_PUBLISH_KEY:
+        description: "SkillX API key scoped to releases:publish:@<publisher>"
+        required: true
+    outputs:
+      release-digest:
+        description: "releaseDigest of the published tree"
+        value: ${{ jobs.publish.outputs.release-digest }}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skillx-publish-${{ inputs.name }}-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      release-digest: ${{ steps.publish.outputs.release-digest }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate inputs
+        env:
+          NAME: ${{ inputs.name }}
+          VERSION: ${{ inputs.version }}
+          PKG_PATH: ${{ inputs.path }}
+          CHANNEL: ${{ inputs.channel }}
+          KIND: ${{ inputs.kind }}
+          REGISTRY: ${{ inputs.registry-url }}
+          CLI_VERSION: ${{ inputs.cli-version }}
+        run: |
+          set -euo pipefail
+          [[ "$NAME" =~ ^@[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$ ]] || { echo "::error::invalid name"; exit 1; }
+          [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::invalid version"; exit 1; }
+          [[ "$PKG_PATH" != -* && "$PKG_PATH" != /* && "$PKG_PATH" != *..* ]] || { echo "::error::invalid path"; exit 1; }
+          [[ "$CHANNEL" =~ ^(stable|beta|alpha)$ ]] || { echo "::error::invalid channel"; exit 1; }
+          [[ "$KIND" =~ ^(skill|hook-pack|bundle)$ ]] || { echo "::error::invalid kind"; exit 1; }
+          [[ "$REGISTRY" =~ ^https:// ]] || { echo "::error::registry-url must be https"; exit 1; }
+          [[ "$CLI_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::cli-version must be an exact version"; exit 1; }
+
+      - name: Pack and publish
+        id: publish
+        env:
+          SKILLX_API_KEY: ${{ secrets.SKILLX_PUBLISH_KEY }}
+          NAME: ${{ inputs.name }}
+          VERSION: ${{ inputs.version }}
+          PKG_PATH: ${{ inputs.path }}
+          CHANNEL: ${{ inputs.channel }}
+          KIND: ${{ inputs.kind }}
+          REGISTRY: ${{ inputs.registry-url }}
+          CLI_VERSION: ${{ inputs.cli-version }}
+          REPO_URL: https://github.com/${{ github.repository }}
+        run: |
+          set -euo pipefail
+          npx --yes "skillx-sh@${CLI_VERSION}" release publish HEAD \
+            --path "$PKG_PATH" \
+            --name "$NAME" \
+            --release-version "$VERSION" \
+            --channel "$CHANNEL" \
+            --kind "$KIND" \
+            --repo "$REPO_URL" \
+            --registry "$REGISTRY" \
+            --json > "$RUNNER_TEMP/release.json"
+          digest="$(node -e 'const r=require(process.argv[1]); if(!/^sha256:[0-9a-f]{64}$/.test(r.releaseDigest)) process.exit(1); process.stdout.write(r.releaseDigest)' "$RUNNER_TEMP/release.json")"
+          echo "release-digest=$digest" >> "$GITHUB_OUTPUT"
+          echo "Published $NAME@$VERSION ($digest), state: $(node -e 'process.stdout.write(String(require(process.argv[1]).state))' "$RUNNER_TEMP/release.json")" >> "$GITHUB_STEP_SUMMARY"
