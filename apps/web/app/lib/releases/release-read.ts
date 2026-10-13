@@ -62,7 +62,9 @@ type Params = Record<string, string | undefined>;
 async function resolveViewer(request: Request, env: ReleaseReadEnv): Promise<string | null> {
   const header = request.headers.get("Authorization");
   if (header !== null) {
-    const key = header.startsWith("Bearer ") ? header.slice("Bearer ".length).trim() : "";
+    // The auth scheme is case-insensitive (RFC 9110 section 11.1).
+    const match = /^bearer\s+(\S+)\s*$/i.exec(header);
+    const key = match?.[1] ?? "";
     // authenticateApiKey matches unscoped keys only (scoped keys hash differently) and rejects "".
     const owner = await authenticateApiKey(getDb(env.DB), key);
     if (owner === null) throw releaseError(401, "invalid_api_key", "the Authorization header does not carry a valid read API key");
@@ -90,7 +92,9 @@ export async function serveReleaseRead(
     }
     return await handler({ db: env.DB, bucket: env.R2, userId, request });
   } catch (error) {
-    if (error instanceof ReleaseHttpError) return errorResponse(error);
+    if (error instanceof ReleaseHttpError) {
+      return errorResponse(error, error.status === 401 ? { "WWW-Authenticate": "Bearer" } : {});
+    }
     console.error("release read failed:", error instanceof Error ? error.message : String(error));
     return errorResponse(releaseError(500, "release.internal_error", "release read failed"));
   }

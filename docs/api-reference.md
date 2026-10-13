@@ -1047,9 +1047,10 @@ Read-only, behind the same flag: unless `SKILLX_RELEASES_API` is `"1"` or
 or the web session. Without an `Authorization` header the session decides,
 and no session means anonymous. A present header that does not carry a valid
 unscoped key (unknown, revoked, malformed, another scheme, or a scoped
-publish key, which never authenticates reads) answers `401 invalid_api_key`;
-it never falls back to the session or to anonymous. Tokens are never accepted
-in the query string.
+publish key, which never authenticates reads) answers `401 invalid_api_key`
+with `WWW-Authenticate: Bearer`; it never falls back to the session or to
+anonymous. The `Bearer` scheme is matched case-insensitively. Tokens are
+never accepted in the query string.
 
 **Access and state rules** (same answer on every endpoint, checked in this
 order: unknown or unentitled `404`, then quarantined `403`, then publisher
@@ -1090,9 +1091,10 @@ revoked `403`, then yanked):
     may read count, a quarantined tree is `403`, then a published
     release of an active publisher wins over a yanked one, then the earliest
     created. The served manifest may therefore belong to another version of
-    the same tree. The lookup reads at most 50 rows of the tree, ordered so
-    that only rows that could not win are dropped; the quarantine check
-    covers the whole tree regardless of that bound.
+    the same tree. The lookup reads at most 50 rows of the tree, ordered by
+    exactly these rules (readable by the caller, active publisher,
+    published, earliest), so only rows that could not win are dropped; the
+    quarantine check covers the whole tree regardless of that bound.
   - `X-SkillX-Identity` and `X-SkillX-Version` name the release served.
 
 **Bytes**: stored bytes are served exactly as published, never transformed

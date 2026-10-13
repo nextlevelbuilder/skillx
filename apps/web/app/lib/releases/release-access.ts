@@ -200,6 +200,7 @@ export async function resolveReleaseByDigest(
   if (rows.some(isQuarantined)) throw quarantined();
   const active = rows.filter((row) => row.publisherState === "active");
   if (active.length === 0) throw publisherRevoked();
+  // Same tie-breaks as DIGEST_ORDER after its readable and active terms (already filtered here).
   active.sort((a, b) => publishedFirst(a) - publishedFirst(b) || a.createdAt - b.createdAt || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   return strip(active[0]!);
 }
@@ -208,12 +209,14 @@ export async function resolveReleaseByDigest(
 export const MAX_DIGEST_ROWS = 50;
 
 /**
- * Bounds the digest lookup deterministically: rows the viewer may read come
- * first (public, then entitled), then rows of active publishers, then
- * published before yanked, then the earliest. So the bound only drops rows
- * that could not have won.
+ * Bounds the digest lookup deterministically, in exactly the order that
+ * decides the winner: rows the viewer may read (public, or entitled to the
+ * package or the release, mirroring `viewerMayRead`; `entitled` is always 0
+ * for an anonymous viewer), then rows of active publishers, then published
+ * before yanked, then the earliest, then `id`. So the bound only drops rows
+ * that could not have won, and the in-memory sort below agrees with it.
  */
-const DIGEST_ORDER = `ORDER BY p.visibility = 'public' DESC, entitled DESC, pub.state = 'active' DESC,
+const DIGEST_ORDER = `ORDER BY (p.visibility = 'public' OR entitled) DESC, pub.state = 'active' DESC,
                                r.release_state = 'published' DESC, r.created_at, r.id`;
 
 const publishedFirst = (row: ReleaseRowAccess) => (row.state === "published" ? 0 : 1);

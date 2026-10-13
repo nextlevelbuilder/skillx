@@ -328,7 +328,14 @@ describe("release read: private packages", () => {
       { headers: { Authorization: "Basic dXNlcjpwYXNz" } },
     ];
     for (const options of attempts) {
-      for (const res of await everyEndpoint(digest, options)) await expectError(res, 401, "invalid_api_key");
+      for (const res of await everyEndpoint(digest, options)) {
+        expect(res.headers.get("WWW-Authenticate")).toBe("Bearer");
+        await expectError(res, 401, "invalid_api_key");
+      }
+    }
+    // The scheme is case-insensitive.
+    for (const scheme of ["bearer", "BEARER", "Bearer"]) {
+      expect((await api.manifest(digest, { headers: { Authorization: `${scheme} ${readerKey}` } })).status).toBe(200);
     }
     // A bad key never falls back to the session.
     session.user = { id: "user-b" };
@@ -486,6 +493,48 @@ describe("release read: release and publisher state", () => {
     // A quarantine anywhere in the tree is still seen, whichever rows the bound keeps.
     sql("UPDATE package_releases SET release_state = 'quarantined' WHERE version = '1.0.0'");
     await expectError(api.manifest(digest), 403, "release_quarantined");
+  }, 30_000);
+
+  /**
+   * More than MAX_DIGEST_ROWS public releases of one tree under @alpha/demo,
+   * plus one private release of the same tree under @alpha/priv that user-b
+   * is entitled to.
+   */
+  async function crowdedTree() {
+    const { digest } = await publish("@alpha/demo", skillFiles(), "1.0.0");
+    for (let minor = 1; minor <= MAX_DIGEST_ROWS + 1; minor++) await publish("@alpha/demo", skillFiles(), `1.${minor}.0`);
+    expect((await publish("@alpha/priv", skillFiles(), "1.0.0")).digest).toBe(digest);
+    sql("UPDATE packages SET visibility = 'private' WHERE name = '@alpha/priv'");
+    sql(
+      `INSERT INTO entitlements (id, subject_id, package_id, release_id, source, granted_at, revoked_at)
+       SELECT 'ent-priv', 'user-b', id, NULL, 'grant', 1, NULL FROM packages WHERE name = '@alpha/priv'`,
+    );
+    return digest;
+  }
+
+  it("serves an entitled active release beyond the row bound when every public row has a suspended publisher", async () => {
+    const digest = await crowdedTree();
+    // Every public row now belongs to the suspended publisher; the private one stays active.
+    sql("UPDATE packages SET publisher_id = 'pub-gone' WHERE name = '@alpha/demo'");
+    const res = await api.manifest(digest, { key: readerKey });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("X-SkillX-Identity")).toBe("@alpha/priv");
+    expect(res.headers.get("Cache-Control")).toMatch(/^private, /);
+    // Anonymous callers cannot read the private row, so only suspended publishers remain.
+    await expectError(api.manifest(digest), 403, "publisher_revoked");
+  }, 30_000);
+
+  it("serves an entitled caller the earliest readable active release, even with more public rows than the bound", async () => {
+    const digest = await crowdedTree();
+    sql("UPDATE package_releases SET created_at = 5000 + CAST(substr(version, 3, instr(substr(version, 3), '.') - 1) AS INTEGER)");
+    sql("UPDATE package_releases SET created_at = 1 WHERE package_id = (SELECT id FROM packages WHERE name = '@alpha/priv')");
+    const entitled = await api.manifest(digest, { key: readerKey });
+    expect(entitled.status).toBe(200);
+    expect(entitled.headers.get("X-SkillX-Identity")).toBe("@alpha/priv");
+    const anonymous = await api.manifest(digest);
+    expect(anonymous.status).toBe(200);
+    expect(anonymous.headers.get("X-SkillX-Identity")).toBe("@alpha/demo");
+    expect(anonymous.headers.get("X-SkillX-Version")).toBe("1.0.0");
   }, 30_000);
 
   it("completes an artifact stream with consistent bytes when the release is yanked mid-stream", async () => {
