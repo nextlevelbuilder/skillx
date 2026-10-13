@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { SkillTreeError, buildTree, readTarTree, readZipTree, serializeTree } from "../src/index";
 import type { TreeManifest } from "../src/index";
-import { tarStream } from "./tar-writer";
+import { concat, tarStream } from "./tar-writer";
 import type { TarSpec } from "./tar-writer";
 import { zipBytes } from "./zip-writer";
 import type { ZipSpec } from "./zip-writer";
@@ -10,6 +10,11 @@ import type { TreeVector, VectorFile } from "./vector-helpers";
 
 const doc = loadTreeVectors();
 const vectors = doc.vectors;
+
+/** Vectors each archive harness presents today; lower them only with a reason. */
+const MIN_TAR_VECTORS = 133;
+const MIN_ZIP_VECTORS = 113;
+const ran = { tar: 0, zip: 0 };
 
 const VECTOR_KEYS = new Set(["id", "description", "files", "synthesize", "archiveOnly", "expect"]);
 const FILE_KEYS = new Set(["path", "rawPathBase64", "mode", "headerMode", "type", "paxRecords", "content", "contentBase64"]);
@@ -42,6 +47,15 @@ const TAR_TYPES: Record<string, string> = {
 };
 const HEADER_ONLY = new Set(["1", "2", "3", "4", "5", "6"]);
 
+/** An empty GNU 1.0 sparse map ("0\n" in one block), which Go reads from the start of the data section. */
+const EMPTY_SPARSE_1_0_MAP = (() => {
+  const block = new Uint8Array(512);
+  block.set(new TextEncoder().encode("0\n"));
+  return block;
+})();
+
+const isSparse1x0 = (pax?: Record<string, string>) => pax?.["GNU.sparse.major"] === "1" && pax["GNU.sparse.minor"] === "0";
+
 /** The vector as a tar stream, or undefined when tar cannot present it (walker-only types, NUL names). */
 function tarSpecs(v: TreeVector): TarSpec[] | undefined {
   const specs: TarSpec[] = [];
@@ -51,7 +65,9 @@ function tarSpecs(v: TreeVector): TarSpec[] | undefined {
     if (typeflag === undefined || name.includes(0) || (typeflag !== "g" && f.paxRecords?.path !== undefined)) return undefined;
     const pax = f.paxRecords;
     // Header-only types (links, devices, directories, FIFOs) carry no data, as Go's tar writer enforces.
-    const data = typeflag === "g" || HEADER_ONLY.has(typeflag) ? undefined : fileBytes(f);
+    let data = typeflag === "g" || HEADER_ONLY.has(typeflag) ? undefined : fileBytes(f);
+    // A GNU 1.0 sparse file's data section starts with its map; without one Go's reader fails.
+    if (data !== undefined && typeflag !== "g" && isSparse1x0(pax)) data = concat([EMPTY_SPARSE_1_0_MAP, data]);
     specs.push({ name, typeflag, mode: archiveMode(f), data, ...(pax ? { pax } : {}) } as TarSpec);
   }
   for (const s of v.synthesize ?? []) {
@@ -117,11 +133,20 @@ describe("skill-tree-v1 vectors (vendored unedited from AgentKit)", () => {
     const specs = tarSpecs(v);
     if (specs === undefined) return;
     expectOutcome(await outcome(() => readTarTree(tarStream(specs))), v);
+    ran.tar++;
   }, 120_000);
 
   it.each(vectors.map((v) => [v.id, v] as const))("zip reader agrees: %s", async (_id, v) => {
     const specs = zipSpecs(v);
     if (specs === undefined) return;
     expectOutcome(await outcome(() => readZipTree(zipBytes(specs))), v);
+    ran.zip++;
   }, 60_000);
+
+  // Tests in a file run in order, so this sees every reader run above; it
+  // stops a harness change from silently skipping most vectors.
+  it("each archive reader ran most vectors", () => {
+    expect(ran.tar).toBeGreaterThanOrEqual(MIN_TAR_VECTORS);
+    expect(ran.zip).toBeGreaterThanOrEqual(MIN_ZIP_VECTORS);
+  });
 });

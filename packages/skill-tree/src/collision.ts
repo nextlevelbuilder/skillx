@@ -45,9 +45,10 @@ export function checkFileDirs(files: readonly string[], dirEntries: readonly str
  * so a given entry list always reports the same path.
  */
 export function checkCollisions(files: readonly string[], dirEntries: readonly string[]): SkillTreeError | null {
+  const keys = files.map(foldKey);
   const byKey = new Map<string, string>();
-  for (const file of files) {
-    const key = foldKey(file);
+  for (const [i, file] of files.entries()) {
+    const key = keys[i]!;
     const prior = byKey.get(key);
     if (prior !== undefined) {
       return treeError(ERROR_CODES.caseCollision, file, `collides with ${JSON.stringify(prior)} under case folding`);
@@ -56,9 +57,12 @@ export function checkCollisions(files: readonly string[], dirEntries: readonly s
   }
   const foldedDirs = new Map<string, { dir: string; file: string }>();
   let dirConflict: SkillTreeError | null = null;
-  for (const file of files) {
-    for (const dir of dirPrefixes(file)) {
-      const key = foldKey(dir);
+  for (const [i, file] of files.entries()) {
+    // "/" is a starter that neither folds, decomposes nor reorders, and nothing
+    // folds or decomposes to it, so the key's prefixes are the prefixes' keys.
+    const dirKeys = dirPrefixes(keys[i]!);
+    for (const [j, dir] of dirPrefixes(file).entries()) {
+      const key = dirKeys[j]!;
       const prior = foldedDirs.get(key);
       if (prior === undefined) foldedDirs.set(key, { dir, file });
       else if (prior.dir !== dir && dirConflict === null) {
@@ -70,8 +74,8 @@ export function checkCollisions(files: readonly string[], dirEntries: readonly s
       }
     }
   }
-  for (const file of files) {
-    const owner = foldedDirs.get(foldKey(file));
+  for (const [i, file] of files.entries()) {
+    const owner = foldedDirs.get(keys[i]!);
     if (owner !== undefined) {
       return treeError(ERROR_CODES.caseCollision, file, `collides under case folding with the directory of ${JSON.stringify(owner.file)}`);
     }

@@ -98,9 +98,18 @@ export class StreamReader {
   private chunk: Uint8Array = new Uint8Array(0);
   private offset = 0;
   private ended = false;
+  private consumed = 0;
 
-  constructor(source: AsyncIterable<Uint8Array>) {
+  /** `budget` caps the total bytes taken from the stream: headers, skipped data and file content alike. */
+  constructor(source: AsyncIterable<Uint8Array>, private readonly budget = Infinity) {
     this.it = source[Symbol.asyncIterator]();
+  }
+
+  private spend(n: number): void {
+    this.consumed += n;
+    if (this.consumed > this.budget) {
+      throw new SkillTreeError(ERROR_CODES.limitExceeded, "", `archive data exceeds ${this.budget} bytes`);
+    }
   }
 
   private async nextChunk(): Promise<boolean> {
@@ -132,6 +141,7 @@ export class StreamReader {
         throw readFailed(`stream ends after ${filled} of ${n} bytes`);
       }
       const take = Math.min(n - filled, this.chunk.length - this.offset);
+      this.spend(take);
       out.set(this.chunk.subarray(this.offset, this.offset + take), filled);
       this.offset += take;
       filled += take;
@@ -147,6 +157,7 @@ export class StreamReader {
         throw readFailed(`stream ends ${left} bytes before the end of an entry`);
       }
       const take = Math.min(left, this.chunk.length - this.offset);
+      this.spend(take);
       const piece = this.chunk.subarray(this.offset, this.offset + take);
       this.offset += take;
       left -= take;

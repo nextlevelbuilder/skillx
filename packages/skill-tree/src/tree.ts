@@ -69,12 +69,24 @@ function isNoiseEntry(e: TreeEntry): boolean {
   }
 }
 
-/** Maps a tar or zip header mode to its class; any other mode keeps its octal form and is rejected. */
+/** The largest mode a tar header's 8-byte octal field can hold. */
+const MAX_HEADER_MODE = 0o7777777;
+const TYPE_BITS = 0o170000;
+
+/**
+ * Maps a tar or zip header mode to its class; any other mode keeps its
+ * octal form and is rejected, like Go's HeaderMode over int64. A mode that is
+ * not a safe integer, negative or wider than the octal field is rejected
+ * before the type bits are cleared, so no bit above them is ever dropped
+ * (JavaScript bitwise operators truncate to 32 bits).
+ */
 export function headerMode(mode: number): string {
-  const perm = mode & ~0o170000;
-  if (perm === 0o644) return MODE_REGULAR;
-  if (perm === 0o755) return MODE_EXECUTABLE;
-  return `0${mode.toString(8)}`;
+  if (Number.isSafeInteger(mode) && mode >= 0 && mode <= MAX_HEADER_MODE) {
+    const perm = mode & ~TYPE_BITS;
+    if (perm === 0o644) return MODE_REGULAR;
+    if (perm === 0o755) return MODE_EXECUTABLE;
+  }
+  return Number.isFinite(mode) ? `0${mode.toString(8)}` : `0${mode}`;
 }
 
 function isSparseRecord(key: string): boolean {
@@ -112,7 +124,11 @@ export function checkLimits(entries: readonly TreeEntry[], listed: number, limit
   for (const e of entries) {
     if (kindOf(e) !== "regular") continue;
     if (++count > limits.maxFiles) return treeError(ERROR_CODES.limitExceeded, e.path, `tree has more than ${limits.maxFiles} files`);
-    const size = Math.max(e.size, 0);
+    // A negative size counts as none (validation rejects it later); any other
+    // size that is not a safe integer (NaN, fractional, infinite, beyond 2^53)
+    // cannot be summed exactly and fails here.
+    const size = e.size < 0 ? 0 : e.size;
+    if (!Number.isSafeInteger(size)) return treeError(ERROR_CODES.limitExceeded, e.path, `file size ${e.size} is not a safe integer`);
     if (size > limits.maxFileSize) return treeError(ERROR_CODES.limitExceeded, e.path, `file exceeds ${limits.maxFileSize} bytes`);
     if ((total += size) > limits.maxTreeSize) return treeError(ERROR_CODES.limitExceeded, e.path, `tree exceeds ${limits.maxTreeSize} bytes`);
   }

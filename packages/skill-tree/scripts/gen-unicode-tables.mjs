@@ -28,7 +28,7 @@ const INPUTS = {
   },
   goTables: {
     path: "scripts/unicode-15.0.0-go.json",
-    sha256: "baa335155dcbaf0cfe8f40fcc0a98232c4134e821a08c3f198f829a51d911ad5",
+    sha256: "0d0155948ceea434fa241b59937db1a41689fa2ccb8231d35d96a2c56f57b52b",
   },
 };
 
@@ -123,6 +123,7 @@ export const COMBINING_CLASSES = "${encodeValueRanges(tables.combiningClass)}";
 export const CANONICAL_DECOMPOSITIONS = "${encodeMap(tables.decompositions.map(([cp, ...m]) => [cp, m]))}";
 export const PRIMARY_COMPOSITES = "${encodeList(tables.composites)}";
 export const CASE_FOLDING = "${encodeMap(foldEntries)}";
+export const STREAM_SAFE = "${encodeMap(tables.streamSafe.map(([cp, lead, trail]) => [cp, [lead, trail]]))}";
 `;
 
 const target = join(root, "src", "unicode-15-tables.ts");

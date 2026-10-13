@@ -12,13 +12,14 @@ import {
   BLOCK,
   MAX_SPECIAL_FILE_SIZE,
   blockPadding,
-  checkPaxValues,
   isHeaderOnly,
   isZeroBlock,
+  mergePaxValues,
   parseHeader,
   parsePax,
 } from "./tar-header";
 import type { PaxRecords } from "./tar-header";
+import { readOldGnuSparse, readPaxSparse } from "./tar-sparse";
 import { LIMITS, headerMode } from "./tree";
 import type { EntryKind, TreeLimits } from "./tree";
 
@@ -83,6 +84,25 @@ async function readSpecial(reader: StreamReader, size: number): Promise<Uint8Arr
   return data;
 }
 
+/** Go handleRegularFile: the data section length, which may not be negative. */
+function dataLength(typeflag: string, size: number): number {
+  const n = isHeaderOnly(typeflag) ? 0 : size;
+  if (!(n >= 0)) throw readFailed(`tar entry has a negative size ${size}`);
+  return n;
+}
+
+/** Bytes an archive may take beyond its file content: headers, extension records and skipped data. */
+const ENTRY_OVERHEAD = 16 * 1024;
+
+/**
+ * The total byte budget of one archive. Go archive/tar has no such limit;
+ * it bounds data that no file limit counts (non-regular entry data, PAX and
+ * GNU extension chains), so a stream cannot be read without end.
+ */
+export function tarByteBudget(limits: TreeLimits): number {
+  return limits.maxTreeSize + limits.maxEntries * ENTRY_OVERHEAD;
+}
+
 async function readEntries(reader: StreamReader, collector: EntryCollector): Promise<void> {
   let pax: PaxRecords | undefined;
   let longName: Uint8Array | undefined;
@@ -96,44 +116,62 @@ async function readEntries(reader: StreamReader, collector: EntryCollector): Pro
     }
     const h = parseHeader(block);
     if (h.typeflag === "x") {
-      pax = parsePax(await readSpecial(reader, h.size));
+      pax = parsePax(await readSpecial(reader, dataLength(h.typeflag, h.size)));
       continue;
     }
     if (h.typeflag === "L" || h.typeflag === "K") {
-      const value = nulTerminated(await readSpecial(reader, h.size));
-      if (h.typeflag === "L" && value.length > 0) longName = value;
+      const value = nulTerminated(await readSpecial(reader, dataLength(h.typeflag, h.size)));
+      // An empty long name clears an earlier one, as Go's parseString result does.
+      if (h.typeflag === "L") longName = value.length > 0 ? value : undefined;
       continue;
     }
     collector.present();
     if (h.typeflag === "g") {
       // Global records describe the archive; pending x and L headers are dropped, as in Go.
-      const global = parsePax(await readSpecial(reader, h.size));
-      checkPaxValues(global.records);
-      const name = decodeName(global.rawPath ?? h.name);
-      collector.add({ path: name.path, utf8Valid: name.utf8Valid, mode: "", size: 0, sha256: "", kind: "metadata", paxRecords: global.records });
+      // Go ignores a global header's merge failure and then reports no records.
+      const global = parsePax(await readSpecial(reader, dataLength(h.typeflag, h.size)));
+      let records = global.records;
+      try {
+        mergePaxValues(records);
+      } catch {
+        records = Object.create(null) as Record<string, string>;
+      }
+      const name = decodeName(records.path ? global.raw.get("path")! : h.name);
+      collector.add({ path: name.path, utf8Valid: name.utf8Valid, mode: "", size: 0, sha256: "", kind: "metadata", paxRecords: records });
       pax = undefined;
       longName = undefined;
       continue;
     }
-    const records = pax?.records ?? {};
-    checkPaxValues(records);
-    const name = decodeName(longName ?? pax?.rawPath ?? h.name);
-    const declared = records.size !== undefined ? Number(records.size) : h.size;
-    const dataSize = isHeaderOnly(h.typeflag) ? 0 : declared;
-    const kind = tarEntryKind(h.typeflag, name.path);
-    if (h.gnuExtended) {
-      // Old GNU sparse headers chain extension blocks before the data.
-      for (let ext = await reader.readExact(BLOCK); ; ext = await reader.readExact(BLOCK)) {
-        if (ext === null) throw readFailed("truncated GNU sparse header");
-        if (ext[504] === 0) break;
+    const records = pax?.records ?? (Object.create(null) as Record<string, string>);
+    const size = mergePaxValues(records) ?? h.size;
+    let rawName = longName ?? (records.path ? pax!.raw.get("path")! : h.name);
+    const physical = dataLength(h.typeflag, size);
+    let logical = size;
+    let consumed = 0;
+    if (h.typeflag === "S") await readOldGnuSparse(reader, h);
+    else {
+      const sparse = await readPaxSparse(reader, h, pax, size, physical);
+      if (sparse !== undefined) {
+        rawName = sparse.name ?? rawName;
+        logical = sparse.size;
+        consumed = sparse.consumed;
       }
     }
-    let size = 0;
-    let sha256 = "";
-    if (kind === "regular") ({ size, sha256 } = await collector.hashFile(name.path, reader.chunks(dataSize)));
-    else await reader.skip(dataSize);
-    await reader.skip(blockPadding(dataSize));
-    collector.add({ path: name.path, utf8Valid: name.utf8Valid, mode: headerMode(h.mode), size, sha256, kind, paxRecords: records });
+    const name = decodeName(rawName);
+    const kind = tarEntryKind(h.typeflag, name.path);
+    const sparse = logical !== size || consumed > 0 || Object.keys(records).some((k) => k.startsWith("GNU.sparse."));
+    let hashed = { size: 0, sha256: "" };
+    if (kind === "regular" && !sparse) hashed = await collector.hashFile(name.path, reader.chunks(physical));
+    else {
+      // Sparse files are rejected later, but their logical size counts toward the limits first.
+      if (kind === "regular") {
+        collector.countFile(name.path, logical);
+        hashed = { size: logical, sha256: "" };
+      }
+      await reader.skip(physical - consumed);
+    }
+    await reader.skip(blockPadding(physical));
+    collector.add({ path: name.path, utf8Valid: name.utf8Valid, mode: headerMode(h.mode), ...hashed, kind, paxRecords: records });
     pax = undefined;
     longName = undefined;
   }
@@ -145,10 +183,11 @@ async function readEntries(reader: StreamReader, collector: EntryCollector): Pro
  * limits stop reading as soon as they are exceeded.
  */
 export async function readTarTree(source: ByteSource, options: TarReadOptions = {}): Promise<TreeManifest> {
-  const collector = new EntryCollector(options.limits ?? LIMITS);
+  const limits = options.limits ?? LIMITS;
+  const collector = new EntryCollector(limits);
   let reader: StreamReader | undefined;
   try {
-    reader = new StreamReader(await gunzipIfNeeded(toAsyncIterable(source), options.compression ?? "auto"));
+    reader = new StreamReader(await gunzipIfNeeded(toAsyncIterable(source), options.compression ?? "auto"), tarByteBudget(limits));
     await readEntries(reader, collector);
   } catch (err) {
     throw asTreeError(err);

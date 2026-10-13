@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { foldKey } from "../src/collision";
 import { decodeName } from "../src/entry-collector";
 import { buildTree, frontmatterExposure, validatePath } from "../src/index";
 import { errorCodeOf } from "./vector-helpers";
@@ -41,6 +42,19 @@ describe("path validation never throws", () => {
       // A valid path still fails as a whole tree only when it is noise (empty tree).
       else expect(code === null || code === "tree.empty", JSON.stringify(path)).toBe(true);
     }
+  });
+});
+
+describe("collision keys", () => {
+  it("fold each segment independently, so directory keys are prefixes of file keys", () => {
+    const next = rng(0xf01d);
+    const marks = ["́", "̅", "̖", "̈́", "͏"];
+    const tokens = [...ALPHABET, ...marks, ...marks, ...marks];
+    for (let i = 0; i < 5_000; i++) {
+      const path = Array.from({ length: 1 + Math.floor(next() * 40) }, () => tokens[Math.floor(next() * tokens.length)]).join("");
+      expect(foldKey(path).split("/"), JSON.stringify(path)).toEqual(path.split("/").map(foldKey));
+    }
+    expect(foldKey("a" + "̅".repeat(20) + "/" + "̅".repeat(20))).toBe(foldKey("a" + "̅".repeat(20)) + "/" + foldKey("̅".repeat(20)));
   });
 });
 

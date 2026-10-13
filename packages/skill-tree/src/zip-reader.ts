@@ -57,7 +57,7 @@ async function* rawData(src: RandomAccessSource, start: number, length: number):
 }
 
 /** Content of an entry, inflated when deflated, with its CRC-32 and size checked at the end. */
-async function* content(src: RandomAccessSource, central: CentralEntry, dataStart: number, verify: boolean): AsyncGenerator<Uint8Array> {
+async function* content(src: RandomAccessSource, central: CentralEntry, dataStart: number): AsyncGenerator<Uint8Array> {
   const raw = rawData(src, dataStart, central.csize);
   const data = central.method === 8 ? decompress(raw, "deflate-raw") : raw;
   let crc = 0;
@@ -67,7 +67,7 @@ async function* content(src: RandomAccessSource, central: CentralEntry, dataStar
     size += chunk.length;
     yield chunk;
   }
-  if (verify && (crc !== central.crc || size !== central.usize)) throw readFailed("zip entry data does not match its CRC-32 or size");
+  if (crc !== central.crc || size !== central.usize) throw readFailed("zip entry data does not match its CRC-32 or size");
 }
 
 async function readEntries(src: RandomAccessSource, collector: EntryCollector, limits: TreeLimits): Promise<void> {
@@ -106,16 +106,18 @@ async function readEntries(src: RandomAccessSource, collector: EntryCollector, l
     fault ??= sizesDisagree(local, c, descriptor);
     const type = (c.externalAttrs >>> 16) & S_IFMT;
     const base = { path: name.path, utf8Valid: name.utf8Valid, ...(fault === undefined ? {} : { reason: fault }) };
-    if (type === S_IFDIR && fault === undefined) {
+    if (fault !== undefined) {
+      // A faulted entry (header disagreement, encryption, unknown method,
+      // non-regular type) is unsupported: its data is never inflated and it
+      // counts toward no file or byte limit, as a tar special entry.
+      collector.add({ ...base, mode: headerMode(c.externalAttrs >>> 16), size: 0, sha256: "", kind: "special" });
+      continue;
+    }
+    if (type === S_IFDIR) {
       collector.add({ ...base, mode: "", size: 0, sha256: "", kind: "directory" });
       continue;
     }
-    if (dataEnd > dir.cdOffset) {
-      collector.add({ ...base, mode: "", size: 0, sha256: "", kind: "special" });
-      continue;
-    }
-    // Header agreement comes first; only agreeing entries are checked against their CRC-32.
-    const hashed = await collector.hashFile(name.path, content(src, c, local.dataStart, fault === undefined));
+    const hashed = await collector.hashFile(name.path, content(src, c, local.dataStart));
     collector.add({ ...base, mode: headerMode(c.externalAttrs >>> 16), ...hashed, kind: "regular" });
   }
   if (pos !== dir.cdOffset) archiveFault ??= "bytes between the last local entry and the central directory";

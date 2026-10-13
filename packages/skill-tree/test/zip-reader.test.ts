@@ -63,6 +63,25 @@ describe("zip reader rejects unsafe or unsupported entries", () => {
     expect(await errorCodeOf(() => readZipTree(bytes))).toBe("tree.read_failed");
   });
 
+  it("never inflates an encrypted deflate entry", async () => {
+    const bytes = zipBytes([skill, entry("a.md", "z".repeat(4096), { method: 8, flags: 0x1 })]);
+    const local = Buffer.from(bytes).indexOf("a.md") + 4;
+    bytes.fill(0xff, local, local + 6); // ciphertext is not a deflate stream
+    expect(await errorCodeOf(() => readZipTree(bytes))).toBe("tree.unsupported_entry");
+  });
+
+  it("counts unsupported entries toward no file limit", async () => {
+    const files = Array.from({ length: 4095 }, (_, n) => entry(`f/${n}.md`));
+    expect(await zipCode([skill, ...files, entry("link", "/etc", { unixMode: 0o120777 })])).toBe("tree.unsupported_entry");
+    expect(await zipCode([skill, ...files, entry("extra.md")])).toBe("tree.limit_exceeded");
+  });
+
+  it("does not count a faulted entry's data toward the byte limit", async () => {
+    const limits = { maxEntries: 10, maxFiles: 10, maxFileSize: 1024, maxTreeSize: 4096 };
+    const bytes = zipBytes([skill, entry("big.bin", "0".repeat(1 << 20), { method: 8, centralCrc: 0x12345678 })]);
+    expect(await errorCodeOf(() => readZipTree(bytes, { limits }))).toBe("tree.unsupported_entry");
+  });
+
   it("rejects deflate data that is corrupt", async () => {
     const bytes = zipBytes([skill, entry("a.md", "z".repeat(4096), { method: 8 })]);
     const local = Buffer.from(bytes).indexOf("a.md") + 4;

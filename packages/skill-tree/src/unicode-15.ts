@@ -13,6 +13,7 @@ import {
   COMBINING_CLASSES,
   FORMAT_RANGES,
   PRIMARY_COMPOSITES,
+  STREAM_SAFE,
   UNICODE_VERSION,
 } from "./unicode-15-tables";
 
@@ -62,6 +63,8 @@ const assigned = decodeRanges(ASSIGNED_RANGES);
 const format = decodeRanges(FORMAT_RANGES);
 const decompositions = decodeMap(CANONICAL_DECOMPOSITIONS);
 const folding = decodeMap(CASE_FOLDING);
+/** Leading and trailing non-starter counts of x/text norm's Stream-Safe Text Processing. */
+const streamSafe = decodeMap(STREAM_SAFE);
 
 const combiningClasses = new Map<number, number>();
 {
@@ -129,50 +132,115 @@ function decomposeInto(cp: number, out: number[]): void {
   else for (const m of mapping) decomposeInto(m, out);
 }
 
-/** Canonical decomposition with canonical ordering (NFD) over code points. */
-function nfdCodePoints(cps: Iterable<number>): number[] {
-  const out: number[] = [];
-  for (const cp of cps) decomposeInto(cp, out);
-  // Canonical ordering: stable insertion sort of each run of non-starters.
-  for (let i = 1; i < out.length; i++) {
-    const cc = combiningClass(out[i]!);
-    if (cc === 0) continue;
-    let j = i;
-    while (j > 0 && combiningClass(out[j - 1]!) > cc) {
-      [out[j - 1], out[j]] = [out[j]!, out[j - 1]!];
-      j--;
+/** U+034F COMBINING GRAPHEME JOINER, a starter that never composes. */
+const CGJ = 0x034f;
+const MAX_NON_STARTERS = 30;
+
+/** Code points that are the second of a primary composite pair (x/text "combines backward"). */
+const combinesBackward = new Set<number>();
+for (const key of compositions.keys()) combinesBackward.add(key % 0x110000);
+
+/**
+ * Splits code points into the segments Go's x/text norm normalizes one at a
+ * time, each decomposed and canonically ordered. A segment starts at a code
+ * point with no leading non-starter. Stream-Safe Text Processing: when a
+ * code point would extend a run past 30 non-starters (counted over
+ * compatibility decompositions, as x/text does), a CGJ ends the segment and
+ * the code point starts the next one, so a string with such a run is never
+ * NFC.
+ */
+function segments(cps: Iterable<number>): number[][] {
+  const out: number[][] = [];
+  let segment: number[] = [];
+  let run = 0;
+  for (const cp of cps) {
+    const [lead = 0, trail = 0] = streamSafe.get(cp) ?? [];
+    if (lead > 0 && run + lead > MAX_NON_STARTERS) {
+      segment.push(CGJ);
+      run = 0;
+      out.push(segment);
+      segment = [];
+    } else if (lead === 0 && segment.length > 0) {
+      out.push(segment);
+      segment = [];
+    }
+    run = lead === 0 ? trail : run + lead;
+    decomposeInto(cp, segment);
+  }
+  if (segment.length > 0) out.push(segment);
+  for (const s of out) {
+    // Canonical ordering: stable insertion sort of each run of non-starters.
+    for (let i = 1; i < s.length; i++) {
+      const cc = combiningClass(s[i]!);
+      if (cc === 0) continue;
+      let j = i;
+      while (j > 0 && combiningClass(s[j - 1]!) > cc) {
+        [s[j - 1], s[j]] = [s[j]!, s[j - 1]!];
+        j--;
+      }
     }
   }
   return out;
 }
 
-function composePair(a: number, b: number): number | undefined {
-  const l = a - L_BASE, v = b - V_BASE;
-  if (l >= 0 && l < L_COUNT && v >= 0 && v < V_COUNT) return S_BASE + (l * V_COUNT + v) * T_COUNT;
-  const s = a - S_BASE, t = b - T_BASE;
-  if (s >= 0 && s < S_COUNT && s % T_COUNT === 0 && t > 0 && t < T_COUNT) return a + t;
-  return compositions.get(pairKey(a, b));
+/**
+ * Recomposes one segment exactly as x/text reorderBuffer.compose does. It
+ * differs from UAX #15 in one way: a starter only becomes the composition
+ * target when a code point that combines backward follows it directly, so a
+ * starter such as U+FF9E inside a segment does not block.
+ */
+function composeSegment(b: number[]): number[] {
+  const ccc = b.map(combiningClass);
+  let k = 1;
+  let s = 0;
+  const keep = (i: number) => {
+    b[k] = b[i]!;
+    ccc[k++] = ccc[i]!;
+  };
+  const assign = (cp: number) => {
+    b[s] = cp;
+    ccc[s] = 0;
+  };
+  for (let i = 1; i < b.length; i++) {
+    if (b[i]! >= 0x1100 && b[i]! <= 0x11ff) {
+      // Hangul mode for the rest of the segment, as in x/text combineHangul.
+      for (; i < b.length; i++) {
+        const cccB = ccc[k - 1]!;
+        if (cccB === 0) s = k - 1;
+        if (s !== k - 1 && cccB >= ccc[i]!) {
+          keep(i);
+          continue;
+        }
+        const l = b[s]! - L_BASE, v = b[i]! - V_BASE, lv = b[s]! - S_BASE, t = b[i]! - T_BASE;
+        if (l >= 0 && l < L_COUNT && v >= 0 && v < V_COUNT) assign(S_BASE + (l * V_COUNT + v) * T_COUNT);
+        else if (lv >= 0 && lv < S_COUNT && lv % T_COUNT === 0 && t > 0 && t < T_COUNT) assign(b[s]! + t);
+        else keep(i);
+      }
+      break;
+    }
+    if (combinesBackward.has(b[i]!)) {
+      const cccB = ccc[k - 1]!;
+      let blocked = false;
+      if (cccB === 0) s = k - 1;
+      else blocked = s !== k - 1 && cccB >= ccc[i]!;
+      const composite = blocked ? undefined : compositions.get(pairKey(b[s]!, b[i]!));
+      if (composite !== undefined) {
+        assign(composite);
+        continue;
+      }
+    }
+    keep(i);
+  }
+  b.length = Math.min(k, b.length);
+  return b;
+}
+
+function nfdCodePoints(cps: Iterable<number>): number[] {
+  return segments(cps).flat();
 }
 
 function nfcCodePoints(cps: Iterable<number>): number[] {
-  const d = nfdCodePoints(cps);
-  if (d.length === 0) return d;
-  const out = [d[0]!];
-  let starterPos = 0;
-  let lastClass = combiningClass(d[0]!) === 0 ? 0 : 256;
-  for (let i = 1; i < d.length; i++) {
-    const ch = d[i]!;
-    const chClass = combiningClass(ch);
-    const composite = composePair(out[starterPos]!, ch);
-    if (composite !== undefined && (lastClass < chClass || lastClass === 0)) {
-      out[starterPos] = composite;
-      continue;
-    }
-    if (chClass === 0) starterPos = out.length;
-    lastClass = chClass;
-    out.push(ch);
-  }
-  return out;
+  return segments(cps).flatMap(composeSegment);
 }
 
 const codePoints = (s: string): number[] => Array.from(s, (ch) => ch.codePointAt(0)!);

@@ -6,7 +6,8 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { UNICODE_VERSION, caseFoldEntries, combiningClass, isAssigned, isFormat, nfc, nfd } from "../src/unicode-15";
+import { validatePath } from "../src/path-rules";
+import { UNICODE_VERSION, caseFoldEntries, combiningClass, isAssigned, isFormat, isNfc, nfc, nfd } from "../src/unicode-15";
 import { fixtureBytes, sha256 } from "./vector-helpers";
 
 const PINS: Record<string, string> = {
@@ -14,7 +15,7 @@ const PINS: Record<string, string> = {
   "vectors/identity-v1-vectors.json": "1ab9e013c229d78871abd60e3cd3bf26fcfd0e6067d98dcdd79b4f6bcc1daefb",
   "ucd/CaseFolding-15.0.0.txt": "cdd49e55eae3bbf1f0a3f6580c974a0263cb86a6a08daa10fbf705b4808a56f7",
 };
-const GO_TABLES_SHA256 = "baa335155dcbaf0cfe8f40fcc0a98232c4134e821a08c3f198f829a51d911ad5";
+const GO_TABLES_SHA256 = "0d0155948ceea434fa241b59937db1a41689fa2ccb8231d35d96a2c56f57b52b";
 const MAX_CP = 0x10ffff;
 
 interface GoTables {
@@ -28,6 +29,13 @@ interface GoTables {
 
 const goBytes = readFileSync(fileURLToPath(new URL("../scripts/unicode-15.0.0-go.json", import.meta.url)));
 const go = JSON.parse(goBytes.toString("utf8")) as GoTables;
+const STREAM_SAFE_VECTORS_SHA256 = "de0331152c6f83ed05e2c5013c9d383426731d2c7423c1127f15c86f395ed378";
+const streamSafeBytes = readFileSync(fileURLToPath(new URL("../scripts/stream-safe-15.0.0-go-vectors.json", import.meta.url)));
+
+interface StreamSafeVectors {
+  alphabet: number[];
+  cases: Array<{ in: string; isNfc: boolean; nfd: string; nfc: string }>;
+}
 
 function rangeSet(ranges: Array<[number, number]>): Uint8Array {
   const set = new Uint8Array(MAX_CP + 1);
@@ -88,6 +96,41 @@ describe("normalization agrees with the runtime on Unicode 15.0.0 characters", (
       checked++;
     }
     expect(checked).toBeGreaterThan(149_000);
+  });
+
+  it("inserts a CGJ into runs of more than 30 non-starters, like Go x/text norm", () => {
+    const mark = "̅";
+    const cases: Array<[string, boolean]> = [
+      ["a" + mark.repeat(30), true],
+      ["a" + mark.repeat(31), false],
+      [mark.repeat(30), true],
+      [mark.repeat(31), false],
+      ["á" + mark.repeat(29), true], // á carries one trailing non-starter
+      ["á" + mark.repeat(30), false],
+      ["a" + mark.repeat(29) + "̈́", false], // U+0344 adds two
+      ["a" + mark.repeat(30) + "͏" + mark.repeat(30), true],
+    ];
+    for (const [s, want] of cases) expect(isNfc(s), `${s.length} code units`).toBe(want);
+    // Go: the CGJ goes before the overflowing mark, and the next run counts it.
+    expect(nfd("a" + "́".repeat(62))).toBe(
+      "a" + "́".repeat(30) + "͏" + "́".repeat(30) + "͏" + "́".repeat(2),
+    );
+    expect(validatePath("x/a" + mark.repeat(31) + ".md")?.code).toBe("tree.non_nfc_path");
+    expect(validatePath("x/a" + mark.repeat(30) + ".md")).toBeNull();
+  });
+
+  it("matches the Go stream-safe vectors", () => {
+    expect(sha256(streamSafeBytes)).toBe(STREAM_SAFE_VECTORS_SHA256);
+    const vectors = JSON.parse(streamSafeBytes.toString("utf8")) as StreamSafeVectors;
+    expect(vectors.cases.length).toBe(800);
+    const short = (s: string) => sha256(s).slice(0, 16);
+    let normal = 0;
+    for (const v of vectors.cases) {
+      const s = String.fromCodePoint(...Array.from(v.in, (c) => vectors.alphabet[c.charCodeAt(0) - 65]!));
+      expect([isNfc(s), short(nfd(s)), short(nfc(s))], v.in).toEqual([v.isNfc, v.nfd, v.nfc]);
+      if (v.isNfc) normal++;
+    }
+    expect(normal).toBeGreaterThan(100);
   });
 
   it("composes, reorders and blocks sequences", () => {

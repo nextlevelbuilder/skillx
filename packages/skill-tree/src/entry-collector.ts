@@ -24,25 +24,42 @@ export class EntryCollector {
     }
   }
 
-  /** Hashes one regular file's content as it streams, counting it toward the file and byte limits. */
-  async hashFile(path: string, content: AsyncIterable<Uint8Array>): Promise<{ size: number; sha256: string }> {
+  private countBytes(path: string, size: number, added: number): void {
+    this.total += added;
+    if (!(size <= this.limits.maxFileSize)) {
+      throw treeError(ERROR_CODES.limitExceeded, path, `file exceeds ${this.limits.maxFileSize} bytes`);
+    }
+    if (this.total > this.limits.maxTreeSize) {
+      throw treeError(ERROR_CODES.limitExceeded, path, `tree exceeds ${this.limits.maxTreeSize} bytes`);
+    }
+  }
+
+  private countFileEntry(path: string): void {
     if (++this.files > this.limits.maxFiles) {
       throw treeError(ERROR_CODES.limitExceeded, path, `tree has more than ${this.limits.maxFiles} files`);
     }
+  }
+
+  /** Hashes one regular file's content as it streams, counting it toward the file and byte limits. */
+  async hashFile(path: string, content: AsyncIterable<Uint8Array>): Promise<{ size: number; sha256: string }> {
+    this.countFileEntry(path);
     const hash = createSha256();
     let size = 0;
     for await (const chunk of content) {
       size += chunk.length;
-      this.total += chunk.length;
-      if (size > this.limits.maxFileSize) {
-        throw treeError(ERROR_CODES.limitExceeded, path, `file exceeds ${this.limits.maxFileSize} bytes`);
-      }
-      if (this.total > this.limits.maxTreeSize) {
-        throw treeError(ERROR_CODES.limitExceeded, path, `tree exceeds ${this.limits.maxTreeSize} bytes`);
-      }
+      this.countBytes(path, size, chunk.length);
       hash.update(chunk);
     }
     return { size, sha256: hash.hex() };
+  }
+
+  /**
+   * Counts a regular file whose content is not hashed (a sparse file, which
+   * is rejected later) at its logical size, as the limit step sees it.
+   */
+  countFile(path: string, size: number): void {
+    this.countFileEntry(path);
+    this.countBytes(path, size, Math.max(size, 0));
   }
 
   add(entry: TreeEntry): void {
