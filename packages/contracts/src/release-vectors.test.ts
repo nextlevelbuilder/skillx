@@ -34,6 +34,7 @@ import {
   hex,
   sha256,
   vectorKey,
+  withNonZeroPaddingBits,
   writeVectorFile,
   writeVectorsRequested,
 } from "./test-support/vector-key";
@@ -162,7 +163,7 @@ async function buildVectors(): Promise<ReleaseVectors> {
       "signature = padded base64 Ed25519 over UTF-8 canonical JSON (RFC 8785 subset: members sorted by UTF-16 code units, no whitespace, non-negative safe integers only, only quote/backslash/C0 controls escaped, everything else raw UTF-8) of the manifest without its signature member; see packages/contracts/src/canonical-json.ts",
     verifierRules: [
       "parse document and re-encode it canonically; any byte difference (whitespace, member order, duplicate member, escapes, number form, BOM, trailing bytes, invalid UTF-8) is release.non_canonical",
-      "validate the structure; an unknown member, including one differing from a known member only by case, is unknown_field",
+      "validate the structure; an unknown member, including one differing from a known member only by case, is unknown_field; a signature not matching ^[A-Za-z0-9+/]{85}[AQgw]==$ (non-zero unused base64 bits included) is pattern",
       "require releaseDigest == 'sha256:' + hex SHA-256 of treeSerialization (agentkit.skill-tree/v1 of files), else release.tree_digest_mismatch",
       "verify the signature with the trusted key for keyId over the canonical JSON without signature: signature.unknown_key, signature.invalid_key or signature.mismatch",
     ],
@@ -185,6 +186,11 @@ async function buildVectors(): Promise<ReleaseVectors> {
         name: "signature over an encoding/json-escaped payload",
         document: tamper((m) => void (m.signature = goStyleSignature)),
         expectedCode: mismatch,
+      },
+      {
+        name: "signature with non-zero unused base64 bits (same bytes for a lenient decoder)",
+        document: tamper((m) => void (m.signature = withNonZeroPaddingBits(m.signature))),
+        expectedCode: "pattern",
       },
       {
         name: "releaseDigest is not the tree digest of files, correctly signed",
@@ -273,7 +279,13 @@ describe("skillx.release/v1 cross-language vectors", () => {
       codes.add(vector.expectedCode);
     }
     expect([...codes].sort()).toEqual(
-      [...Object.values(RELEASE_MANIFEST_CODES), RELEASE_SIGNATURE_CODES.mismatch, RELEASE_SIGNATURE_CODES.unknownKey, "unknown_field"].sort(),
+      [
+        ...Object.values(RELEASE_MANIFEST_CODES),
+        RELEASE_SIGNATURE_CODES.mismatch,
+        RELEASE_SIGNATURE_CODES.unknownKey,
+        "unknown_field",
+        "pattern",
+      ].sort(),
     );
   });
 

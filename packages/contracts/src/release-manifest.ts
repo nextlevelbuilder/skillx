@@ -80,9 +80,10 @@ export type ReleaseFileMode = (typeof RELEASE_FILE_MODES)[number];
 
 /**
  * How SkillX verified that the publisher owns its handle. The signature is a
- * registry key, never a publisher key: AgentKit maps a verified registry
- * signature with `verifiedBy != "none"` to trust `registry-signed` (not
- * `publisher-signed`), and `none` to `local-unverified`.
+ * registry key, never a publisher key, so consumers MUST NOT map these
+ * releases to trust `publisher-signed`. AgentKit will expose a verified
+ * registry signature as `registry-signed` once its skill-lifecycle contract
+ * adds that value; until then its trust mapping is defined there.
  */
 export const PUBLISHER_VERIFICATIONS = ["none", "github", "admin"] as const;
 export type PublisherVerification = (typeof PUBLISHER_VERIFICATIONS)[number];

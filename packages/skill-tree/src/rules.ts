@@ -10,7 +10,7 @@ export type { SkillTreeErrorCode } from "./errors";
 
 export { isNoisePath, validatePath } from "./path-rules";
 export { checkCollisions, foldKey } from "./collision";
-export { UNICODE_VERSION } from "./unicode-15";
+export { UNICODE_VERSION, isFormat } from "./unicode-15";
 
 export { IDENTITY_PATTERN, RESERVED_PUBLISHER, checkPublisher, validateIdentity } from "./identity";
 

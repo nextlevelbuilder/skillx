@@ -5,11 +5,12 @@
   "consumerRules": [
     "verify the manifest document first (skillx.release/v1 vectors); statuses are checked against that verified manifest",
     "re-encode the received document canonically; any byte difference is status.non_canonical",
-    "validate the structure: unknown member unknown_field; missing member required; state outside draft|quarantined|published|yanked status.unknown_state even when signed; reason 1..512 UTF-8 bytes (length, null is type) without Cc, Cf (incl. bidi controls), Zl, Zp or Cs code points (format); issuedAt < expiresAt <= issuedAt + 7 days else status.invalid_lifetime; sequence 1 must be draft or published else status.invalid_transition",
+    "validate the structure: unknown member unknown_field; missing member required; state outside draft|quarantined|published|yanked status.unknown_state even when signed; reason 1..512 UTF-8 bytes (length, null is type) without Cc, Cf (incl. bidi controls, Unicode 15.0 tables), Zl, Zp or Cs code points (format); signature matching ^[A-Za-z0-9+/]{85}[AQgw]==$ else pattern; issuedAt < expiresAt <= issuedAt + 7 days else status.invalid_lifetime; sequence 1 must be draft or published else status.invalid_transition",
     "require releaseDigest to equal the verified manifest's releaseDigest, else status.digest_mismatch",
     "require manifestDigest to equal the verified manifest's manifest digest, else status.manifest_mismatch",
     "require issuedAt >= the manifest createdAt, else status.issued_before_release",
     "verify the signature with the trusted key for keyId: signature.unknown_key, signature.invalid_key or signature.mismatch",
+    "require issuedAt <= now + 300 s, else status.not_yet_valid",
     "require now <= expiresAt, else status.expired; an expired status may only keep already-installed content, never authorize a new resolution or install",
     "per manifestDigest, against the last accepted status: a lower sequence is status.rollback; the same sequence with different signed bytes is status.conflict (identical bytes are accepted); a higher sequence needs a later issuedAt (status.issued_at_regression) and a state reachable in at most (sequence gap) steps of draft->draft|published, published->published|yanked|quarantined, yanked->yanked|published, quarantined->quarantined|yanked (status.invalid_transition)"
   ],
@@ -105,6 +106,15 @@
       "name": "checked exactly at expiresAt",
       "manifest": "1.2.0 of the multi-file tree",
       "now": "2026-10-14T04:31:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayload": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "signingPayloadSha256": "530fa7fca53abb9f7f68fcf122fcc0e05ef5bd50b91afb004a2ab9604efd3583"
+    },
+    {
+      "name": "issuedAt exactly at the 300 second clock-skew limit",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T04:26:00Z",
       "previous": null,
       "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
       "signingPayload": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
@@ -343,6 +353,22 @@
       "previous": null,
       "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
       "expectedCode": "status.expired"
+    },
+    {
+      "name": "issuedAt 301 seconds ahead of the consumer's clock",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-13T04:25:59Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-14T04:31:00Z\",\"issuedAt\":\"2026-10-13T04:31:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":1,\"signature\":\"R32/j4L6Tn/tlB1TV9X5EI0Yu1F82aAV8NZMEG5s0yPFqy3/T+n8nwNuVdRrGVhMCC1eBKnuPebWVNLcGQ4uDg==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"published\"}",
+      "expectedCode": "status.not_yet_valid"
+    },
+    {
+      "name": "signature with non-zero unused base64 bits (same bytes for a lenient decoder)",
+      "manifest": "1.2.0 of the multi-file tree",
+      "now": "2026-10-14T12:00:00Z",
+      "previous": null,
+      "document": "{\"expiresAt\":\"2026-10-15T09:00:00Z\",\"issuedAt\":\"2026-10-14T09:00:00Z\",\"keyId\":\"skillx-test-vector-1\",\"manifestDigest\":\"sha256:64de9b194abf1627ca00c09be146106c3c044637eeba2c27fb031d5b171312bc\",\"reason\":\"Yanked: unsafe script <scripts/check.sh> & café notes\",\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release-status/v1\",\"sequence\":2,\"signature\":\"QrSknNYk/lisL8cn+8RGzYvSqD/5bCEUmAnR3RYdGqG/cefvgXcTx/U5Eg+c+2Pk/7VVzTu4FlTahxSewOUABB==\",\"signatureAlgorithm\":\"ed25519\",\"state\":\"yanked\"}",
+      "expectedCode": "pattern"
     },
     {
       "name": "lower sequence than the accepted status (rollback)",

@@ -754,7 +754,7 @@ members; unknown members (including `state`) are rejected at every level.
 | `files` | array | non-empty, at most 4096 entries of `{ path, mode, sha256, size }`, sorted by raw UTF-8 path bytes, no duplicates or case-fold collisions; `path` passes the tree path, NFC and noise rules; `mode` is `100644` or `100755`; `sha256` is bare lowercase hex; `size` at most 32 MiB |
 | `fileCount` | integer | equals `files.length` |
 | `treeSize` | integer | sum of file sizes, at most 256 MiB |
-| `publisher` | object | `{ handle, verifiedBy }`; `handle` equals the identity publisher; `verifiedBy` is `none`, `github` or `admin` (`none` means not publisher-verified). The signature is a registry key, never a publisher key: AgentKit maps a verified registry signature with `verifiedBy` other than `none` to trust `registry-signed` (not `publisher-signed`), and `none` to `local-unverified` |
+| `publisher` | object | `{ handle, verifiedBy }`; `handle` equals the identity publisher; `verifiedBy` is `none`, `github` or `admin` (`none` means not publisher-verified). The signature is a registry key, never a publisher key, so consumers MUST NOT map these releases to trust `publisher-signed`. AgentKit will expose a verified registry signature as `registry-signed` once its skill-lifecycle contract adds that value (bestagentkits/agentkit#2277); until then the AgentKit contract defines the mapping |
 | `sourceProvenance` | object or `null` | `{ repo, commit, path }`: https URL without credentials, full lowercase hex commit, package root path (`""` for the repository root). `null` when the release was not packed from a recorded git commit; consumers must label such a release "provenance unknown" |
 | `declaredScripts` | array | paths from `files`, unique and sorted like `files`; informational, never executed by SkillX |
 | `createdAt` | string | RFC 3339 UTC with whole seconds, e.g. `2026-10-13T04:30:00Z` |
@@ -808,8 +808,10 @@ Cross-language vectors: `packages/contracts/src/fixtures/release-manifest-v1.jso
 (signed valid documents with their exact signing payload, tree serialization
 and file contents, including paths whose UTF-8 order differs from UTF-16
 order; rejected documents with their single expected code: tampered, wrong
-key, unknown key, Go-escaped, tree digest mismatch, case-variant member and
-non-canonical byte variants; structure-only invalid-manifest cases). The
+key, unknown key, Go-escaped, non-zero unused base64 bits in the signature
+(`pattern`; a lenient decoder such as Go's `base64.StdEncoding` without
+`.Strict()` accepts it, so verifiers must use the strict pattern), tree digest
+mismatch, case-variant member and non-canonical byte variants; structure-only invalid-manifest cases). The
 vector key is derived from a public seed text and must never be trusted
 outside tests.
 
@@ -825,7 +827,7 @@ base64). Source: `packages/contracts/src/release-status.ts`.
 | `releaseDigest` | string | `releaseDigest` of the manifest the status describes |
 | `manifestDigest` | string | `sha256:<64 lowercase hex>` of that manifest's signing payload (below); names exactly one release |
 | `state` | string | `draft`, `quarantined`, `published`, `yanked` |
-| `reason` | string, optional | 1 to 512 UTF-8 bytes; no `Cc`, `Cf` (including every bidi control), `Zl`, `Zp` or `Cs` code points; omit the member when there is none (never `null` or `""`) |
+| `reason` | string, optional | 1 to 512 UTF-8 bytes; no `Cc`, `Cf` (including every bidi control), `Zl`, `Zp` or `Cs` code points, classified with the same pinned Unicode 15.0 tables as the tree path rules (not the runtime's Unicode data); omit the member when there is none (never `null` or `""`) |
 | `issuedAt` | string | RFC 3339 UTC with whole seconds; not before the manifest's `createdAt` |
 | `expiresAt` | string | RFC 3339 UTC with whole seconds; after `issuedAt` and at most 7 days later |
 | `sequence` | integer | strictly increasing per `manifestDigest`, starting at 1; the status with sequence 1 is `draft` or `published` |
@@ -842,16 +844,30 @@ exact bytes the manifest signature covers (`releaseManifestDigest`). It covers
 manifest digest, so a status never applies to a sibling release.
 
 **Freshness.** Every status expires. The registry re-signs the current status
-of every release at least daily (a new `sequence`, same state), so a consumer
-that fetches normally always holds an unexpired one. A consumer may keep using
-an expired status only for content it already installed; an expired status
-never authorizes a new resolution or install.
+of every release every 24 hours (a new `sequence`, same state) with
+`expiresAt = issuedAt + 24h`; the 7-day limit is a hard cap for the contract,
+not the issuing cadence, and it is the worst-case staleness a consumer can be
+held to. A consumer may keep using an expired status only for content it
+already installed; an expired status never authorizes a new resolution or
+install. A status whose `issuedAt` is more than 300 seconds ahead of the
+consumer's clock is `status.not_yet_valid`, so a future-dated status can
+neither outlive the lifetime bound nor, once accepted, lock out correctly
+timed later statuses.
+
+**Issuer obligations.** Every new status of a release has a higher `sequence`
+and an `issuedAt` at least 1 second later than the previous status (timestamps
+have whole-second resolution; an issuer that yanks within the same second as a
+re-sign bumps `issuedAt` by 1 second), otherwise consumers reject it as
+`status.issued_at_regression`.
 
 **Transitions.** Between consecutive statuses of one release:
 `draft` to `draft` or `published`; `published` to `published`, `yanked` or
 `quarantined`; `yanked` to `yanked` or `published`; `quarantined` to
 `quarantined` or `yanked`. Nothing returns to `draft`. When sequences were
 skipped, the new state must be reachable in at most the sequence gap steps.
+Lifting a quarantine therefore takes two signed steps, `quarantined` to
+`yanked` to `published`; this is intended, so a quarantined release is never
+republished by a single status.
 
 A consumer verifies the manifest first, then checks the received status
 document against it, in this order, and fails closed:
@@ -866,7 +882,8 @@ document against it, in this order, and fails closed:
 4. `manifestDigest` equals the verified manifest's manifest digest, else `status.manifest_mismatch`;
 5. `issuedAt` is not before the manifest's `createdAt`, else `status.issued_before_release`;
 6. the signature (`signature.unknown_key`, `signature.invalid_key`, `signature.mismatch`);
-7. `now` is not after `expiresAt`, else `status.expired`;
+7. `issuedAt` is at most 300 seconds after `now`, else `status.not_yet_valid`;
+   `now` is not after `expiresAt`, else `status.expired`;
 8. against the last status it accepted for the same `manifestDigest`: a lower
    `sequence` is `status.rollback`; the same `sequence` with different signed
    bytes is `status.conflict` (identical bytes are accepted); a higher
@@ -882,11 +899,12 @@ Cross-language vectors: `packages/contracts/src/fixtures/release-status-v1.json`
 under two versions; each vector names its manifest, the consumer's `now`, the
 previously accepted status document and the received document; valid
 statuses with their signing payload, including a daily re-sign, a
-re-publication, a transition across a skipped sequence and a check exactly at
-`expiresAt`; invalid documents with their single expected code, covering every
-`status.*` code, tampering, wrong and unknown keys, Go escaping, non-canonical
-bytes, a case-variant member, injected empty or `null` reasons and reason
-rules). Same public test key as the manifest vectors.
+re-publication, a transition across a skipped sequence, a check exactly at
+`expiresAt` and an `issuedAt` exactly 300 seconds ahead of `now`; invalid
+documents with their single expected code, covering every `status.*` code,
+tampering, wrong and unknown keys, Go escaping, a signature with non-zero
+unused base64 bits, non-canonical bytes, a case-variant member, injected empty
+or `null` reasons and reason rules). Same public test key as the manifest vectors.
 
 ### Database columns (migration `0011_release_tree_digest`)
 

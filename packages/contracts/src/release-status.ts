@@ -9,12 +9,15 @@
  * (`releaseDigest`) may be released under several identities or versions.
  *
  * Freshness: every status expires. `expiresAt` is after `issuedAt` and at
- * most `RELEASE_STATUS_MAX_LIFETIME_SECONDS` (7 days) later; the registry
- * re-signs the current status at least daily, so a consumer that fetches
- * normally always holds an unexpired one. A verifier rejects a status whose
- * `expiresAt` is before the caller's `now` (`status.expired`). A consumer may
- * keep using an expired status only for content it already installed, never
- * to authorize a new resolution or install.
+ * most `RELEASE_STATUS_MAX_LIFETIME_SECONDS` (7 days, a hard cap) later; the
+ * registry re-signs the current status every 24 hours with
+ * `expiresAt = issuedAt + 24h`, so a consumer that fetches normally always
+ * holds an unexpired one. A verifier rejects a status whose `expiresAt` is
+ * before the caller's `now` (`status.expired`) or whose `issuedAt` is more
+ * than `RELEASE_STATUS_MAX_CLOCK_SKEW_SECONDS` after it
+ * (`status.not_yet_valid`). A consumer may keep using an expired status only
+ * for content it already installed, never to authorize a new resolution or
+ * install.
  *
  * Each new status for a release carries a strictly higher `sequence`, tracked
  * per `manifestDigest`, so a consumer that keeps the last status it accepted
@@ -34,6 +37,7 @@
  * options (`manifest`, `now`, `previous`) throw `ReleaseManifestError`.
  */
 
+import { isFormat } from "@skillx/skill-tree/rules";
 import { canonicalJsonBytes } from "./canonical-json";
 import { RELEASE_STATES, isReleaseState } from "./package-manifest";
 import type { ReleaseState } from "./package-manifest";
@@ -61,6 +65,13 @@ export const SKILLX_RELEASE_STATUS_SCHEMA_VERSION = "skillx.release-status/v1";
 export const RELEASE_STATUS_REASON_MAX_BYTES = 512;
 /** Maximum `expiresAt - issuedAt`: 7 days. */
 export const RELEASE_STATUS_MAX_LIFETIME_SECONDS = 7 * 24 * 60 * 60;
+/**
+ * How far `issuedAt` may lie ahead of the consumer's clock. A status issued
+ * further in the future is `status.not_yet_valid`: it would otherwise stay
+ * valid past the lifetime bound and, once accepted as `previous`, make every
+ * correctly timed later status an `issuedAt` regression.
+ */
+export const RELEASE_STATUS_MAX_CLOCK_SKEW_SECONDS = 300;
 
 /** Status-specific failure codes, in addition to the signature codes. */
 export const RELEASE_STATUS_CODES = {
@@ -70,6 +81,7 @@ export const RELEASE_STATUS_CODES = {
   digestMismatch: "status.digest_mismatch",
   manifestMismatch: "status.manifest_mismatch",
   issuedBeforeRelease: "status.issued_before_release",
+  notYetValid: "status.not_yet_valid",
   expired: "status.expired",
   rollback: "status.rollback",
   conflict: "status.conflict",
@@ -140,8 +152,22 @@ const STATUS_FIELDS = [
 ] as const;
 const OPTIONAL_STATUS_FIELDS = ["reason"] as const;
 const TIMESTAMP_FORMAT = "must be an RFC 3339 UTC timestamp with whole seconds, e.g. 2026-10-13T04:30:00Z";
-/** Controls, format characters (including every bidi control), line and paragraph separators, surrogates. */
-const FORBIDDEN_REASON_CHARACTERS = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u;
+/**
+ * Whether a `reason` code point is forbidden: Cc (C0, DEL, C1), Cf (every
+ * bidi control included) from the pinned Unicode 15.0 tables that path rules
+ * use, Zl (U+2028), Zp (U+2029) and Cs (surrogates). The pinned table keeps
+ * the result independent of the runtime's Unicode version.
+ */
+function forbiddenReasonCodePoint(cp: number): boolean {
+  return (
+    cp < 0x20 ||
+    (cp >= 0x7f && cp <= 0x9f) ||
+    cp === 0x2028 ||
+    cp === 0x2029 ||
+    (cp >= 0xd800 && cp <= 0xdfff) ||
+    isFormat(cp)
+  );
+}
 /** Longest chain of distinct transitions; a larger sequence gap allows nothing more. */
 const MAX_TRANSITION_STEPS = 4;
 
@@ -153,7 +179,7 @@ function validateReason(reason: unknown, issues: ValidationIssue[]): void {
   const bytes = new TextEncoder().encode(reason).length;
   if (bytes === 0 || bytes > RELEASE_STATUS_REASON_MAX_BYTES) {
     issues.push(issue("reason", "length", `must be 1 to ${RELEASE_STATUS_REASON_MAX_BYTES} UTF-8 bytes`));
-  } else if (FORBIDDEN_REASON_CHARACTERS.test(reason)) {
+  } else if (Array.from(reason).some((c) => forbiddenReasonCodePoint(c.codePointAt(0)!))) {
     issues.push(issue("reason", "format", "must not contain control, format, bidi or line separator characters"));
   }
 }
@@ -292,8 +318,8 @@ function checkPrevious(
  * canonical bytes (`status.non_canonical`), structure (including
  * `status.unknown_state`, `status.invalid_lifetime` and the first-status
  * rule), `status.digest_mismatch`, `status.manifest_mismatch`,
- * `status.issued_before_release`, the signature, `status.expired` against
- * `options.now`, then, with `options.previous`, `status.rollback`,
+ * `status.issued_before_release`, the signature, `status.not_yet_valid` and
+ * `status.expired` against `options.now`, then, with `options.previous`, `status.rollback`,
  * `status.conflict`, `status.issued_at_regression` and
  * `status.invalid_transition`. Never throws for `document`; invalid options
  * throw `ReleaseManifestError`.
@@ -326,6 +352,13 @@ export async function verifyReleaseStatus(
   const payload = releaseStatusSigningPayload(status);
   const failure = await verifyPayload(payload, status.signature, status.keyId, publicKeys);
   if (failure !== null) return validationFail([failure]);
+  if (timestampMs(status.issuedAt) > now + RELEASE_STATUS_MAX_CLOCK_SKEW_SECONDS * 1000) {
+    return fail(
+      "issuedAt",
+      RELEASE_STATUS_CODES.notYetValid,
+      `is more than ${RELEASE_STATUS_MAX_CLOCK_SKEW_SECONDS} seconds after the consumer's clock`,
+    );
+  }
   if (now > timestampMs(status.expiresAt)) {
     return fail("expiresAt", RELEASE_STATUS_CODES.expired, `expired at ${status.expiresAt}`);
   }

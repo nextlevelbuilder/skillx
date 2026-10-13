@@ -63,6 +63,18 @@ export function goJsonStyle(payload: Uint8Array): Uint8Array<ArrayBuffer> {
   return encoder.encode(text);
 }
 
+/**
+ * The same signature bytes with non-zero unused bits in the last base64 data
+ * character: lenient decoders (atob, Go base64.StdEncoding) decode it to the
+ * original bytes, the strict signature pattern rejects it.
+ */
+export function withNonZeroPaddingBits(signature: string): string {
+  const last = signature.charAt(85);
+  const next = { A: "B", Q: "R", g: "h", w: "x" }[last];
+  if (next === undefined) throw new Error(`unexpected final signature character ${last}`);
+  return `${signature.slice(0, 85)}${next}==`;
+}
+
 /** Writes `data` as pretty JSON next to this package's fixtures (only when regenerating vectors). */
 export async function writeVectorFile(fileName: string, data: unknown): Promise<void> {
   // A computed specifier keeps Node typings out of the Worker typecheck that also covers this file.

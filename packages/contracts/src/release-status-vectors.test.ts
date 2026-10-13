@@ -32,6 +32,7 @@ import {
   hex,
   sha256,
   vectorKey,
+  withNonZeroPaddingBits,
   writeVectorFile,
   writeVectorsRequested,
 } from "./test-support/vector-key";
@@ -75,6 +76,8 @@ const MINIMAL = "minimal release";
 const DAY_ONE = "2026-10-13T12:00:00Z";
 const DAY_TWO = "2026-10-14T12:00:00Z";
 const DAY_THREE = "2026-10-15T12:00:00Z";
+/** 300 seconds before the published fixture's issuedAt (2026-10-13T04:31:00Z). */
+const SKEW_EDGE = "2026-10-13T04:26:00Z";
 /** One day after the yanked fixture: the next daily re-sign. */
 const NEXT_DAY = { issuedAt: "2026-10-15T09:00:00Z", expiresAt: "2026-10-16T09:00:00Z" };
 
@@ -131,6 +134,7 @@ async function buildVectors(): Promise<StatusVectors> {
       DAY_THREE,
     ],
     ["checked exactly at expiresAt", published, null, V120, RELEASE_STATUS_PUBLISHED_FIXTURE.expiresAt],
+    ["issuedAt exactly at the 300 second clock-skew limit", published, null, V120, SKEW_EDGE],
   ];
   for (const [name, status, previous, manifest, now] of validCases) {
     const payload = releaseStatusSigningPayload(status);
@@ -245,6 +249,12 @@ async function buildVectors(): Promise<StatusVectors> {
     { now: DAY_ONE },
   );
   add("expired one second after expiresAt", doc(published), C.expired, { now: "2026-10-14T04:31:01Z" });
+  add("issuedAt 301 seconds ahead of the consumer's clock", doc(published), C.notYetValid, { now: "2026-10-13T04:25:59Z" });
+  add(
+    "signature with non-zero unused base64 bits (same bytes for a lenient decoder)",
+    tamper((s) => void (s.signature = withNonZeroPaddingBits(s.signature))),
+    "pattern",
+  );
 
   // Against the previous accepted status.
   add("lower sequence than the accepted status (rollback)", doc(published), C.rollback, { previous: yanked, now: DAY_ONE });
@@ -273,11 +283,12 @@ async function buildVectors(): Promise<StatusVectors> {
     consumerRules: [
       "verify the manifest document first (skillx.release/v1 vectors); statuses are checked against that verified manifest",
       "re-encode the received document canonically; any byte difference is status.non_canonical",
-      "validate the structure: unknown member unknown_field; missing member required; state outside draft|quarantined|published|yanked status.unknown_state even when signed; reason 1..512 UTF-8 bytes (length, null is type) without Cc, Cf (incl. bidi controls), Zl, Zp or Cs code points (format); issuedAt < expiresAt <= issuedAt + 7 days else status.invalid_lifetime; sequence 1 must be draft or published else status.invalid_transition",
+      "validate the structure: unknown member unknown_field; missing member required; state outside draft|quarantined|published|yanked status.unknown_state even when signed; reason 1..512 UTF-8 bytes (length, null is type) without Cc, Cf (incl. bidi controls, Unicode 15.0 tables), Zl, Zp or Cs code points (format); signature matching ^[A-Za-z0-9+/]{85}[AQgw]==$ else pattern; issuedAt < expiresAt <= issuedAt + 7 days else status.invalid_lifetime; sequence 1 must be draft or published else status.invalid_transition",
       "require releaseDigest to equal the verified manifest's releaseDigest, else status.digest_mismatch",
       "require manifestDigest to equal the verified manifest's manifest digest, else status.manifest_mismatch",
       "require issuedAt >= the manifest createdAt, else status.issued_before_release",
       "verify the signature with the trusted key for keyId: signature.unknown_key, signature.invalid_key or signature.mismatch",
+      "require issuedAt <= now + 300 s, else status.not_yet_valid",
       "require now <= expiresAt, else status.expired; an expired status may only keep already-installed content, never authorize a new resolution or install",
       "per manifestDigest, against the last accepted status: a lower sequence is status.rollback; the same sequence with different signed bytes is status.conflict (identical bytes are accepted); a higher sequence needs a later issuedAt (status.issued_at_regression) and a state reachable in at most (sequence gap) steps of draft->draft|published, published->published|yanked|quarantined, yanked->yanked|published, quarantined->quarantined|yanked (status.invalid_transition)",
     ],
@@ -326,7 +337,7 @@ describe("skillx.release-status/v1 cross-language vectors", () => {
   });
 
   it.skipIf(writeVectorsRequested)("accept every valid vector", async () => {
-    expect(committed.valid.length).toBe(8);
+    expect(committed.valid.length).toBe(9);
     for (const vector of committed.valid) {
       expect(await verifyVector(vector), vector.name).toEqual({ valid: true, issues: [] });
       const status = JSON.parse(vector.document) as SkillxReleaseStatus;
@@ -350,6 +361,7 @@ describe("skillx.release-status/v1 cross-language vectors", () => {
         "length",
         "type",
         "format",
+        "pattern",
       ].sort(),
     );
   });

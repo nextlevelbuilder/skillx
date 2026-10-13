@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { UNICODE_VERSION } from "@skillx/skill-tree/rules";
 import { canonicalJson } from "./canonical-json";
 import { RELEASE_FIXTURE_KEY_ID, RELEASE_MANIFEST_FIXTURE, RELEASE_MANIFEST_MINIMAL_FIXTURE } from "./fixtures/release-fixtures";
 import {
@@ -154,6 +155,13 @@ describe("skillx.release-status/v1 validation", () => {
     ["a paragraph separator", 0x2029],
   ])("rejects %s in the reason", (_name, codePoint) => {
     const status = { ...RELEASE_STATUS_YANKED_FIXTURE, reason: `bad ${String.fromCodePoint(codePoint)} reason` };
+    expect(codes(validateUnsignedReleaseStatus(status))).toEqual(["format"]);
+  });
+
+  it("classifies format characters with the pinned Unicode 15.0 tables", () => {
+    expect(UNICODE_VERSION).toBe("15.0.0");
+    // U+13430 EGYPTIAN HIEROGLYPH VERTICAL JOINER is Cf in Unicode 15.0.
+    const status = { ...RELEASE_STATUS_YANKED_FIXTURE, reason: `x${String.fromCodePoint(0x13430)}y` };
     expect(codes(validateUnsignedReleaseStatus(status))).toEqual(["format"]);
   });
 
@@ -315,6 +323,21 @@ describe("skillx.release-status/v1 verification", () => {
       expect(codes(await verifyReleaseStatus(doc(published), keys, late))).toEqual([RELEASE_STATUS_CODES.expired]);
       const forged = { ...clone(published), state: "draft" };
       expect(codes(await verifyReleaseStatus(doc(forged), keys, late))).toEqual([RELEASE_SIGNATURE_CODES.mismatch]);
+    });
+  });
+
+  describe("clock skew", () => {
+    it("accepts an issuedAt up to 300 seconds ahead of now", async () => {
+      const { keys, published, at } = await setup();
+      expect(await verifyReleaseStatus(doc(published), keys, at(new Date("2026-10-13T04:26:00Z")))).toEqual(OK);
+    });
+
+    it("rejects an issuedAt further ahead, but only once the signature verifies", async () => {
+      const { keys, published, at } = await setup();
+      const early = at(new Date("2026-10-13T04:25:59Z"));
+      expect(codes(await verifyReleaseStatus(doc(published), keys, early))).toEqual([RELEASE_STATUS_CODES.notYetValid]);
+      const forged = { ...clone(published), state: "draft" };
+      expect(codes(await verifyReleaseStatus(doc(forged), keys, early))).toEqual([RELEASE_SIGNATURE_CODES.mismatch]);
     });
   });
 
