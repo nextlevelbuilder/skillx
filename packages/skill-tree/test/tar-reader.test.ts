@@ -279,6 +279,15 @@ describe("tar reader rewrites type NUL like Go archive/tar", () => {
     expect(manifest.digest).toBe((await readTarTree(await tarBytes([skill, file("evil.md")]))).digest);
   });
 
+  it.each([
+    ["a PAX path", () => rawEntry("PaxHeader", "x", paxData({ path: "refs/" }))],
+    ["a GNU long name", () => rawEntry("././@LongLink", "L", enc.encode("refs/\0"))],
+  ] as const)("takes the directory slash from %s, not the raw header name", async (_name, meta) => {
+    const smuggled = rawEntry("evil.md", "0", data);
+    const manifest = await readTarTree(concat([await skillBytes(), meta(), rawEntry("refs", "\0", smuggled), END]));
+    expect(manifest.files.map((f) => f.path)).toEqual(["SKILL.md", "evil.md"]);
+  });
+
   it("rejects a sparse map on a type NUL directory", async () => {
     expect(await tarCode([skill, { name: enc.encode("refs/"), typeflag: "\0", mode: 0o755, pax: v01 }])).toBe("tree.read_failed");
   });

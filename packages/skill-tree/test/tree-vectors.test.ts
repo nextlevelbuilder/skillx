@@ -65,7 +65,9 @@ function tarSpecs(v: TreeVector): TarSpec[] | undefined {
     if (typeflag === undefined || name.includes(0) || (typeflag !== "g" && f.paxRecords?.path !== undefined)) return undefined;
     const pax = f.paxRecords;
     // Header-only types (links, devices, directories, FIFOs) carry no data, as Go's tar writer enforces.
-    let data = typeflag === "g" || HEADER_ONLY.has(typeflag) ? undefined : fileBytes(f);
+    // Type NUL with a name ending in "/" is a directory to Go's reader, so it is header-only too.
+    const nulDir = typeflag === "\0" && name[name.length - 1] === 0x2f;
+    let data = typeflag === "g" || nulDir || HEADER_ONLY.has(typeflag) ? undefined : fileBytes(f);
     // A GNU 1.0 sparse file's data section starts with its map; without one Go's reader fails.
     if (data !== undefined && typeflag !== "g" && isSparse1x0(pax)) data = concat([EMPTY_SPARSE_1_0_MAP, data]);
     specs.push({ name, typeflag, mode: archiveMode(f), data, ...(pax ? { pax } : {}) } as TarSpec);
