@@ -100,7 +100,11 @@ export class StreamReader {
   private ended = false;
   private consumed = 0;
 
-  /** `budget` caps the total bytes taken from the stream: headers, skipped data and file content alike. */
+  /**
+   * `budget` is the ingest overhead guard: it caps the bytes taken from the
+   * stream that are not hashed file content (headers, extension records,
+   * skipped data). Hashed content is bounded by the tree limits instead.
+   */
   constructor(source: AsyncIterable<Uint8Array>, private readonly budget = Infinity) {
     this.it = source[Symbol.asyncIterator]();
   }
@@ -108,7 +112,11 @@ export class StreamReader {
   private spend(n: number): void {
     this.consumed += n;
     if (this.consumed > this.budget) {
-      throw new SkillTreeError(ERROR_CODES.limitExceeded, "", `archive data exceeds ${this.budget} bytes`);
+      throw new SkillTreeError(
+        ERROR_CODES.limitExceeded,
+        "",
+        `archive overhead exceeds the ${this.budget}-byte ingest overhead guard`,
+      );
     }
   }
 
@@ -149,15 +157,19 @@ export class StreamReader {
     return out;
   }
 
-  /** Yields exactly `n` bytes in chunks; throws `tree.read_failed` if the stream ends first. */
-  async *chunks(n: number): AsyncGenerator<Uint8Array> {
+  /**
+   * Yields exactly `n` bytes in chunks; throws `tree.read_failed` if the
+   * stream ends first. `overhead` false exempts content the caller hashes
+   * and counts against the tree limits from the overhead guard.
+   */
+  async *chunks(n: number, overhead = true): AsyncGenerator<Uint8Array> {
     let left = n;
     while (left > 0) {
       if (this.offset >= this.chunk.length && !(await this.nextChunk())) {
         throw readFailed(`stream ends ${left} bytes before the end of an entry`);
       }
       const take = Math.min(left, this.chunk.length - this.offset);
-      this.spend(take);
+      if (overhead) this.spend(take);
       const piece = this.chunk.subarray(this.offset, this.offset + take);
       this.offset += take;
       left -= take;

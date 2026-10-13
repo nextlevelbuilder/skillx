@@ -91,16 +91,19 @@ function dataLength(typeflag: string, size: number): number {
   return n;
 }
 
-/** Bytes an archive may take beyond its file content: headers, extension records and skipped data. */
-const ENTRY_OVERHEAD = 16 * 1024;
+/** Overhead allowance per file (of `maxFiles`) for the ingest overhead guard. */
+const ENTRY_OVERHEAD = 64 * 1024;
 
 /**
- * The total byte budget of one archive. Go archive/tar has no such limit;
- * it bounds data that no file limit counts (non-regular entry data, PAX and
- * GNU extension chains), so a stream cannot be read without end.
+ * The ingest overhead guard of one archive: the bytes it may take beyond
+ * hashed regular-file content (headers, PAX/GNU extension records, sparse
+ * maps, padding and the data of non-regular entries). Hashed content counts
+ * against the tree limits instead. This is a SkillX resource guard outside
+ * the Go parity claim (Go archive/tar has no such bound): it only ever
+ * rejects with `tree.limit_exceeded` and never changes a digest.
  */
-export function tarByteBudget(limits: TreeLimits): number {
-  return limits.maxTreeSize + limits.maxEntries * ENTRY_OVERHEAD;
+export function tarOverheadBudget(limits: TreeLimits): number {
+  return limits.maxFiles * ENTRY_OVERHEAD;
 }
 
 async function readEntries(reader: StreamReader, collector: EntryCollector): Promise<void> {
@@ -142,15 +145,20 @@ async function readEntries(reader: StreamReader, collector: EntryCollector): Pro
       longName = undefined;
       continue;
     }
+    // Go checks the raw header size before any PAX record can override it.
+    dataLength(h.typeflag, h.size);
     const records = pax?.records ?? (Object.create(null) as Record<string, string>);
     const size = mergePaxValues(records) ?? h.size;
     let rawName = longName ?? (records.path ? pax!.raw.get("path")! : h.name);
-    const physical = dataLength(h.typeflag, size);
+    // Go rewrites TypeRegA ('\0') from the merged name, before sparse handling:
+    // a directory when it ends in "/", a regular file otherwise.
+    const type = h.typeflag === "\0" ? (rawName[rawName.length - 1] === 0x2f ? "5" : "0") : h.typeflag;
+    const physical = dataLength(type, size);
     let logical = size;
     let consumed = 0;
-    if (h.typeflag === "S") await readOldGnuSparse(reader, h);
+    if (type === "S") await readOldGnuSparse(reader, h);
     else {
-      const sparse = await readPaxSparse(reader, h, pax, size, physical);
+      const sparse = await readPaxSparse(reader, type, pax, size, physical);
       if (sparse !== undefined) {
         rawName = sparse.name ?? rawName;
         logical = sparse.size;
@@ -158,10 +166,11 @@ async function readEntries(reader: StreamReader, collector: EntryCollector): Pro
       }
     }
     const name = decodeName(rawName);
-    const kind = tarEntryKind(h.typeflag, name.path);
+    // The kind follows the effective type, never the sparse-overridden name.
+    const kind = tarEntryKind(type, name.path);
     const sparse = logical !== size || consumed > 0 || Object.keys(records).some((k) => k.startsWith("GNU.sparse."));
     let hashed = { size: 0, sha256: "" };
-    if (kind === "regular" && !sparse) hashed = await collector.hashFile(name.path, reader.chunks(physical));
+    if (kind === "regular" && !sparse) hashed = await collector.hashFile(name.path, reader.chunks(physical, false));
     else {
       // Sparse files are rejected later, but their logical size counts toward the limits first.
       if (kind === "regular") {
@@ -187,7 +196,7 @@ export async function readTarTree(source: ByteSource, options: TarReadOptions = 
   const collector = new EntryCollector(limits);
   let reader: StreamReader | undefined;
   try {
-    reader = new StreamReader(await gunzipIfNeeded(toAsyncIterable(source), options.compression ?? "auto"), tarByteBudget(limits));
+    reader = new StreamReader(await gunzipIfNeeded(toAsyncIterable(source), options.compression ?? "auto"), tarOverheadBudget(limits));
     await readEntries(reader, collector);
   } catch (err) {
     throw asTreeError(err);

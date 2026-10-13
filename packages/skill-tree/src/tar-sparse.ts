@@ -116,7 +116,7 @@ export interface PaxSparse {
  */
 export async function readPaxSparse(
   reader: StreamReader,
-  h: RawHeader,
+  typeflag: string,
   pax: PaxRecords | undefined,
   size: number,
   physical: number,
@@ -133,7 +133,7 @@ export async function readPaxSparse(
     logical = n;
   }
   const { entries, consumed } = version === "1.0" ? await map1x0(reader, physical) : { entries: map0x1(records), consumed: 0 };
-  if (isHeaderOnly(h.typeflag) || !validSparseEntries(entries, logical)) throw readFailed("invalid GNU sparse map");
+  if (isHeaderOnly(typeflag) || !validSparseEntries(entries, logical)) throw readFailed("invalid GNU sparse map");
   return { ...(nameText === "" ? {} : { name: pax?.raw.get("GNU.sparse.name") }), size: Number(logical), consumed };
 }
 

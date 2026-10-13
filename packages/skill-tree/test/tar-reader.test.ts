@@ -212,6 +212,13 @@ describe("tar headers parse like Go archive/tar", () => {
     expect(await code(rawEntry("refs/", "5", new Uint8Array(0), [[124, ff(12)]]), rawEntry("refs/a.md", "0", data))).toBeNull();
   });
 
+  it("checks the raw header size before a PAX size overrides it", async () => {
+    const paxSize = (size: string) => rawEntry("PaxHeader", "x", paxData({ size }));
+    expect(await code(paxSize("2"), rawEntry("refs/a.md", "0", data, [[124, ff(12)]]))).toBe("tree.read_failed");
+    // A negative merged size is fine once type NUL becomes a header-only directory.
+    expect(await code(paxSize("-1"), rawEntry("refs/", "\0", new Uint8Array(0)), rawEntry("refs/a.md", "0", data))).toBeNull();
+  });
+
   it("never truncates a base-256 mode to 32 bits", async () => {
     const mode = [0x80, 0, 0, 0x01, 0, 0, 0x01, 0xa4]; // 2^32 + 0o644
     expect(await code(rawEntry("refs/a.md", "0", data, [[100, mode]]))).toBe("tree.unsupported_entry");
@@ -261,10 +268,31 @@ describe("tar headers parse like Go archive/tar", () => {
   });
 });
 
-describe("tar reader bounds bytes that no file limit counts", () => {
+describe("tar reader rewrites type NUL like Go archive/tar", () => {
+  const data = enc.encode("x\n");
+  const v01 = { "GNU.sparse.major": "0", "GNU.sparse.minor": "1", "GNU.sparse.numblocks": "0", "GNU.sparse.map": "" };
+
+  it("reads no data for a type NUL directory, so the next block is a header", async () => {
+    const smuggled = rawEntry("evil.md", "0", data);
+    const manifest = await readTarTree(concat([await skillBytes(), rawEntry("refs/", "\0", smuggled), END]));
+    expect(manifest.files.map((f) => f.path)).toEqual(["SKILL.md", "evil.md"]);
+    expect(manifest.digest).toBe((await readTarTree(await tarBytes([skill, file("evil.md")]))).digest);
+  });
+
+  it("rejects a sparse map on a type NUL directory", async () => {
+    expect(await tarCode([skill, { name: enc.encode("refs/"), typeflag: "\0", mode: 0o755, pax: v01 }])).toBe("tree.read_failed");
+  });
+
+  it("decides the type from the name before GNU.sparse.name replaces it", async () => {
+    const spec = { name: enc.encode("placeholder"), typeflag: "\0", mode: 0o644, data: enc.encode("x"), pax: { ...v01, path: "a", "GNU.sparse.name": "a/" } };
+    expect(await tarCode([skill, spec])).toBe("tree.unsupported_entry");
+  });
+});
+
+describe("tar reader ingest overhead guard", () => {
   const limits = { maxEntries: 10, maxFiles: 10, maxFileSize: 1 << 20, maxTreeSize: 2 << 20 };
 
-  async function readCounted(source: AsyncIterable<Uint8Array>): Promise<{ code: string | null; pulled: number }> {
+  async function readCounted(source: AsyncIterable<Uint8Array>): Promise<{ error: unknown; pulled: number }> {
     let pulled = 0;
     const counted = (async function* () {
       for await (const chunk of source) {
@@ -272,13 +300,18 @@ describe("tar reader bounds bytes that no file limit counts", () => {
         yield chunk;
       }
     })();
-    const code = await errorCodeOf(() => readTarTree(counted, { limits }));
-    return { code, pulled };
+    const error = await readTarTree(counted, { limits }).then(
+      () => null,
+      (err: unknown) => err,
+    );
+    return { error, pulled };
   }
+
+  const overheadGuard = expect.objectContaining({ code: "tree.limit_exceeded", detail: expect.stringContaining("ingest overhead guard") });
 
   it("stops in the data of a non-regular entry", async () => {
     const got = await readCounted(tarStream([skill, { name: enc.encode("big.bin"), typeflag: "7", mode: 0o644, fill: { size: 64 << 20, byte: 0 } }]));
-    expect(got.code).toBe("tree.limit_exceeded");
+    expect(got.error).toEqual(overheadGuard);
     expect(got.pulled).toBeLessThan(4 << 20);
   });
 
@@ -289,9 +322,23 @@ describe("tar reader bounds bytes that no file limit counts", () => {
       for (let i = 0; i < 100_000; i++) yield header;
     })();
     const got = await readCounted(chain);
-    expect(got.code).toBe("tree.limit_exceeded");
+    expect(got.error).toEqual(overheadGuard);
     expect(got.pulled).toBeLessThan(4 << 20);
   });
+
+  it("accepts a near-limit tree with a 40 KiB xattr on every file at the default limits", async () => {
+    // 4096 files (the file limit) totalling exactly 256 MiB (the tree limit),
+    // each behind a PAX header with a 40 KiB SCHILY.xattr record: about 170 MiB
+    // of overhead on top of the content. Specs share one buffer and stream lazily.
+    const content = new Uint8Array(64 << 10).fill(0x61);
+    const pax = { "SCHILY.xattr.user.blob": "x".repeat(40 << 10) };
+    const specs: TarSpec[] = [{ ...file("SKILL.md", SKILL), pax }];
+    specs.push({ ...file("f/0000.md", new Uint8Array((128 << 10) - SKILL.length).fill(0x62)), pax });
+    for (let n = 1; n < 4095; n++) specs.push({ ...file(`f/${String(n).padStart(4, "0")}.md`, content), pax });
+    const manifest = await readTarTree(tarStream(specs));
+    expect(manifest.files).toHaveLength(4096);
+    expect(manifest.files.reduce((sum, f) => sum + f.size, 0)).toBe(256 << 20);
+  }, 300_000);
 });
 
 describe("tar reader handles GNU sparse files like Go", () => {
