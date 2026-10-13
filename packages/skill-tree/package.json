@@ -5,7 +5,8 @@
   "type": "module",
   "description": "agentkit.skill-tree/v1 canonical tree digest, archive readers, identity and exposure rules shared with AgentKit.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./rules": "./src/rules.ts"
   },
   "types": "./src/index.ts",
   "engines": {
