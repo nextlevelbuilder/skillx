@@ -502,11 +502,14 @@ List current user's active (non-revoked) API keys with masked values.
       "key_prefix": "sx_a1b2c",
       "key_masked": "sx_a1b2c...",
       "last_used_at": 1707955200000,
-      "created_at": 1707868800000
+      "created_at": 1707868800000,
+      "scopes": null
     }
   ]
 }
 ```
+
+`scopes` is `null` for an unscoped (legacy) key, otherwise the list of scopes.
 
 #### `POST /api/user/api-keys`
 
@@ -525,6 +528,7 @@ Generate a new API key. Plaintext returned **once** — not stored.
 | Field | Type | Required | Validation |
 |-------|------|----------|------------|
 | `name` | string | No | Max 100 chars (default: `"Default"`) |
+| `scopes` | string[] | No | 1-8 entries of `releases:publish:@<handle>`; each handle must be an active publisher you own (`403` otherwise) |
 
 **Response** `200`:
 
@@ -532,9 +536,15 @@ Generate a new API key. Plaintext returned **once** — not stored.
 {
   "success": true,
   "key": "sx_a1b2c3d4e5f6...",
+  "scopes": null,
   "message": "Save this key securely. It will not be shown again."
 }
 ```
+
+A scoped key is accepted only by endpoints that check its scope (today the
+release publish API). Endpoints that take unscoped keys (`authenticateRequest`,
+skill install and usage reports) reject scoped keys, so a CI publish key cannot
+act as the user anywhere else.
 
 #### `DELETE /api/user/api-keys`
 
@@ -918,6 +928,97 @@ index `idx_package_releases_digest`. `packages.visibility`
 and ends by deleting the `0011_release_tree_digest.sql` row from
 `d1_migrations`, so the migration can be applied again.
 
+### Publishing releases
+
+#### `POST /api/v1/packages/@{publisher}/{slug}/releases`
+
+Uploads one immutable release. Off by default: unless the worker var
+`SKILLX_RELEASES_API` is `"1"` or `"true"`, every method answers `404`.
+Clients normally call it through `skillx release publish` (or the
+`publish-release.yml` workflow), which packs the committed git tree with
+`skillx release pack`.
+
+**Auth**: `Authorization: Bearer sx_...`, a scoped API key holding
+`releases:publish:@{publisher}` whose user owns the active publisher.
+Unscoped keys are rejected (`auth.scope_missing`).
+
+**Request**:
+
+- `Content-Type: application/x-tar`: an uncompressed tar (gzip is rejected).
+  At most 32 MiB, 1000 files, 32 MiB per file and in total; the server limits
+  are tighter than the `agentkit.skill-tree/v1` client limits and only reject.
+- `X-SkillX-Release`: base64 of a UTF-8 JSON object, at most 16 KiB:
+  `version` (SemVer without build metadata, required), `channel`
+  (`stable` default, `beta`, `alpha`), `kind` (`skill` default, `hook-pack`,
+  `bundle`), `sourceProvenance` (`{repo, commit, path}` or `null`) and
+  `declaredScripts` (packaged paths). Unknown members are rejected.
+
+**Processing**, each step rejecting before the next runs: name and reserved
+namespaces, key and ownership, signing key, metadata, capped body, tar read
+with the shared skill-tree rules and digest (traversal, absolute paths,
+symlinks, hardlinks, devices and duplicate paths fail), version conflict, the
+release scan, the signed `skillx.release/v1` manifest, then R2 writes, and the
+D1 row last. Uploaded bytes are stored exactly; nothing is sanitized.
+
+The scan only decides the initial state: secrets in any text file, and
+prompt-injection or other `danger` patterns in Markdown, make the release
+`quarantined` instead of `published`. Findings are `danger:<rule>:<path>`
+and never echo the matched text.
+
+**R2 layout** (all create-only via `If-None-Match: *`, with R2 SHA-256
+integrity checks): `artifacts/sha256/<hex>.tar` (the upload),
+`blobs/sha256/<hex>` (each file, deduplicated) and
+`manifests/sha256/<hex>.json` (the signed manifest bytes, keyed by their own
+SHA-256, so one tree under two versions never collides).
+
+**Response** `200`:
+
+```json
+{
+  "identity": "@acme/demo",
+  "version": "1.0.0",
+  "releaseDigest": "sha256:...",
+  "artifactDigest": "sha256:...",
+  "state": "published",
+  "manifestKey": "manifests/sha256/....json",
+  "keyId": "skillx-reg-993cd14a011f7b76",
+  "created": true,
+  "findings": []
+}
+```
+
+Re-uploading the same tree for an existing version answers `200` with
+`created: false` (idempotent retry); different content is `409`. Concurrent
+uploads of one version resolve through the unique `(package_id, version)`
+index: one row wins and the loser gets the same idempotent `200` or `409`.
+
+**Errors** use `{"error": {"code", "message"}}`:
+
+| Status | Codes |
+|--------|-------|
+| 400 | `identity.*` (invalid names), `release.invalid_metadata`, `tree.read_failed` (empty body) |
+| 401 | `auth.invalid_key` |
+| 403 | `identity.reserved_publisher` (`@agentkit`), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
+| 404 | `not_found` (API disabled) |
+| 409 | `release.version_exists`, `release.kind_conflict` |
+| 413 | `tree.limit_exceeded` |
+| 415 | `release.unsupported_media_type` |
+| 422 | other `tree.*` codes from the skill-tree reader |
+| 500 | `release.internal_error` |
+| 503 | `release.signing_unavailable` |
+
+**Signing**: the registry countersigns with the Ed25519 key in worker secrets
+`SKILLX_REGISTRY_SIGNING_KEY` (base64 PKCS #8 DER) and
+`SKILLX_REGISTRY_SIGNING_KEY_ID` (published key id
+`skillx-reg-993cd14a011f7b76`). A missing or malformed key fails closed with
+`503`; key material is never logged or returned.
+
+### Database columns (migration `0012_api_key_scopes`)
+
+`api_keys.scopes`: nullable JSON array of scopes; `NULL` keeps existing keys
+unscoped. Additive; the header rollback revokes every scoped key, drops the
+column and deletes the `0012_api_key_scopes.sql` row from `d1_migrations`.
+
 ---
 
 ## Error Format
@@ -947,5 +1048,7 @@ No explicit rate limiting at the API layer. Cloudflare Workers handles DDoS prot
 | `apps/web/app/routes/api.usage-report.ts` | Report usage outcome |
 | `apps/web/app/routes/api.leaderboard.ts` | Paginated leaderboard |
 | `apps/web/app/routes/api.user-api-keys.ts` | API key management |
+| `apps/web/app/routes/api.v1.release-publish.ts` | Release publish (flagged) |
+| `apps/web/app/lib/releases/` | Release ingest, signing, scan, R2 and D1 writes |
 | `apps/web/app/routes/api.admin.seed.ts` | Admin data seeding |
 | `apps/web/app/routes/auth-catchall.tsx` | Better Auth handler |

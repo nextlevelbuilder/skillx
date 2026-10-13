@@ -199,6 +199,31 @@ wrangler secret put GITHUB_CLIENT_SECRET --environment production
 wrangler secret list --environment production
 ```
 
+#### Release publishing (off by default)
+
+The release publish API (`POST /api/v1/packages/@publisher/slug/releases`,
+see [API reference](./api-reference.md#publishing-releases)) answers `404`
+until the `SKILLX_RELEASES_API` var in `apps/web/wrangler.jsonc` is `"1"`.
+Before enabling it:
+
+1. Apply migration `0012_api_key_scopes` (adds nullable `api_keys.scopes`).
+2. Set the registry signing secrets. The key is an Ed25519 private key as
+   base64 PKCS #8 DER; its id must match the published registry key
+   (`skillx-reg-993cd14a011f7b76`). Paste values at the prompt; never put the
+   key in a file under the repo, a command line or logs.
+   ```bash
+   wrangler secret put SKILLX_REGISTRY_SIGNING_KEY --environment production
+   wrangler secret put SKILLX_REGISTRY_SIGNING_KEY_ID --environment production
+   ```
+   Without them every upload fails closed with `503 release.signing_unavailable`.
+3. Publishers create a key with `POST /api/user/api-keys` and
+   `{"scopes": ["releases:publish:@handle"]}` and store it as the
+   `SKILLX_PUBLISH_KEY` secret for `.github/workflows/publish-release.yml`.
+
+Rollback: set `SKILLX_RELEASES_API` back to `"0"` and redeploy. Stored R2
+objects and release rows are immutable and stay in place; migration 0012's
+header holds the SQL to revoke scoped keys and drop the column.
+
 ### Phase 4: Domain & SSL Setup
 
 ```bash

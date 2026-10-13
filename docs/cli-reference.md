@@ -154,6 +154,60 @@ skillx publish --dry-run
 
 ---
 
+### `skillx release pack <source>`
+
+Packs a package from git at an exact commit into a deterministic tar and
+prints its `releaseDigest` (`agentkit.skill-tree/v1`). Only committed content
+is packed: the tree comes from git objects, never the working tree, so mtimes,
+umask, `core.autocrlf`, `core.fileMode` and uncommitted edits do not change
+the digest (uncommitted edits are reported as a warning). Modes are normalized
+to `100644`/`100755`; symlinks and submodules are rejected; OS noise files
+(e.g. `.DS_Store`) are excluded and listed.
+
+- `<source>`: a package directory (packs `HEAD`, path from the repo root) or a
+  git ref used with `--path`.
+
+| Flag | Description |
+|------|-------------|
+| `-o, --out <file>` | Output tar file (required) |
+| `-p, --path <dir>` | Package directory inside the repository, for a git ref |
+| `--json` | Print the result as JSON |
+
+```bash
+skillx release pack skills/my-skill -o my-skill.tar
+skillx release pack v1.2.0 --path skills/my-skill -o my-skill.tar
+```
+
+### `skillx release publish <source>`
+
+Packs like `release pack`, then uploads to
+`POST /api/v1/packages/@publisher/slug/releases`. Needs an API key scoped to
+`releases:publish:@publisher` (`SKILLX_API_KEY` or the config). Releases are
+immutable: re-publishing identical content is a no-op, different content for
+an existing version is rejected.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-n, --name <@publisher/slug>` | Package name (required) | — |
+| `--release-version <semver>` | Release version (required) | — |
+| `-p, --path <dir>` | Package directory, for a git ref | — |
+| `--channel <channel>` | `stable`, `beta` or `alpha` | `stable` |
+| `--kind <kind>` | `skill`, `hook-pack` or `bundle` | `skill` |
+| `--repo <https-url>` | Provenance repository URL | `origin` remote (https form) |
+| `--script <path>` | Declare a packaged script (repeatable) | — |
+| `--registry <url>` | Registry base URL | configured base URL |
+| `--json` | Print the result as JSON | — |
+
+```bash
+SKILLX_API_KEY=sx_... skillx release publish skills/my-skill --name @acme/my-skill --release-version 1.2.0
+```
+
+CI: `.github/workflows/publish-release.yml` (manual dispatch or
+`workflow_call`, never on pull requests) runs the same command with a pinned
+CLI version and the `SKILLX_PUBLISH_KEY` secret.
+
+---
+
 ### `skillx report <slug> <outcome>`
 
 Report skill usage outcome (requires API key).
@@ -227,6 +281,7 @@ skillx config show
 | `find` (detail) | `/api/skills/{slug}` | GET | No |
 | `publish` | `/api/skills/register` | POST | Yes |
 | `report` | `/api/report` | POST | Yes |
+| `release publish` | `/api/v1/packages/@{publisher}/{slug}/releases` | POST | Yes (scoped key) |
 
 **Auth method:** `Authorization: Bearer <API_KEY>` header.
 
