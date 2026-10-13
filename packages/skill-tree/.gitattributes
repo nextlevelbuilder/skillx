@@ -1,0 +1,3 @@
+# Pinned inputs are hashed byte for byte; never convert their line endings.
+fixtures/** -text
+scripts/unicode-15.0.0-go.json -text

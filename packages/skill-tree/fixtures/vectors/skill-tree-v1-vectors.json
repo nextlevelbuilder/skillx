@@ -1,0 +1,3091 @@
+{
+  "schema": "agentkit.skill-tree-vectors/v1",
+  "contract": "agentkit.skill-tree/v1",
+  "spec": "docs/specs/skill-lifecycle-contract.md#4-canonical-tree-agentkitskill-treev1",
+  "unicode": "15.0.0",
+  "notes": [
+    "files[].content is UTF-8 text; files[].contentBase64 is raw bytes.",
+    "synthesize[] appends count files: {n} in pathPattern is the zero-based index as five decimal digits, and each file holds size bytes of value fill, with mode 100644 unless mode is given.",
+    "files[] come before synthesized files; input order never changes a digest.",
+    "files[].type is the entry kind an archive reader or walker reports: file (the default), fs-hardlink and reparse-other are read as regular files; symlink, archive-hardlink, reparse-name-surrogate, reparse-af-unix, reparse-wsl, device, fifo, socket and cont (tar type '7') fail with tree.unsupported_entry; directory and pax-global (a PAX 'g' header) add nothing to the tree but count toward the entry limit. A directory entry name must pass the path and segment rules but gets no NFC check; it may end with one '/', which is not part of its path, and '//' is unsafe. A pax-global name is metadata and is not checked.",
+    "An entry is a header that Go archive/tar Reader.Next returns. PAX 'x' and GNU long-name headers fold into the following entry and never appear in files[].",
+    "A directory, symlink or reparse-name-surrogate entry whose own name is a noise directory name is noise and is dropped without being followed. A non-directory entry of any type whose own name is a noise file name is noise; a directory with such a name is an ordinary directory.",
+    "A directory entry also takes part in the file-versus-directory check: a file equal to a directory entry path is tree.unsafe_path, and one equal under case folding is tree.case_collision. Directory entries are compared only with files, never with each other or with implied directories. A directory that a walker presents is a directory entry too, given without a trailing '/'; so an empty walked directory 'a' next to a file 'A' is tree.case_collision.",
+    "A pax-global entry whose paxRecords include path, linkpath, size or any GNU.sparse.* key fails with tree.unsupported_entry. Global records never apply to other entries.",
+    "files[].headerMode, when present, is the raw tar header mode in octal and replaces mode: the type bits (0o170000) are removed and the rest must be exactly 0644 or 0755.",
+    "type tar-nul is an old-style tar type NUL entry: a regular file, or a directory when its name ends with '/'. No other type is reclassified by a trailing '/'; a file entry 'refs/' is tree.unsafe_path.",
+    "files[].rawPathBase64, when present, replaces path with raw name bytes. Names that are not valid UTF-8 (including an unpaired UTF-16 surrogate, given as its WTF-8 bytes) fail with tree.unsafe_path; zip names are judged the same way whatever their UTF-8 flag says.",
+    "synthesize[].type, when present, sets the entry type of every synthesized entry.",
+    "A segment that starts with .ak-tmp. fails with tree.unsafe_path. Segment lengths count UTF-8 bytes, and paths sort by UTF-8 bytes, never by UTF-16 code units.",
+    "tree.read_failed has no vector: it depends on a read error, not on entry data.",
+    "files[].paxRecords, when present, are the PAX records of that archive entry.",
+    "Vectors model archive reading: the total entry limit counts every entry in files[] and synthesize[] of any type, including directory, pax-global, rejected types and noise; the tree root is not an entry; the file limit counts regular-file entries only.",
+    "files[] and synthesize[] are the entries the input presents. An archive presents every entry, noise included; a directory walker presents noise files it visits but prunes noise directories without presenting their contents.",
+    "Case collisions compare NFD(fold(NFD(path))) with full case folding (CaseFolding.txt statuses C and F), for files and for every directory prefix.",
+    "Vectors with expect.error must fail with exactly that code; no digest is defined.",
+    "Walker conformance materializes each vector as a directory: every non-directory entry becomes a file at its path with its bytes (or the item its type names), every directory entry and every parent of a path becomes a directory, and the walker walks the result, never listing a pruned noise directory or a directory whose own path is unsafe. Each directory it walks counts as one entry. A vector whose entries the host cannot create (devices, case-colliding or reserved names, invalid names on Windows) is skipped on that host.",
+    "files[].mode other than 100644 and 100755 is a tar header or git index mode. A walker maps permission bits instead and never rejects them: any execute bit gives 100755, otherwise 100644. On a host without modes (Windows), walker runs skip positive vectors that contain 100755.",
+    "archiveOnly: true marks a vector that binds archive readers only, and walker conformance skips it: one with more than one defect (more than one validation step fails on its own), one with no on-disk form (an archive-only type or field, an empty, '.' or '..' path segment, a NUL, a segment over 255 UTF-16 code units, a file mode other than 100644, 100755 or 120000, two entries with one path, or a file whose path is also a directory), one that tests archive entry counting (limit-entries-count-noise), or one whose materialized walk gives a different result, such as an entry count that the walked parent directories change.",
+    "A positive vector without expect.serialization defines only the digest."
+  ],
+  "vectors": [
+    {
+      "id": "skill-md-only",
+      "description": "SKILL.md only",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "---\nname: ak-demo\ndescription: Demo skill.\n---\n\n# Demo\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:9bc8434a1aed589954b02ca5456c5fe6caa90eda6bcfec8fba3fd0c041e31072",
+        "serialization": "agentkit.skill-tree/v1\n100644 ec6d8a678a93b3b18a897464bb6822196ce268d5bf60496fc8a58d8efc9ae975 55 SKILL.md\n"
+      }
+    },
+    {
+      "id": "empty-file",
+      "description": "a zero-byte file is a valid entry",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "# x\n"
+        },
+        {
+          "path": "assets/empty.txt",
+          "mode": "100644",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "digest": "sha256:31151fd31caaceb55e3eda419340a67a5e77dbad94985c5336b8d86c3b44f8aa",
+        "serialization": "agentkit.skill-tree/v1\n100644 253b610bd786f2543252c8d4b45bb40eb375882587f825cb9ce1fd1241f66f1e 4 SKILL.md\n100644 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855 0 assets/empty.txt\n"
+      }
+    },
+    {
+      "id": "nested-resources",
+      "description": "references, scripts, assets and modules",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "---\nname: ak-nested\ndescription: Nested.\n---\n"
+        },
+        {
+          "path": "references/guide.md",
+          "mode": "100644",
+          "content": "# Guide\n"
+        },
+        {
+          "path": "references/deep/a/b/c.md",
+          "mode": "100644",
+          "content": "deep\n"
+        },
+        {
+          "path": "scripts/run.sh",
+          "mode": "100755",
+          "content": "#!/bin/sh\necho ok\n"
+        },
+        {
+          "path": "scripts/lib/util.py",
+          "mode": "100644",
+          "content": "print('ok')\n"
+        },
+        {
+          "path": "assets/logo.bin",
+          "mode": "100644",
+          "contentBase64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w=="
+        }
+      ],
+      "expect": {
+        "digest": "sha256:9b7717f1b8c9906a84ca6ac4a3f4464aae53b6aed8973aaa5f9321e69b426b30",
+        "serialization": "agentkit.skill-tree/v1\n100644 c1640b40572bdcc4ea152cd5a5199c53be4e3edf45b4b459f87faca0ab6fb9aa 45 SKILL.md\n100644 40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880 256 assets/logo.bin\n100644 64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599 5 references/deep/a/b/c.md\n100644 bc553ffe57e544498b12a9865dbf3abc2004c474e349c52c378eaa402287424b 8 references/guide.md\n100644 ad64355106bb158b020ecf9702be48f7730fc091dd4bb6a2f092b40393495b3d 12 scripts/lib/util.py\n100755 b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c 18 scripts/run.sh\n"
+      }
+    },
+    {
+      "id": "input-order-independent",
+      "description": "nested-resources listed in reverse order",
+      "files": [
+        {
+          "path": "assets/logo.bin",
+          "mode": "100644",
+          "contentBase64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w=="
+        },
+        {
+          "path": "scripts/lib/util.py",
+          "mode": "100644",
+          "content": "print('ok')\n"
+        },
+        {
+          "path": "scripts/run.sh",
+          "mode": "100755",
+          "content": "#!/bin/sh\necho ok\n"
+        },
+        {
+          "path": "references/deep/a/b/c.md",
+          "mode": "100644",
+          "content": "deep\n"
+        },
+        {
+          "path": "references/guide.md",
+          "mode": "100644",
+          "content": "# Guide\n"
+        },
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "---\nname: ak-nested\ndescription: Nested.\n---\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:9b7717f1b8c9906a84ca6ac4a3f4464aae53b6aed8973aaa5f9321e69b426b30"
+      }
+    },
+    {
+      "id": "mode-differs",
+      "description": "same bytes as nested-resources but run.sh is not executable",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "---\nname: ak-nested\ndescription: Nested.\n---\n"
+        },
+        {
+          "path": "references/guide.md",
+          "mode": "100644",
+          "content": "# Guide\n"
+        },
+        {
+          "path": "references/deep/a/b/c.md",
+          "mode": "100644",
+          "content": "deep\n"
+        },
+        {
+          "path": "scripts/run.sh",
+          "mode": "100644",
+          "content": "#!/bin/sh\necho ok\n"
+        },
+        {
+          "path": "scripts/lib/util.py",
+          "mode": "100644",
+          "content": "print('ok')\n"
+        },
+        {
+          "path": "assets/logo.bin",
+          "mode": "100644",
+          "contentBase64": "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8gISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0BBQkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWltcXV5fYGFiY2RlZmdoaWprbG1ub3BxcnN0dXZ3eHl6e3x9fn+AgYKDhIWGh4iJiouMjY6PkJGSk5SVlpeYmZqbnJ2en6ChoqOkpaanqKmqq6ytrq+wsbKztLW2t7i5uru8vb6/wMHCw8TFxsfIycrLzM3Oz9DR0tPU1dbX2Nna29zd3t/g4eLj5OXm5+jp6uvs7e7v8PHy8/T19vf4+fr7/P3+/w=="
+        }
+      ],
+      "expect": {
+        "digest": "sha256:fc8f3e327b2f3fb536150dd78173fb53e2da8add0b60921bc55754573f979174",
+        "serialization": "agentkit.skill-tree/v1\n100644 c1640b40572bdcc4ea152cd5a5199c53be4e3edf45b4b459f87faca0ab6fb9aa 45 SKILL.md\n100644 40aff2e9d2d8922e47afd4648e6967497158785fbd1da870e7110266bf944880 256 assets/logo.bin\n100644 64896f89fd11190013b70103e603a1c5826e56b7fb7d2197ab279b0690043599 5 references/deep/a/b/c.md\n100644 bc553ffe57e544498b12a9865dbf3abc2004c474e349c52c378eaa402287424b 8 references/guide.md\n100644 ad64355106bb158b020ecf9702be48f7730fc091dd4bb6a2f092b40393495b3d 12 scripts/lib/util.py\n100644 b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c 18 scripts/run.sh\n"
+      }
+    },
+    {
+      "id": "byte-order-sort",
+      "description": "sort is by UTF-8 bytes: uppercase before lowercase, '-' before '/'",
+      "files": [
+        {
+          "path": "b.md",
+          "mode": "100644",
+          "content": "b\n"
+        },
+        {
+          "path": "B2.md",
+          "mode": "100644",
+          "content": "B\n"
+        },
+        {
+          "path": "a-b.md",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "a/b.md",
+          "mode": "100644",
+          "content": "y\n"
+        },
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:223c0846c918d769aba4428a1e67fed9bd6533115d451f4148d5185e44b410d5",
+        "serialization": "agentkit.skill-tree/v1\n100644 c0cde77fa8fef97d476c10aad3d2d54fcc2f336140d073651c2dcccf1e379fd6 2 B2.md\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac 2 a-b.md\n100644 3bb2abb69ebb27fbfe63c7639624c6ec5e331b841a5bc8c3ebc10b9285e90877 2 a/b.md\n100644 0263829989b6fd954f72baaf2fc64bc2e2f01d692d4de72986ea808f6e99813f 2 b.md\n"
+      }
+    },
+    {
+      "id": "unicode-nfc",
+      "description": "an NFC non-ASCII path",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "references/café.md",
+          "mode": "100644",
+          "content": "café\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:dc15e15e754f7fb2f6424b22ede37f80bdcc62db26fc6e712557111eee9fe521",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 7b49b9e063bd91a4f9252b413261f5557b9c570aa61516989499f64a62dbcdd6 6 references/café.md\n"
+      }
+    },
+    {
+      "id": "crlf-preserved",
+      "description": "line endings are bytes; no normalization",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "line1\r\nline2\r\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:846cc6452343bb974f16a18c8150f5c3018488d21f7d24a4789296368cfdcf48",
+        "serialization": "agentkit.skill-tree/v1\n100644 4ad3ef64dfb83f7a8f789bce6f30cc1f8d18491b14db4c875309b150d2a7d213 14 SKILL.md\n"
+      }
+    },
+    {
+      "id": "tilde-not-short-name",
+      "description": "a tilde not followed by a digit, or in a base longer than 8 bytes, is allowed",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "my~notes.md",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "abcdefghi~1.md",
+          "mode": "100644",
+          "content": "y\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:ec5cda9e95f4d5eb8d705d0a889adc38a222be6759654060ece96c367c93972e",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 3bb2abb69ebb27fbfe63c7639624c6ec5e331b841a5bc8c3ebc10b9285e90877 2 abcdefghi~1.md\n100644 73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac 2 my~notes.md\n"
+      }
+    },
+    {
+      "id": "dotted-capital-i-vs-i",
+      "description": "U+0130 fully folds to 'i' plus U+0307, which stays distinct from 'i'",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "İ.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "i.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:9f13a5f0b5de100ad63e7e5fe02caf0063f5159492fb929e84eb67c29f7fd33a",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 0263829989b6fd954f72baaf2fc64bc2e2f01d692d4de72986ea808f6e99813f 2 i.md\n100644 87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7 2 İ.md\n"
+      }
+    },
+    {
+      "id": "dotless-i-vs-i",
+      "description": "U+0131 has no C or F case folding, so it stays distinct from 'i'",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "ı.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "i.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:bc563cbbc73d784a65958e391e10e1aea647eb74be01e5e821452935b4c240cd",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 0263829989b6fd954f72baaf2fc64bc2e2f01d692d4de72986ea808f6e99813f 2 i.md\n100644 87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7 2 ı.md\n"
+      }
+    },
+    {
+      "id": "noise-excluded",
+      "description": "noise entries are dropped before hashing; digest equals skill-md-only",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "---\nname: ak-demo\ndescription: Demo skill.\n---\n\n# Demo\n"
+        },
+        {
+          "path": ".DS_Store",
+          "mode": "100644",
+          "content": "junk"
+        },
+        {
+          "path": "scripts/__pycache__/x.pyc",
+          "mode": "100644",
+          "content": "junk"
+        },
+        {
+          "path": ".git/HEAD",
+          "mode": "100644",
+          "content": "ref\n"
+        },
+        {
+          "path": "references/Thumbs.db",
+          "mode": "100644",
+          "content": "junk"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:9bc8434a1aed589954b02ca5456c5fe6caa90eda6bcfec8fba3fd0c041e31072"
+      }
+    },
+    {
+      "id": "noise-dropped-before-validation",
+      "description": "entries under noise directories are dropped before type and path checks",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "---\nname: ak-demo\ndescription: Demo skill.\n---\n\n# Demo\n"
+        },
+        {
+          "path": ".git/CON",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "__pycache__/link",
+          "mode": "120000",
+          "content": "../x"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:9bc8434a1aed589954b02ca5456c5fe6caa90eda6bcfec8fba3fd0c041e31072"
+      }
+    },
+    {
+      "id": "noise-exact-case",
+      "description": "noise names match exactly; .GIT/ and thumbs.db are content",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": ".GIT/config",
+          "mode": "100644",
+          "content": "c\n"
+        },
+        {
+          "path": "thumbs.db",
+          "mode": "100644",
+          "content": "t\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:7046b4fa72a5a9af6d3327b84f3fe9db4f967757f438b02d3c8a5baf538f0b8d",
+        "serialization": "agentkit.skill-tree/v1\n100644 a3a5e715f0cc574a73c3f9bebb6bc24f32ffd5b67b387244c2c909da779a1478 2 .GIT/config\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 fe8edeeb98cc6d3b93cf2d57000254b84bd9eba34b4df7ce4b87db8b937b7703 2 thumbs.db\n"
+      }
+    },
+    {
+      "id": "noise-junction-dropped",
+      "description": "a junction named .git is dropped as noise and never followed",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "---\nname: ak-demo\ndescription: Demo skill.\n---\n\n# Demo\n"
+        },
+        {
+          "path": ".git",
+          "mode": "100644",
+          "type": "reparse-name-surrogate",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "digest": "sha256:9bc8434a1aed589954b02ca5456c5fe6caa90eda6bcfec8fba3fd0c041e31072"
+      }
+    },
+    {
+      "id": "noise-symlink-dropped",
+      "description": "a symbolic link named __pycache__ is dropped as noise and never followed",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "---\nname: ak-demo\ndescription: Demo skill.\n---\n\n# Demo\n"
+        },
+        {
+          "path": "scripts/__pycache__",
+          "mode": "120000",
+          "type": "symlink",
+          "content": "/tmp"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:9bc8434a1aed589954b02ca5456c5fe6caa90eda6bcfec8fba3fd0c041e31072"
+      }
+    },
+    {
+      "id": "git-file-is-content",
+      "description": "a file named .git (not a directory) is content",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": ".git",
+          "mode": "100644",
+          "content": "gitdir: ../x\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:5900ff0fa2963ebcca7b38d25db68df667a5fb604e5f82adc1b2e64887b8ac88",
+        "serialization": "agentkit.skill-tree/v1\n100644 fed6d21816e6fb4c12b8d6c46fec90a93fba25d2b0da2fe0292314bd04adbdba 13 .git\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n"
+      }
+    },
+    {
+      "id": "abs-path",
+      "description": "rejected path \"/etc/passwd\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "/etc/passwd",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "dotdot",
+      "description": "rejected path \"references/../../x.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "references/../../x.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "dot-segment",
+      "description": "rejected path \"./SKILL.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "./SKILL.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "empty-segment",
+      "description": "rejected path \"references//a.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "references//a.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "backslash",
+      "description": "rejected path \"references\\\\a.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "references\\a.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "colon-drive",
+      "description": "rejected path \"C:/x.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "C:/x.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "colon-ads",
+      "description": "rejected path \"SKILL.md:evil\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "SKILL.md:evil",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "lt",
+      "description": "rejected path \"a<b.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a<b.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "gt",
+      "description": "rejected path \"a>b.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a>b.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "dquote",
+      "description": "rejected path \"a\\\"b.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a\"b.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "pipe",
+      "description": "rejected path \"a|b.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a|b.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "question",
+      "description": "rejected path \"a?.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a?.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "star",
+      "description": "rejected path \"a*.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a*.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "nul",
+      "description": "rejected path \"a\\u0000b.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a\u0000b.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "newline",
+      "description": "rejected path \"a\\nb.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a\nb.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "del",
+      "description": "rejected path \"a\\u007fb.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "ab.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "c1-control",
+      "description": "rejected path \"a\\u0085b.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "ab.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "cf-zero-width-space",
+      "description": "rejected path \"SKILL\\u200b.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "SKILL​.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "cf-rtl-override",
+      "description": "rejected path \"a\\u202eb.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a‮b.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "cf-bom",
+      "description": "rejected path \"\\ufeffa.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "﻿a.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "unassigned",
+      "description": "rejected path \"\\u0378.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "͸.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "unassigned-in-15-0",
+      "description": "rejected path \"\\u2ffc.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "⿼.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "trailing-dot",
+      "description": "rejected path \"notes.\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "notes.",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "trailing-space",
+      "description": "rejected path \"notes \"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "notes ",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "reserved-con",
+      "description": "rejected path \"CON\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "CON",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "reserved-lpt1-ext",
+      "description": "rejected path \"assets/lpt1.txt\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "assets/lpt1.txt",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "reserved-nul-lower",
+      "description": "rejected path \"nul.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "nul.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "reserved-first-dot",
+      "description": "rejected path \"nul.tar.gz\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "nul.tar.gz",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "reserved-space-before-ext",
+      "description": "rejected path \"CON .txt\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "CON .txt",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "reserved-com0",
+      "description": "rejected path \"com0.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "com0.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "reserved-com-superscript",
+      "description": "rejected path \"COM\\u00b9.txt\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "COM¹.txt",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "reserved-conin",
+      "description": "rejected path \"CONIN$\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "CONIN$",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "reserved-conout-ext",
+      "description": "rejected path \"conout$.log\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "conout$.log",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "short-name",
+      "description": "rejected path \"PROGRA~1\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "PROGRA~1",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "short-name-ext",
+      "description": "rejected path \"longfi~1.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "longfi~1.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "short-name-dir",
+      "description": "rejected path \"docs~2/a.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "docs~2/a.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "segment-too-long",
+      "description": "rejected path \"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "path-too-long",
+      "description": "rejected path \"dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/f.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/dddddddddddddddddddddddddddddddddddddddddddddddddd/f.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "too-deep",
+      "description": "rejected path \"d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/f.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/f.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "non-nfc",
+      "description": "rejected path \"references/cafe\\u0301.md\"",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "references/café.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.non_nfc_path"
+      }
+    },
+    {
+      "id": "case-collision",
+      "description": "SKILL.md vs skill.md",
+      "files": [
+        {
+          "path": "x.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "skill.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "case-collision-latin1",
+      "description": "U+00C9 vs U+00E9",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "É.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "é.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "case-collision-capital-sharp-s",
+      "description": "U+1E9E folds to U+00DF",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "ẞ.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "ß.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "case-collision-long-s",
+      "description": "U+017F folds to 's'",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "ſ.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "s.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "case-collision-final-sigma",
+      "description": "U+03C2 folds to U+03C3",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "ς.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "σ.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "case-collision-capital-sigma",
+      "description": "U+03A3 and U+03C2 meet at U+03C3",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "Σ.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "ς.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "case-collision-cherokee",
+      "description": "U+AB70 folds to U+13A0 under CaseFolding.txt",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "Ꭰ.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "ꭰ.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "case-collision-cherokee-small",
+      "description": "U+13F8 folds to U+13F0 under CaseFolding.txt",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "Ᏸ.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "ᏸ.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "case-collision-sharp-s-ss",
+      "description": "U+00DF fully folds to 'ss'",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "ß.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "ss.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "case-collision-capital-sharp-s-ss",
+      "description": "U+1E9E fully folds to 'ss'",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "ẞ.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "ss.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "case-collision-fi-ligature",
+      "description": "U+FB01 is NFC and fully folds to 'fi'",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "ﬁ.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "fi.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "case-collision-decomposed-fold",
+      "description": "U+1E9B folds to U+1E61; both sides meet as 's' plus U+0307 after NFD",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "ẛ.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "ṡ.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "kelvin-sign-not-nfc",
+      "description": "KELVIN SIGN U+212A is not NFC (it decomposes to 'K'), so it fails before case folding",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "K.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.non_nfc_path"
+      }
+    },
+    {
+      "id": "file-dir-conflict",
+      "description": "a file 'a' and a path under 'a/' with the same name",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "a/b.md",
+          "mode": "100644",
+          "content": "y\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "file-dir-conflict-case",
+      "description": "a file 'A' and a path under 'a/' that differ only by case",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "A",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "a/b.md",
+          "mode": "100644",
+          "content": "y\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "dir-case-collision",
+      "description": "directories 'A' and 'a' differ only by case and would merge",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "A/x.md",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "a/y.md",
+          "mode": "100644",
+          "content": "y\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "nested-dir-case-collision",
+      "description": "nested directories that differ only by case",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "refs/Docs/x.md",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "refs/docs/y.md",
+          "mode": "100644",
+          "content": "y\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "reserved-name-ascii-only-dotless-i",
+      "description": "reserved names map only ASCII a-z to A-Z, so U+0131 never matches 'I'",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "conın$.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:7dceaa1e6864d00e7b653f83e091237775b51fcec93e6be7d194433a4adc5831",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac 2 conın$.md\n"
+      }
+    },
+    {
+      "id": "reserved-name-ascii-only-dotted-i",
+      "description": "reserved names map only ASCII a-z to A-Z, so U+0130 never matches 'I'",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "conİn$.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:eca107117cd188102d1fb336077747b777487dea0f32d01b6319fed5b1ecae69",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac 2 conİn$.md\n"
+      }
+    },
+    {
+      "id": "depth-at-max",
+      "description": "exactly 32 segments, counting the file name",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/f.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:d518869768d056d8f1fb20024424c6e44006e2d50fb81a90873f384b926ffa03",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac 2 d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/d/f.md\n"
+      }
+    },
+    {
+      "id": "directory-entry-adds-nothing",
+      "description": "an archive directory entry and a PAX global header add nothing to the tree",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "references/",
+          "mode": "100644",
+          "type": "directory",
+          "content": ""
+        },
+        {
+          "path": "pax_global_header",
+          "mode": "100644",
+          "type": "pax-global",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "digest": "sha256:96732f9ead4e00966bdd17e6157641ebdc9d2208d8f7aadb01fa18dbf089e53d",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "directory-entry-unsafe-name",
+      "description": "an archive directory entry name must pass the path rules",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "../x/",
+          "mode": "100644",
+          "type": "directory",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "directory-entry-name-path-rules-only",
+      "description": "directory entry names get only the path rules: a non-NFC name and a case-only twin of a file's directory are accepted and add nothing",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "refs/x.md",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "Refs/",
+          "mode": "100644",
+          "type": "directory",
+          "content": ""
+        },
+        {
+          "path": "café/",
+          "mode": "100644",
+          "type": "directory",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "digest": "sha256:6106f63ecba8ca6cde8b1ba75f62603d371872af384bf6dd9955504f12d9b6df",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac 2 refs/x.md\n"
+      }
+    },
+    {
+      "id": "pax-global-name-not-checked",
+      "description": "PAX global header names are metadata and are not checked, so the names Python tarfile and GNU tar write are accepted",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "../pax_global_header",
+          "mode": "100644",
+          "type": "pax-global",
+          "content": ""
+        },
+        {
+          "path": "././@PaxHeader",
+          "mode": "100644",
+          "type": "pax-global",
+          "content": ""
+        },
+        {
+          "path": "/tmp/GlobalHead.4242.1",
+          "mode": "100644",
+          "type": "pax-global",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "digest": "sha256:96732f9ead4e00966bdd17e6157641ebdc9d2208d8f7aadb01fa18dbf089e53d",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "pax-global-unchecked-name-records-rejected",
+      "description": "a PAX global header with an unchecked name still fails on a path record",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "././@PaxHeader",
+          "mode": "100644",
+          "type": "pax-global",
+          "content": "",
+          "paxRecords": {
+            "path": "x.md"
+          }
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "pax-global-record-path",
+      "description": "a PAX global header carrying a path record is not supported",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "pax_global_header",
+          "mode": "100644",
+          "type": "pax-global",
+          "content": "",
+          "paxRecords": {
+            "path": "x.md"
+          }
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "pax-global-record-linkpath",
+      "description": "a PAX global header carrying a linkpath record is not supported",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "pax_global_header",
+          "mode": "100644",
+          "type": "pax-global",
+          "content": "",
+          "paxRecords": {
+            "linkpath": "x.md"
+          }
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "pax-global-record-size",
+      "description": "a PAX global header carrying a size record is not supported",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "pax_global_header",
+          "mode": "100644",
+          "type": "pax-global",
+          "content": "",
+          "paxRecords": {
+            "size": "1"
+          }
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "pax-global-record-gnu-sparse-major",
+      "description": "a PAX global header carrying a GNU.sparse.major record is not supported",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "pax_global_header",
+          "mode": "100644",
+          "type": "pax-global",
+          "content": "",
+          "paxRecords": {
+            "GNU.sparse.major": "1"
+          }
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "pax-global-comment-ignored",
+      "description": "a PAX global header with only a comment record, as git archive writes, is accepted and applies to no entry",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "pax_global_header",
+          "mode": "100644",
+          "type": "pax-global",
+          "content": "",
+          "paxRecords": {
+            "comment": "0123456789abcdef0123456789abcdef01234567"
+          }
+        }
+      ],
+      "expect": {
+        "digest": "sha256:96732f9ead4e00966bdd17e6157641ebdc9d2208d8f7aadb01fa18dbf089e53d",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "header-mode-setuid",
+      "description": "a tar header mode 04755 keeps the setuid bit after the type bits are removed",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "run.sh",
+          "headerMode": "4755",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "header-mode-type-bits",
+      "description": "a tar header mode 0100644 is 0644 after the type bits are removed",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "headerMode": "100644",
+          "content": "s\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:96732f9ead4e00966bdd17e6157641ebdc9d2208d8f7aadb01fa18dbf089e53d",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "tar-type-nul",
+      "description": "an old-style tar type NUL entry is a regular file, or a directory when its name ends with '/'",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "notes.md",
+          "mode": "100644",
+          "type": "tar-nul",
+          "content": "n\n"
+        },
+        {
+          "path": "refs/",
+          "mode": "100644",
+          "type": "tar-nul",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "digest": "sha256:097a4ad327d9a2586a6b7c80dd99d4a6c20f96ac5e23d0202d7a7d621a137f6e"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "noise-file-name-special-dropped",
+      "description": "a symbolic link or special file with a noise file name is dropped as noise",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "---\nname: ak-demo\ndescription: Demo skill.\n---\n\n# Demo\n"
+        },
+        {
+          "path": ".DS_Store",
+          "mode": "120000",
+          "type": "symlink",
+          "content": "/tmp"
+        },
+        {
+          "path": "references/Thumbs.db",
+          "mode": "100644",
+          "type": "fifo",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "digest": "sha256:9bc8434a1aed589954b02ca5456c5fe6caa90eda6bcfec8fba3fd0c041e31072"
+      }
+    },
+    {
+      "id": "file-vs-directory-entry",
+      "description": "a file 'a' and a directory entry 'a/' name the same path",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "a/",
+          "mode": "100644",
+          "type": "directory",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "file-vs-directory-entry-case",
+      "description": "a file 'a' and a directory entry 'A/' differ only by case",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "A/",
+          "mode": "100644",
+          "type": "directory",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "raw-name-invalid-utf8",
+      "description": "a raw name byte sequence that is not UTF-8 is never replaced by U+FFFD",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "rawPathBase64": "YmFk/y5tZA==",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "raw-name-unpaired-surrogate",
+      "description": "an unpaired UTF-16 surrogate in a name, given as its WTF-8 bytes",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "rawPathBase64": "7aCALm1k",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "contiguous-file-entry",
+      "description": "a tar contiguous-file entry (type '7') is not supported",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "data.bin",
+          "mode": "100644",
+          "type": "cont",
+          "content": "x"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "mode-0664",
+      "description": "permissions must be exactly 0644 or 0755",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100664",
+          "content": "s\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "gitlink-160000",
+      "description": "a git index gitlink (mode 160000) is not a regular file",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "vendor",
+          "mode": "160000",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "dir-prefix-not-conflict",
+      "description": "'a' as a directory and 'ab' as a file do not conflict",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a/b.md",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "ab",
+          "mode": "100644",
+          "content": "y\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:5ffb8a63647dad3ce84f92291000412ff0702080d376a6255381387622e58ae9",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac 2 a/b.md\n100644 3bb2abb69ebb27fbfe63c7639624c6ec5e331b841a5bc8c3ebc10b9285e90877 2 ab\n"
+      }
+    },
+    {
+      "id": "archive-hardlink",
+      "description": "an archive hard-link entry",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "copy.md",
+          "mode": "100644",
+          "type": "archive-hardlink",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "junction",
+      "description": "a Windows junction, which is a name-surrogate reparse point",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "refs",
+          "mode": "100644",
+          "type": "reparse-name-surrogate",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      }
+    },
+    {
+      "id": "af-unix-reparse",
+      "description": "a Windows AF_UNIX socket reparse point",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "agent.sock",
+          "mode": "100644",
+          "type": "reparse-af-unix",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      }
+    },
+    {
+      "id": "wsl-reparse",
+      "description": "a WSL special-file reparse point",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "fifo",
+          "mode": "100644",
+          "type": "reparse-wsl",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      }
+    },
+    {
+      "id": "gnu-sparse-pax",
+      "description": "a regular-file entry carrying a GNU.sparse PAX record",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "data.bin",
+          "mode": "100644",
+          "content": "x",
+          "paxRecords": {
+            "GNU.sparse.major": "1",
+            "GNU.sparse.minor": "0"
+          }
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "fifo-entry",
+      "description": "a FIFO",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "pipe",
+          "mode": "100644",
+          "type": "fifo",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      }
+    },
+    {
+      "id": "device-entry",
+      "description": "a device node",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "dev",
+          "mode": "100644",
+          "type": "device",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      }
+    },
+    {
+      "id": "socket-entry",
+      "description": "a socket",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "sock",
+          "mode": "100644",
+          "type": "socket",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      }
+    },
+    {
+      "id": "fs-hardlink-read-as-file",
+      "description": "a filesystem hard link is read as an independent regular file",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "copy.md",
+          "mode": "100644",
+          "type": "fs-hardlink",
+          "content": "s\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:575779d711e2542f300e742f99d46bb09b18e617d797dac0cea3a3aefad1c82e",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 copy.md\n"
+      }
+    },
+    {
+      "id": "cloud-placeholder-read-as-file",
+      "description": "a reparse point without the name-surrogate bit, such as a cloud placeholder, is read as a regular file",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "notes.md",
+          "mode": "100644",
+          "type": "reparse-other",
+          "content": "n\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:097a4ad327d9a2586a6b7c80dd99d4a6c20f96ac5e23d0202d7a7d621a137f6e",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 a4fb621495a0122493b2203591c448903c472e306a1ede54fabad829e01075c0 2 notes.md\n"
+      }
+    },
+    {
+      "id": "duplicate-path",
+      "description": "the same path listed twice",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "bad-mode",
+      "description": "mode must be 100644 or 100755",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100777",
+          "content": "s\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "symlink-entry",
+      "description": "a symlink entry is never followed or stored",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "link",
+          "mode": "120000",
+          "content": "../outside"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      }
+    },
+    {
+      "id": "empty-tree",
+      "description": "a tree must contain at least one file",
+      "files": [],
+      "expect": {
+        "error": "tree.empty"
+      }
+    },
+    {
+      "id": "only-noise",
+      "description": "a tree that is empty after noise removal",
+      "files": [
+        {
+          "path": ".DS_Store",
+          "mode": "100644",
+          "content": "x"
+        },
+        {
+          "path": ".git/HEAD",
+          "mode": "100644",
+          "content": "r\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.empty"
+      }
+    },
+    {
+      "id": "order-type-before-path",
+      "description": "a bad mode wins over an unsafe path",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "a/../x.md",
+          "mode": "100777",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsupported_entry"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "order-path-before-nfc",
+      "description": "an unsafe segment wins over a non-NFC segment",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "café/CON",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "order-nfc-before-collision",
+      "description": "a non-NFC path wins over a case collision",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "skill.md",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "café.md",
+          "mode": "100644",
+          "content": "y\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.non_nfc_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "order-path-before-collision",
+      "description": "an unsafe path wins over a case collision",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "skill.md",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "a?.md",
+          "mode": "100644",
+          "content": "y\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "utf8-order-not-utf16",
+      "description": "sort is by UTF-8 bytes: U+FF5E sorts before U+1F600, which UTF-16 code units would order the other way",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "～.md",
+          "mode": "100644",
+          "content": "a\n"
+        },
+        {
+          "path": "😀.md",
+          "mode": "100644",
+          "content": "b\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:c0951b75f4d03981fd86ddf53a8b8a17b20639674ae35c90538ce0e44070567c",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 87428fc522803d31065e7bce3cf03fe475096631e5e07bbd7a0fde60c4cf25c7 2 ～.md\n100644 0263829989b6fd954f72baaf2fc64bc2e2f01d692d4de72986ea808f6e99813f 2 😀.md\n"
+      }
+    },
+    {
+      "id": "segment-255-bytes-multibyte",
+      "description": "a segment of 85 three-byte characters is exactly 255 bytes",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "あああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああ",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:fa2e5bb3fc7f10f55800420621ea84ceae696d469751577a318ab90998d6bd2f",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac 2 あああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああ\n"
+      }
+    },
+    {
+      "id": "segment-too-long-multibyte",
+      "description": "a segment of 86 three-byte characters is 258 bytes",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "ああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああああ",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "segment-too-long-astral",
+      "description": "a segment of 64 four-byte characters is 256 bytes, though only 128 UTF-16 units",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀😀",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "short-name-multibyte-base",
+      "description": "the 8-byte short-name test counts UTF-8 bytes, so a ten-byte base with '~1' is allowed",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "éééé~1.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:6d3cf75ae7ac66f049ae662d16e55da21dcd64de498e73de93cf95e2d1404992",
+        "serialization": "agentkit.skill-tree/v1\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n100644 73cb3858a687a8494ca3323053016282f3dad39d42cf62ca4e79dda2aac7d9ac 2 éééé~1.md\n"
+      }
+    },
+    {
+      "id": "ak-tmp-segment",
+      "description": "a segment that starts with .ak-tmp. is reserved for AgentKit temporary files",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "references/.ak-tmp.notes.md",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      }
+    },
+    {
+      "id": "tar-regular-trailing-slash",
+      "description": "only an old-style type NUL entry becomes a directory by a trailing '/'; a regular-file entry 'refs/' has an empty last segment",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "refs/",
+          "mode": "100644",
+          "content": "x\n"
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "directory-entry-double-slash",
+      "description": "a directory entry name has exactly one trailing '/'",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "refs//",
+          "mode": "100644",
+          "type": "directory",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.unsafe_path"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "noise-file-name-directory-kept",
+      "description": "a directory named like a noise file is an ordinary directory and its contents are kept",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": ".DS_Store/",
+          "mode": "100644",
+          "type": "directory",
+          "content": ""
+        },
+        {
+          "path": ".DS_Store/notes.md",
+          "mode": "100644",
+          "content": "n\n"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:292407740f5dbaec5d1da463d240ac4a08f2f1750909ff111bc7b5c9f3cc0c34",
+        "serialization": "agentkit.skill-tree/v1\n100644 a4fb621495a0122493b2203591c448903c472e306a1ede54fabad829e01075c0 2 .DS_Store/notes.md\n100644 cbc80bb5c0c0f8944bf73b3a429505ac5cde16644978bc9a1e74c5755f8ca556 2 SKILL.md\n"
+      }
+    },
+    {
+      "id": "walker-empty-directory-case",
+      "description": "a directory walker presents an empty directory 'a' (no trailing '/'); it collides with a file 'A'",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": "A",
+          "mode": "100644",
+          "content": "x\n"
+        },
+        {
+          "path": "a",
+          "mode": "100644",
+          "type": "directory",
+          "content": ""
+        }
+      ],
+      "expect": {
+        "error": "tree.case_collision"
+      }
+    },
+    {
+      "id": "limit-files-at-max",
+      "description": "exactly the maximum file count",
+      "synthesize": [
+        {
+          "pathPattern": "f/{n}.md",
+          "count": 4096,
+          "size": 2,
+          "fill": 120
+        }
+      ],
+      "expect": {
+        "digest": "sha256:ae67fe8ab0326491fedc7276186c0c2449be4f4fcb4f5c18b47df01d2428067d"
+      }
+    },
+    {
+      "id": "limit-files-over",
+      "description": "one file over the maximum file count",
+      "synthesize": [
+        {
+          "pathPattern": "f/{n}.md",
+          "count": 4097,
+          "size": 2,
+          "fill": 120
+        }
+      ],
+      "expect": {
+        "error": "tree.limit_exceeded"
+      }
+    },
+    {
+      "id": "limit-count-includes-noise",
+      "description": "a presented noise file counts toward the file limit",
+      "synthesize": [
+        {
+          "pathPattern": "f/{n}.md",
+          "count": 4096,
+          "size": 2,
+          "fill": 120
+        },
+        {
+          "pathPattern": "x/{n}/.DS_Store",
+          "count": 1,
+          "size": 1,
+          "fill": 0
+        }
+      ],
+      "expect": {
+        "error": "tree.limit_exceeded"
+      }
+    },
+    {
+      "id": "limit-directory-entries-not-counted",
+      "description": "directory entries do not count toward the file limit",
+      "synthesize": [
+        {
+          "pathPattern": "f/{n}.md",
+          "count": 4096,
+          "size": 2,
+          "fill": 120
+        },
+        {
+          "pathPattern": "d/{n}",
+          "count": 1,
+          "size": 0,
+          "fill": 0,
+          "type": "directory"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:ae67fe8ab0326491fedc7276186c0c2449be4f4fcb4f5c18b47df01d2428067d"
+      }
+    },
+    {
+      "id": "limit-large-noise-file",
+      "description": "a presented noise file counts toward the byte limits",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        }
+      ],
+      "synthesize": [
+        {
+          "pathPattern": "x/{n}/.DS_Store",
+          "count": 1,
+          "size": 33554433,
+          "fill": 0
+        }
+      ],
+      "expect": {
+        "error": "tree.limit_exceeded"
+      }
+    },
+    {
+      "id": "limit-entries-at-max",
+      "description": "exactly the maximum total entry count, directories included",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        }
+      ],
+      "synthesize": [
+        {
+          "pathPattern": "d/{n}",
+          "count": 9999,
+          "size": 0,
+          "fill": 0,
+          "type": "directory"
+        }
+      ],
+      "expect": {
+        "digest": "sha256:96732f9ead4e00966bdd17e6157641ebdc9d2208d8f7aadb01fa18dbf089e53d"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "limit-entries-over",
+      "description": "one entry over the maximum total entry count, directories included",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        }
+      ],
+      "synthesize": [
+        {
+          "pathPattern": "d/{n}",
+          "count": 10000,
+          "size": 0,
+          "fill": 0,
+          "type": "directory"
+        }
+      ],
+      "expect": {
+        "error": "tree.limit_exceeded"
+      }
+    },
+    {
+      "id": "limit-entries-count-noise",
+      "description": "a noise entry counts toward the total entry limit",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        },
+        {
+          "path": ".git/HEAD",
+          "mode": "100644",
+          "content": "r\n"
+        }
+      ],
+      "synthesize": [
+        {
+          "pathPattern": "d/{n}",
+          "count": 9999,
+          "size": 0,
+          "fill": 0,
+          "type": "directory"
+        }
+      ],
+      "expect": {
+        "error": "tree.limit_exceeded"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "order-limit-first",
+      "description": "a limit failure wins over a bad mode",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100777",
+          "content": "s\n"
+        }
+      ],
+      "synthesize": [
+        {
+          "pathPattern": "f/{n}.md",
+          "count": 4096,
+          "size": 2,
+          "fill": 120
+        }
+      ],
+      "expect": {
+        "error": "tree.limit_exceeded"
+      },
+      "archiveOnly": true
+    },
+    {
+      "id": "limit-file-at-max",
+      "description": "one file of exactly the maximum file size",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        }
+      ],
+      "synthesize": [
+        {
+          "pathPattern": "big/{n}.bin",
+          "count": 1,
+          "size": 33554432,
+          "fill": 0
+        }
+      ],
+      "expect": {
+        "digest": "sha256:98b7347cb47e4a9e7a005999abc69318d15d2786cbd0f4c0e1cbe8430bf96256"
+      }
+    },
+    {
+      "id": "limit-file-over",
+      "description": "one file a byte over the maximum file size",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        }
+      ],
+      "synthesize": [
+        {
+          "pathPattern": "big/{n}.bin",
+          "count": 1,
+          "size": 33554433,
+          "fill": 0
+        }
+      ],
+      "expect": {
+        "error": "tree.limit_exceeded"
+      }
+    },
+    {
+      "id": "limit-tree-at-max",
+      "description": "exactly the maximum tree size",
+      "synthesize": [
+        {
+          "pathPattern": "big/{n}.bin",
+          "count": 8,
+          "size": 33554432,
+          "fill": 0
+        }
+      ],
+      "expect": {
+        "digest": "sha256:939d6faff8840f2b9d1377aafe1b20d1cd235bb072a0ab5d49bc7e8d657664c6"
+      }
+    },
+    {
+      "id": "limit-tree-over",
+      "description": "one byte over the maximum tree size",
+      "files": [
+        {
+          "path": "SKILL.md",
+          "mode": "100644",
+          "content": "s\n"
+        }
+      ],
+      "synthesize": [
+        {
+          "pathPattern": "big/{n}.bin",
+          "count": 8,
+          "size": 33554432,
+          "fill": 0
+        }
+      ],
+      "expect": {
+        "error": "tree.limit_exceeded"
+      }
+    }
+  ]
+}

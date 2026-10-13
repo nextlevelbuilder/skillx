@@ -1,0 +1,782 @@
+{
+  "schema": "agentkit.identity-vectors/v1",
+  "spec": "docs/specs/skill-lifecycle-contract.md#2-identity",
+  "pattern": "^@[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$",
+  "notes": [
+    "Each identity segment must also pass the canonical-tree segment rules and be at most 64 bytes.",
+    "kitMapping rows without an error give the identity and portable alias of a kit skill directory.",
+    "provenance rows give the trust recorded for an accepted identity, or the rejection code. An unknown provider, a kit row without a known origin, an invalid identity, or a kit row whose identity is not @agentkit fails with identity.invalid; these checks run before the reserved-publisher check. verified on a skillx row says whether the release provenance verified.",
+    "aliases rows are invocation aliases. An alias is 1 to 128 characters from [A-Za-z0-9._:/$-]; '$' may appear anywhere. A leading '/' is allowed only in the native slash form '/<namespace>:<command>', a single segment after the '/'. Split on '/', the alias has no empty, '.' or '..' segment, so no trailing '/'; every ':' in a segment has non-empty text on both sides; and every segment, and every ':'-separated part of one, holds at least one ASCII letter or digit, so '$', '$$' and '/$:x' are invalid. Any other alias, including a non-ASCII one, fails with identity.invalid.",
+    "Reserved prefixes: after removing every leading '/' of the alias and every leading '$' of each '/'-separated segment, if any segment starts with ak- or ak:, compared after mapping only ASCII A-Z to a-z, the alias is reserved for @agentkit identities; any other identity fails with identity.reserved_alias. Shape errors are checked first.",
+    "directoryAliases rows are projection directory names (the portable runtime alias): an alias that is one segment, passes the canonical-tree segment rules (so it never starts with .ak-tmp.) and contains no ':' or '$'; otherwise identity.invalid, then the reserved-prefix check. groupKey is the alias with only ASCII A-Z mapped to a-z; collision and co-ownership grouping use it on every host. directoryAliasCollisions pairs collide exactly when their groupKeys are equal.",
+    "exposure rows apply to every reader that derives exposure, SkillX included. They give either frontmatter, the YAML text between the delimiter lines, or file, a whole SKILL.md, and the derived exposure. Frontmatter is the block between a first line '---' and the next '---' line, after removing a UTF-8 BOM, a CR before each LF, and trailing spaces or tabs on the delimiter lines. Only top-level plain YAML scalars true, True, TRUE, false, False and FALSE are booleans; quoted strings, yes, no, on, off, 1 and other spellings count as absent.",
+    "A parse failure is a YAML 1.2 syntax error. A duplicate key other than the two exposure keys is not one (the TypeScript yaml package needs uniqueKeys: false).",
+    "warning is true when the frontmatter is unterminated or fails to parse, when it holds a YAML value that is not a mapping (a scalar, a sequence or null, such as '~'), or when either key is duplicated, carries an explicit tag, or uses an anchor or alias; exposure is then AUTO. Frontmatter that holds no YAML document at all, because it is empty or only comments, is AUTO without a warning."
+  ],
+  "kitMapping": [
+    {
+      "kit": "core",
+      "dir": "ak-plan",
+      "identity": "@agentkit/plan",
+      "portableAlias": "ak-plan"
+    },
+    {
+      "kit": "core",
+      "dir": "ak-test",
+      "identity": "@agentkit/test",
+      "portableAlias": "ak-test"
+    },
+    {
+      "kit": "engineer",
+      "dir": "ak-code-review",
+      "identity": "@agentkit/code-review",
+      "portableAlias": "ak-code-review"
+    },
+    {
+      "kit": "marketing",
+      "dir": "ak-youtube-thumbnail-design",
+      "identity": "@agentkit/youtube-thumbnail-design",
+      "portableAlias": "ak-youtube-thumbnail-design"
+    },
+    {
+      "kit": "core",
+      "dir": "plan",
+      "error": "identity.invalid"
+    },
+    {
+      "kit": "core",
+      "dir": "ak-",
+      "error": "identity.invalid"
+    },
+    {
+      "kit": "core",
+      "dir": "ak-Plan",
+      "error": "identity.invalid"
+    },
+    {
+      "kit": "core",
+      "dir": "ak-con",
+      "error": "identity.invalid"
+    },
+    {
+      "kit": "core",
+      "dir": "ak-notes.",
+      "error": "identity.invalid"
+    }
+  ],
+  "valid": [
+    "@agentkit/plan",
+    "@acme/my_skill.v2",
+    "@a/b",
+    "@0pub/0-x",
+    "@pub/a-",
+    "@pub/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  ],
+  "invalid": [
+    {
+      "value": "agentkit/plan",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@Agentkit/plan",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@agentkit/Plan",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@-pub/x",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@pub/",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@pub/a/b",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@pub/a b",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "ak:plan",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@pub/con",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@pub/aux.x",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@con/x",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@pub/a.",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@pub/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "error": "identity.invalid"
+    },
+    {
+      "value": "@ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp/x",
+      "error": "identity.invalid"
+    }
+  ],
+  "provenance": [
+    {
+      "identity": "@agentkit/plan",
+      "provider": "kit",
+      "origin": "remote-signed",
+      "expect": {
+        "trust": "signed-kit"
+      }
+    },
+    {
+      "identity": "@agentkit/plan",
+      "provider": "kit",
+      "origin": "local-dev",
+      "expect": {
+        "trust": "local-unverified"
+      }
+    },
+    {
+      "identity": "@agentkit/plan",
+      "provider": "kit",
+      "origin": "remote-signed",
+      "overlay": true,
+      "expect": {
+        "trust": "local-unverified"
+      }
+    },
+    {
+      "identity": "@agentkit/plan",
+      "provider": "kit",
+      "origin": "mirror",
+      "expect": {
+        "error": "identity.invalid"
+      }
+    },
+    {
+      "identity": "@agentkit/plan",
+      "provider": "kit",
+      "expect": {
+        "error": "identity.invalid"
+      }
+    },
+    {
+      "identity": "@agentkit/plan",
+      "provider": "skillx",
+      "verified": true,
+      "expect": {
+        "error": "identity.reserved_publisher"
+      }
+    },
+    {
+      "identity": "@agentkit/plan",
+      "provider": "local",
+      "expect": {
+        "error": "identity.reserved_publisher"
+      }
+    },
+    {
+      "identity": "@agentkit/plan",
+      "provider": "git",
+      "expect": {
+        "error": "identity.reserved_publisher"
+      }
+    },
+    {
+      "identity": "@acme/plan",
+      "provider": "skillx",
+      "verified": true,
+      "expect": {
+        "trust": "publisher-signed"
+      }
+    },
+    {
+      "identity": "@acme/plan",
+      "provider": "skillx",
+      "verified": false,
+      "expect": {
+        "trust": "local-unverified"
+      }
+    },
+    {
+      "identity": "@acme/plan",
+      "provider": "local",
+      "expect": {
+        "trust": "local-unverified"
+      }
+    },
+    {
+      "identity": "@acme/plan",
+      "provider": "git",
+      "expect": {
+        "trust": "local-unverified"
+      }
+    },
+    {
+      "identity": "@acme/plan",
+      "provider": "npm",
+      "expect": {
+        "error": "identity.invalid"
+      }
+    },
+    {
+      "identity": "@agentkit/plan",
+      "provider": "npm",
+      "expect": {
+        "error": "identity.invalid"
+      }
+    },
+    {
+      "identity": "@acme/plan",
+      "provider": "kit",
+      "origin": "remote-signed",
+      "expect": {
+        "error": "identity.invalid"
+      }
+    },
+    {
+      "identity": "@agentkit/Plan",
+      "provider": "kit",
+      "origin": "remote-signed",
+      "expect": {
+        "error": "identity.invalid"
+      }
+    }
+  ],
+  "aliases": [
+    {
+      "identity": "@agentkit/plan",
+      "alias": "ak-plan",
+      "error": null
+    },
+    {
+      "identity": "@agentkit/plan",
+      "alias": "ak:plan",
+      "error": null
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "ak-plan",
+      "error": "identity.reserved_alias"
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "ak:plan",
+      "error": "identity.reserved_alias"
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "AK-plan",
+      "error": "identity.reserved_alias"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "plan",
+      "error": null
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "acme-plan",
+      "error": null
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "aK-plan",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "аk-plan",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@agentkit/plan",
+      "alias": "aK-plan",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "pppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+      "error": null
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "ppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppppp",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "my plan",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "acme/plan",
+      "error": null
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "a//b",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "./plan",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "acme/.",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "acme/..",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "acme/",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "/acme-plan",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "//plan",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "/acme:plan",
+      "error": null
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "/acme/x:plan",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "a$b",
+      "error": null
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "plan!",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@agentkit/plan",
+      "alias": "/ak:plan",
+      "error": null
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "/ak:plan",
+      "error": "identity.reserved_alias"
+    },
+    {
+      "identity": "@agentkit/plan",
+      "alias": "$ak:plan",
+      "error": null
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "$AK:plan",
+      "error": "identity.reserved_alias"
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "$$ak:plan",
+      "error": "identity.reserved_alias"
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "/$ak:plan",
+      "error": "identity.reserved_alias"
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "$/ak:plan",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "core/ak-plan",
+      "error": "identity.reserved_alias"
+    },
+    {
+      "identity": "@agentkit/plan",
+      "alias": "core/ak-plan",
+      "error": null
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": ":",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "/:",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "acme:",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": ":plan",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "/acme:",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "a::b",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "x/$ak-plan",
+      "error": "identity.reserved_alias"
+    },
+    {
+      "identity": "@agentkit/plan",
+      "alias": "x/$ak-plan",
+      "error": null
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "$",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "$$",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "/$:x",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "a/-/b",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "/a:b:c",
+      "error": null
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "/a:$:c",
+      "error": "identity.invalid"
+    }
+  ],
+  "directoryAliases": [
+    {
+      "identity": "@agentkit/plan",
+      "alias": "ak-plan",
+      "error": null,
+      "groupKey": "ak-plan"
+    },
+    {
+      "identity": "@acme/foo",
+      "alias": "Foo",
+      "error": null,
+      "groupKey": "foo"
+    },
+    {
+      "identity": "@other/foo",
+      "alias": "foo",
+      "error": null,
+      "groupKey": "foo"
+    },
+    {
+      "identity": "@acme/foo",
+      "alias": "foo-2",
+      "error": null,
+      "groupKey": "foo-2"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "con",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "CON",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "aux.md",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "plan.",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "plan ",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "a:b",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "a$b",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "a/b",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "PROGRA~1",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "ak-plan",
+      "error": "identity.reserved_alias"
+    },
+    {
+      "identity": "@evil/plan",
+      "alias": "AK-Plan",
+      "error": "identity.reserved_alias"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": ".ak-tmp.plan",
+      "error": "identity.invalid"
+    },
+    {
+      "identity": "@acme/plan",
+      "alias": "---",
+      "error": "identity.invalid"
+    }
+  ],
+  "directoryAliasCollisions": [
+    {
+      "aliases": ["Foo", "foo"],
+      "collide": true
+    },
+    {
+      "aliases": ["foo", "foo-2"],
+      "collide": false
+    }
+  ],
+  "exposure": [
+    {
+      "frontmatter": "",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "frontmatter": "user-invocable: false",
+      "exposure": "INTERNAL",
+      "warning": false
+    },
+    {
+      "frontmatter": "user-invocable: False",
+      "exposure": "INTERNAL",
+      "warning": false
+    },
+    {
+      "frontmatter": "user-invocable: FALSE",
+      "exposure": "INTERNAL",
+      "warning": false
+    },
+    {
+      "frontmatter": "user-invocable: fAlse",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "frontmatter": "user-invocable: \"false\"",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "frontmatter": "user-invocable: no",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "frontmatter": "user-invocable: off",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "frontmatter": "disable-model-invocation: true",
+      "exposure": "EXPLICIT",
+      "warning": false
+    },
+    {
+      "frontmatter": "disable-model-invocation: True",
+      "exposure": "EXPLICIT",
+      "warning": false
+    },
+    {
+      "frontmatter": "disable-model-invocation: TRUE",
+      "exposure": "EXPLICIT",
+      "warning": false
+    },
+    {
+      "frontmatter": "disable-model-invocation: yes",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "frontmatter": "disable-model-invocation: on",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "frontmatter": "disable-model-invocation: 'true'",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "frontmatter": "disable-model-invocation: 1",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "frontmatter": "disable-model-invocation: true\nuser-invocable: false",
+      "exposure": "INTERNAL",
+      "warning": false
+    },
+    {
+      "frontmatter": "disable-model-invocation: true\nuser-invocable: true",
+      "exposure": "EXPLICIT",
+      "warning": false
+    },
+    {
+      "frontmatter": "disable-model-invocation: true\nuser-invocable: yes",
+      "exposure": "EXPLICIT",
+      "warning": false
+    },
+    {
+      "frontmatter": "user-invocable: false   ",
+      "exposure": "INTERNAL",
+      "warning": false
+    },
+    {
+      "frontmatter": "user-invocable: !!bool false",
+      "exposure": "AUTO",
+      "warning": true
+    },
+    {
+      "frontmatter": "user-invocable: &x false",
+      "exposure": "AUTO",
+      "warning": true
+    },
+    {
+      "frontmatter": "a: &x false\nuser-invocable: *x",
+      "exposure": "AUTO",
+      "warning": true
+    },
+    {
+      "frontmatter": "user-invocable: false\nuser-invocable: false",
+      "exposure": "AUTO",
+      "warning": true
+    },
+    {
+      "frontmatter": "user-invocable: [false",
+      "exposure": "AUTO",
+      "warning": true
+    },
+    {
+      "frontmatter": "nested:\n  user-invocable: false",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "frontmatter": "user-invocable",
+      "exposure": "AUTO",
+      "warning": true
+    },
+    {
+      "frontmatter": "~",
+      "exposure": "AUTO",
+      "warning": true
+    },
+    {
+      "frontmatter": "null",
+      "exposure": "AUTO",
+      "warning": true
+    },
+    {
+      "frontmatter": "- user-invocable: false",
+      "exposure": "AUTO",
+      "warning": true
+    },
+    {
+      "frontmatter": "# only a comment",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "frontmatter": "name: a\nname: b\nuser-invocable: false",
+      "exposure": "INTERNAL",
+      "warning": false
+    },
+    {
+      "file": "﻿---\r\nuser-invocable: false\r\n---\r\n# Skill\r\n",
+      "exposure": "INTERNAL",
+      "warning": false
+    },
+    {
+      "file": "---  \ndisable-model-invocation: true\n---\n# Skill\n",
+      "exposure": "EXPLICIT",
+      "warning": false
+    },
+    {
+      "file": "# Skill\n---\nuser-invocable: false\n---\n",
+      "exposure": "AUTO",
+      "warning": false
+    },
+    {
+      "file": "---\nuser-invocable: false\n# no closing line\n",
+      "exposure": "AUTO",
+      "warning": true
+    }
+  ]
+}

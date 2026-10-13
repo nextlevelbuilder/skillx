@@ -24,6 +24,7 @@ export default defineConfig({
       "packages/cli/src/**/*.test.ts",
       "packages/contracts/src/**/*.test.ts",
       "packages/skill-identity/**/*.test.ts",
+      "packages/skill-tree/test/**/*.test.ts",
     ],
   },
 });
