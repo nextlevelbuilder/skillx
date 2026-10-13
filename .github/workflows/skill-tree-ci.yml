@@ -1,0 +1,46 @@
+name: Skill tree CI
+
+on:
+  pull_request:
+    paths:
+      - "packages/skill-tree/**"
+      - "pnpm-lock.yaml"
+      - "vitest.config.ts"
+      - ".github/workflows/skill-tree-ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/skill-tree/**"
+      - "pnpm-lock.yaml"
+      - "vitest.config.ts"
+      - ".github/workflows/skill-tree-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skill-tree-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm --filter @skillx/skill-tree typecheck
+
+      - name: Test (AgentKit conformance vectors and negative cases)
+        run: pnpm exec vitest run packages/skill-tree/test
