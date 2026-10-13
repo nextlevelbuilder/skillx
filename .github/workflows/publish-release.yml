@@ -8,12 +8,19 @@
 # requests (including forks), and the job-level guard below keeps it that way
 # if a caller wires it into a PR-triggered workflow.
 #
+# The job runs in the `skillx-publish` environment: store SKILLX_PUBLISH_KEY
+# (an API key scoped to releases:publish:@<publisher>) as a secret of that
+# environment and optionally require reviewers. An environment secret takes
+# precedence over one passed by a caller. The key only goes to the production
+# registry (https://skillx.sh); only workflow_call may name another https host.
+# Needs a published skillx-sh version that has the `release` command.
+#
 # Caller example:
 #   jobs:
 #     publish:
-#       uses: nextlevelbuilder/skillx/.github/workflows/publish-release.yml@main
+#       uses: nextlevelbuilder/skillx/.github/workflows/publish-release.yml@<sha>
 #       with: { name: "@acme/my-skill", version: "1.2.0", path: "skills/my-skill", cli-version: "0.9.0" }
-#       secrets: { SKILLX_PUBLISH_KEY: ${{ secrets.SKILLX_PUBLISH_KEY }} }
+#       secrets: inherit
 name: Publish SkillX release
 
 on:
@@ -43,11 +50,6 @@ on:
         default: skill
         type: choice
         options: [skill, hook-pack, bundle]
-      registry-url:
-        description: "Registry base URL"
-        required: false
-        default: https://skillx.sh
-        type: string
       cli-version:
         description: "Exact skillx-sh CLI version used to pack and upload"
         required: true
@@ -63,8 +65,8 @@ on:
       cli-version: { required: true, type: string }
     secrets:
       SKILLX_PUBLISH_KEY:
-        description: "SkillX API key scoped to releases:publish:@<publisher>"
-        required: true
+        description: "SkillX API key scoped to releases:publish:@<publisher> (prefer a skillx-publish environment secret)"
+        required: false
     outputs:
       release-digest:
         description: "releaseDigest of the published tree"
@@ -82,15 +84,16 @@ jobs:
     if: github.event_name != 'pull_request' && github.event_name != 'pull_request_target'
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    environment: skillx-publish
     outputs:
       release-digest: ${{ steps.publish.outputs.release-digest }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           fetch-depth: 1
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
 
@@ -101,16 +104,18 @@ jobs:
           PKG_PATH: ${{ inputs.path }}
           CHANNEL: ${{ inputs.channel }}
           KIND: ${{ inputs.kind }}
-          REGISTRY: ${{ inputs.registry-url }}
+          REGISTRY: ${{ inputs.registry-url || 'https://skillx.sh' }}
           CLI_VERSION: ${{ inputs.cli-version }}
+          HAS_KEY: ${{ secrets.SKILLX_PUBLISH_KEY != '' }}
         run: |
           set -euo pipefail
+          [[ "$HAS_KEY" == "true" ]] || { echo "::error::SKILLX_PUBLISH_KEY is not set (skillx-publish environment secret)"; exit 1; }
           [[ "$NAME" =~ ^@[a-z0-9][a-z0-9._-]*/[a-z0-9][a-z0-9._-]*$ ]] || { echo "::error::invalid name"; exit 1; }
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::invalid version"; exit 1; }
           [[ "$PKG_PATH" != -* && "$PKG_PATH" != /* && "$PKG_PATH" != *..* ]] || { echo "::error::invalid path"; exit 1; }
           [[ "$CHANNEL" =~ ^(stable|beta|alpha)$ ]] || { echo "::error::invalid channel"; exit 1; }
           [[ "$KIND" =~ ^(skill|hook-pack|bundle)$ ]] || { echo "::error::invalid kind"; exit 1; }
-          [[ "$REGISTRY" =~ ^https:// ]] || { echo "::error::registry-url must be https"; exit 1; }
+          [[ "$REGISTRY" =~ ^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?/?$ ]] || { echo "::error::registry-url must be an https origin"; exit 1; }
           [[ "$CLI_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::cli-version must be an exact version"; exit 1; }
 
       - name: Pack and publish
@@ -122,7 +127,7 @@ jobs:
           PKG_PATH: ${{ inputs.path }}
           CHANNEL: ${{ inputs.channel }}
           KIND: ${{ inputs.kind }}
-          REGISTRY: ${{ inputs.registry-url }}
+          REGISTRY: ${{ inputs.registry-url || 'https://skillx.sh' }}
           CLI_VERSION: ${{ inputs.cli-version }}
           REPO_URL: https://github.com/${{ github.repository }}
         run: |
