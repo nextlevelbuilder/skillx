@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { readTarTree } from '@skillx/skill-tree';
 import { packRelease } from '../commands/release-pack.js';
-import { httpsRepoUrl } from '../commands/release-publish.js';
+import { assertRegistryDigests, httpsRepoUrl, registryBaseUrl } from '../commands/release-publish.js';
 import { writeDeterministicTar } from './deterministic-tar.js';
 
 /**
@@ -144,5 +144,26 @@ describe('provenance URL', () => {
     ['http://github.com/o/r', null],
   ])('%s -> %s', (remote, expected) => {
     expect(httpsRepoUrl(remote)).toBe(expected);
+  });
+});
+
+describe('registry transport and response checks', () => {
+  it('sends the key only over https, or http to a loopback host', () => {
+    expect(registryBaseUrl('https://skillx.sh/')).toBe('https://skillx.sh');
+    expect(registryBaseUrl('http://localhost:5173')).toBe('http://localhost:5173');
+    expect(registryBaseUrl('http://127.0.0.1:8787/')).toBe('http://127.0.0.1:8787');
+    expect(() => registryBaseUrl('http://skillx.sh')).toThrow(/https/);
+    expect(() => registryBaseUrl('ftp://skillx.sh')).toThrow(/https/);
+    expect(() => registryBaseUrl('https://user:pw@skillx.sh')).toThrow(/credentials/);
+    expect(() => registryBaseUrl('not a url')).toThrow(/invalid registry URL/);
+  });
+
+  it('fails when the registry stored a different tree or artifact', () => {
+    const local = { releaseDigest: `sha256:${'a'.repeat(64)}`, artifactDigest: `sha256:${'b'.repeat(64)}` };
+    expect(() => assertRegistryDigests(local, { ...local, created: true })).not.toThrow();
+    // An idempotent re-publish may report the artifact first stored for the same tree.
+    expect(() => assertRegistryDigests(local, { releaseDigest: local.releaseDigest, artifactDigest: 'x', created: false })).not.toThrow();
+    expect(() => assertRegistryDigests(local, { ...local, releaseDigest: `sha256:${'c'.repeat(64)}` })).toThrow(/releaseDigest/);
+    expect(() => assertRegistryDigests(local, { ...local, artifactDigest: 'x', created: true })).toThrow(/artifactDigest/);
   });
 });

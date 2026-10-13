@@ -19,6 +19,35 @@ export function httpsRepoUrl(remote: string): string | null {
   }
 }
 
+/** Registry base URL without a trailing slash; the API key only travels over https (plain http only to a loopback host). */
+export function registryBaseUrl(raw: string): string {
+  let url: URL;
+  try {
+    url = new URL(raw.trim());
+  } catch {
+    throw new Error(`invalid registry URL ${JSON.stringify(raw)}`);
+  }
+  const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+    throw new Error(`registry URL must use https (http is allowed only for localhost), got ${url.origin}`);
+  }
+  if (url.username || url.password || url.search || url.hash) throw new Error('registry URL must not carry credentials, a query or a fragment');
+  return `${url.origin}${url.pathname.replace(/\/+$/, '')}`;
+}
+
+/** The registry must have stored exactly the tree that was packed locally. */
+export function assertRegistryDigests(
+  local: { releaseDigest: string; artifactDigest: string },
+  body: Record<string, unknown>,
+): void {
+  if (body.releaseDigest !== local.releaseDigest) {
+    throw new Error(`registry releaseDigest ${String(body.releaseDigest)} does not match the local ${local.releaseDigest}`);
+  }
+  if (body.created === true && body.artifactDigest !== local.artifactDigest) {
+    throw new Error(`registry artifactDigest ${String(body.artifactDigest)} does not match the uploaded ${local.artifactDigest}`);
+  }
+}
+
 function originUrl(repoRoot: string): string | null {
   const result = spawnSync('git', ['remote', 'get-url', 'origin'], { cwd: repoRoot, encoding: 'utf8' });
   return result.status === 0 ? httpsRepoUrl(result.stdout) : null;
@@ -61,6 +90,7 @@ export const releasePublishCommand = new Command('publish')
         throw new Error('--repo must be an https URL without credentials or a trailing .git');
       }
 
+      const base = registryBaseUrl(options.registry ?? getBaseUrl());
       const packed = await packRelease(input, { packagePath: options.path });
       warnPackNotes(packed);
       const repo = options.repo ?? originUrl(packed.source.repoRoot);
@@ -73,7 +103,6 @@ export const releasePublishCommand = new Command('publish')
         sourceProvenance: repo === null ? null : { repo, commit: packed.commit, path: packed.path },
         declaredScripts: [...options.script].sort(),
       };
-      const base = (options.registry ?? getBaseUrl()).replace(/\/+$/, '');
       const res = await fetch(`${base}/api/v1/packages/@${name[1]}/${name[2]}/releases`, {
         method: 'POST',
         headers: {
@@ -94,6 +123,7 @@ export const releasePublishCommand = new Command('publish')
         const error = body.error as { code?: string; message?: string } | undefined;
         throw new Error(`registry answered ${res.status}${error?.code ? ` ${error.code}` : ''}: ${error?.message ?? text.slice(0, 300)}`);
       }
+      assertRegistryDigests(packed, body);
       const result = { ...packSummary(packed), ...body };
       if (options.json) {
         console.log(JSON.stringify(result, null, 2));
