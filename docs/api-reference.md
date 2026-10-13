@@ -1029,6 +1029,111 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 `skillx-reg-993cd14a011f7b76`). A missing or malformed key fails closed with
 `503`; key material is never logged or returned.
 
+### Reading releases (pinned whole-tree read API)
+
+Read-only, behind the same flag: unless `SKILLX_RELEASES_API` is `"1"` or
+`"true"`, every endpoint answers `404 not_found`.
+
+| Endpoint | Returns |
+|----------|---------|
+| `GET /api/v1/packages/@{publisher}/{slug}/releases` | JSON list, newest first (at most 500): `version`, `channel`, `state`, `releaseDigest`, `artifactDigest`, `artifactSize`, `createdAt`. Published and yanked releases; a release is hidden when its tree is quarantined anywhere (it would answer `403`), so the list never offers one |
+| `GET /api/v1/packages/@{publisher}/{slug}/releases/{version}` | The signed `skillx.release/v1` manifest bytes (new resolution: only `published`) |
+| `GET /api/v1/releases/{releaseDigest}/manifest[?version=]` | The same manifest, by tree digest (locked clients) |
+| `GET /api/v1/releases/{releaseDigest}/files/{path}[?version=]` | One file's raw bytes, only if `path` is in the manifest |
+| `GET /api/v1/releases/{releaseDigest}/artifact[?version=]` | The uploaded tar, streamed same-origin from R2 (no redirect) |
+| `GET /api/v1/keys` | `{"algorithm": "ed25519", "active": [...], "revoked": [...]}` registry key IDs |
+
+**Auth**: optional. `Authorization: Bearer sx_...` with an unscoped API key,
+or the web session. Scoped publish keys do not authenticate reads (they read
+as anonymous). Tokens are never accepted in the query string.
+
+**Access and state rules** (same answer on every endpoint):
+
+- Private package (`packages.visibility = 'private'`): needs an unrevoked
+  entitlement of the caller for the package (`release_id` NULL) or the
+  release, decided by the shared payload-access gate. Otherwise the answer is
+  `404 not_found`, the same body as an unknown package, so existence is not
+  disclosed. A release-only entitlement lists only the entitled releases.
+  Publishers have no implicit access: they read their own private packages
+  through an entitlement, like any other caller.
+- Publisher `suspended` or `revoked`: `403 publisher_revoked`.
+- `quarantined`: `403 release_quarantined` on every endpoint. Quarantine is
+  a judgement about the bytes, so it fails closed across the whole tree: if
+  any release sharing a `releaseDigest` (in any package) is quarantined,
+  every digest endpoint answers `403`, with or without `?version=`, and a
+  lookup by version of a published release of that tree is `403` too.
+  Unknown or unentitled callers still get `404` first. Yanked stays per
+  release.
+- `yanked`: `410 release_yanked` by version; by digest it is still served,
+  with `X-SkillX-Release-State: yanked`.
+- Draft releases and releases without a signed manifest do not exist here.
+- One tree may be released under several versions or packages. The digest
+  endpoints (`manifest`, `files`, `artifact`) accept an optional
+  `?version={version}` selector (a selector, never a credential). Locked
+  clients should always send it:
+  - With `version`, exactly that release is resolved; its `releaseDigest`
+    must equal the path digest. A mismatched or unknown version answers the
+    same `404 not_found` as an unknown release (a malformed one is `400
+    invalid_version`). Yanked applies to the selected release alone, so a
+    selected yanked version is served with `X-SkillX-Release-State: yanked`;
+    quarantine still applies to the whole tree (above).
+  - Without `version`, the choice is deterministic: only releases the caller
+    may read count, a quarantined tree is `403`, then a published
+    release of an active publisher wins over a yanked one, then the earliest
+    created. The served manifest may therefore belong to another version of
+    the same tree.
+  - `X-SkillX-Identity` and `X-SkillX-Version` name the release served.
+
+**Bytes**: stored bytes are served exactly as published, never transformed
+(`Cache-Control` carries `no-transform`). The manifest keeps its signed
+canonical bytes; its state is in headers (`X-SkillX-Release-State`,
+`X-SkillX-Release-Digest`). File and artifact responses are
+`application/octet-stream` / `application/x-tar` with `Content-Disposition:
+attachment`, `X-Content-Type-Options: nosniff` and a `sandbox` CSP, so a
+browser never renders them. A file's `ETag` is its SHA-256 (the manifest
+`sha256`), the artifact's is the artifact SHA-256 (also in
+`X-SkillX-Artifact-Digest`); a matching `If-None-Match` answers `304`.
+`X-SkillX-File-Mode` carries the manifest mode. Files are read from the
+per-file blobs `blobs/sha256/<hex>` by the manifest `sha256`; the artifact
+from the key recorded in D1.
+
+**Caching**: files and artifacts are digest-addressed and immutable
+(`max-age=31536000, immutable`); listings, manifests and keys use
+`max-age=60` because state can change. Private packages use `private`,
+public ones `public`.
+
+**Size caps**: manifests up to 4 MiB, files up to 32 MiB, artifacts up to
+32 MiB (the publish limits). A stored object that is missing, over its cap or
+of a different size than recorded is never served (`500
+release.storage_inconsistent`).
+
+**Rate limit**: 300 requests per 60-second window per caller (the user ID when
+authenticated, else the client IP), counted in Workers KV (binding `KV`).
+Over the limit: `429 rate_limited` with `Retry-After` in seconds. The KV count
+is approximate (eventual consistency) and a KV failure lets the request
+through.
+
+**Keys**: `active` is `SKILLX_REGISTRY_SIGNING_KEY_ID`; `revoked` is the
+optional comma-separated worker var `SKILLX_REGISTRY_REVOKED_KEY_IDS` (a
+revoked ID is never listed as active). Set it in the Cloudflare dashboard, not
+in `wrangler.jsonc` vars, which a deploy would apply over dashboard values. Informational only: clients trust the
+public keys they embed. The private key is never read by this endpoint.
+
+**Errors** use `{"error": {"code", "message"}}`:
+
+| Status | Codes |
+|--------|-------|
+| 400 | `invalid_digest`, `invalid_path` (not one valid tree path after a single percent-decode: NUL, backslash, `..`, empty segment, absolute, bad escape), `invalid_version`, `identity.invalid` |
+| 403 | `publisher_revoked`, `release_quarantined` |
+| 404 | `not_found` (unknown, unentitled, path not in the manifest, or API disabled) |
+| 410 | `release_yanked` |
+| 429 | `rate_limited` |
+| 500 | `release.storage_inconsistent`, `release.internal_error` |
+
+Local smoke test (local bindings only, never remote):
+`node scripts/smoke-releases-local.mjs` against a running `pnpm dev` with
+`SKILLX_RELEASES_API=1` (see the script header).
+
 ### Database columns (migration `0012_api_key_scopes`)
 
 `api_keys.scopes`: nullable JSON array of scopes; `NULL` keeps existing keys
@@ -1050,7 +1155,7 @@ All error responses follow a consistent shape:
 
 ## Rate Limits
 
-No explicit rate limiting at the API layer. Cloudflare Workers handles DDoS protection. Search results cached in KV (5min TTL) for performance.
+No explicit rate limiting at the API layer, except the release read API (300 requests per minute per caller, `429` with `Retry-After`; see [Reading releases](#reading-releases-pinned-whole-tree-read-api)). Cloudflare Workers handles DDoS protection. Search results cached in KV (5min TTL) for performance.
 
 ## Source Files
 
@@ -1065,6 +1170,9 @@ No explicit rate limiting at the API layer. Cloudflare Workers handles DDoS prot
 | `apps/web/app/routes/api.leaderboard.ts` | Paginated leaderboard |
 | `apps/web/app/routes/api.user-api-keys.ts` | API key management |
 | `apps/web/app/routes/api.v1.release-publish.ts` | Release publish (flagged) |
-| `apps/web/app/lib/releases/` | Release ingest, signing, scan, R2 and D1 writes |
+| `apps/web/app/routes/api.v1.package-releases.ts` | Release listing (GET) and publish (POST, action re-exported) on one path |
+| `apps/web/app/routes/api.v1.release-{manifest,file,artifact}.ts` | Pinned release reads (flagged) |
+| `apps/web/app/routes/api.v1.signing-keys.ts` | Registry key IDs (flagged) |
+| `apps/web/app/lib/releases/` | Release ingest, signing, scan, R2 and D1 writes; read access, rate limit and read handlers |
 | `apps/web/app/routes/api.admin.seed.ts` | Admin data seeding |
 | `apps/web/app/routes/auth-catchall.tsx` | Better Auth handler |

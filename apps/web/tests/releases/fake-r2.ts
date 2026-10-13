@@ -6,6 +6,8 @@
  */
 import { createHash } from "node:crypto";
 
+export const GET_CHUNK_BYTES = 16 * 1024;
+
 interface Stored {
   bytes: Uint8Array;
   sha256: string;
@@ -54,9 +56,27 @@ export class FakeR2 {
     return { key, size: stored.bytes.length, checksums: { sha256: checksum.buffer } };
   }
 
+  /** Like `R2ObjectBody`: `body` streams a snapshot of the bytes in `GET_CHUNK_BYTES` chunks. */
   async get(key: string) {
     const stored = this.objects.get(key);
-    return stored === undefined ? null : { key, size: stored.bytes.length, bytes: stored.bytes };
+    if (stored === undefined) return null;
+    const bytes = stored.bytes.slice();
+    let at = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (at >= bytes.length) return controller.close();
+        controller.enqueue(bytes.slice(at, at + GET_CHUNK_BYTES));
+        at += GET_CHUNK_BYTES;
+      },
+    });
+    return {
+      key,
+      size: bytes.length,
+      bytes,
+      body,
+      arrayBuffer: async () => bytes.slice().buffer,
+      httpMetadata: { contentType: stored.contentType },
+    };
   }
 
   keys(prefix = ""): string[] {

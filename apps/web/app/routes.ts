@@ -25,6 +25,12 @@ export default [
   route("api/report", "routes/api.usage-report.ts"),
   route("api/user/api-keys", "routes/api.user-api-keys.ts"),
   route("api/user/interactions", "routes/api.user-interactions.ts"),
-  route("api/v1/packages/:scope/:slug/releases", "routes/api.v1.release-publish.ts"),
+  // GET lists releases; POST (the action re-exported from api.v1.release-publish.ts) publishes one.
+  route("api/v1/packages/:scope/:slug/releases", "routes/api.v1.package-releases.ts"),
+  route("api/v1/packages/:scope/:slug/releases/:version", "routes/api.v1.release-manifest.ts", { id: "release-manifest-by-version" }),
+  route("api/v1/releases/:digest/manifest", "routes/api.v1.release-manifest.ts", { id: "release-manifest-by-digest" }),
+  route("api/v1/releases/:digest/files/*", "routes/api.v1.release-file.ts"),
+  route("api/v1/releases/:digest/artifact", "routes/api.v1.release-artifact.ts"),
+  route("api/v1/keys", "routes/api.v1.signing-keys.ts"),
   route("*", "routes/$.tsx"),
 ] satisfies RouteConfig;

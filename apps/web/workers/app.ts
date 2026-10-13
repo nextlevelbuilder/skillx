@@ -13,6 +13,11 @@ declare global {
     SKILLX_REGISTRY_SIGNING_KEY?: string;
     /** Published ID of the registry signing key. */
     SKILLX_REGISTRY_SIGNING_KEY_ID?: string;
+    /**
+     * Comma-separated revoked registry key IDs listed by GET /api/v1/keys. Set in the
+     * dashboard, not in wrangler.jsonc vars (a deploy would overwrite dashboard values).
+     */
+    SKILLX_REGISTRY_REVOKED_KEY_IDS?: string;
   }
 }
 

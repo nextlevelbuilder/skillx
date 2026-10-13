@@ -97,7 +97,10 @@ pnpm db:migrate:remote    # Apply migrations to remote D1
 | `/api/user/interactions` | api.user-interactions.ts | Session (graceful fallback) |
 | `/api/skills/register` | api.skill-register.ts | Session/Key |
 | `/api/admin/seed` | api.admin.seed.ts | Admin secret |
-| `/api/v1/packages/:scope/:slug/releases` | api.v1.release-publish.ts | Scoped key `releases:publish:@handle` (404 unless `SKILLX_RELEASES_API` on) |
+| `/api/v1/packages/:scope/:slug/releases` | api.v1.package-releases.ts (GET list); action re-exported from api.v1.release-publish.ts (POST publish) | GET: optional Key/Session; POST: scoped key `releases:publish:@handle` (404 unless `SKILLX_RELEASES_API` on) |
+| `/api/v1/packages/:scope/:slug/releases/:version`, `/api/v1/releases/:digest/manifest` | api.v1.release-manifest.ts | Optional Key/Session (404 unless `SKILLX_RELEASES_API` on) |
+| `/api/v1/releases/:digest/files/*`, `/api/v1/releases/:digest/artifact` | api.v1.release-file.ts, api.v1.release-artifact.ts | Optional Key/Session (404 unless `SKILLX_RELEASES_API` on) |
+| `/api/v1/keys` | api.v1.signing-keys.ts | None (404 unless `SKILLX_RELEASES_API` on) |
 
 ## Database Tables (Drizzle schema)
 
