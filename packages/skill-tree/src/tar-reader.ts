@@ -26,8 +26,39 @@ import type { EntryKind, TreeLimits } from "./tree";
 export interface TarReadOptions {
   /** "auto" (default) detects the gzip magic bytes. */
   compression?: "auto" | "gzip" | "none";
-  /** Test hook: smaller limits. */
+  /**
+   * Smaller limits. A registry may pass lower limits as a resource guard: a
+   * lower limit only ever rejects with `tree.limit_exceeded` and never changes
+   * a digest.
+   */
   limits?: TreeLimits;
+  /**
+   * Receives the exact bytes of every hashed regular file, in archive order,
+   * before validation finishes (noise and later-rejected entries included).
+   * The bytes may be a view into the source buffer. Callers use them only
+   * after `readTarTree` resolves, and only for paths of the returned tree.
+   */
+  onFileContent?: (path: string, content: Uint8Array) => void;
+}
+
+/** Joins chunks into one array; a single chunk is passed through without a copy. */
+function joinChunks(chunks: readonly Uint8Array[], size: number): Uint8Array {
+  if (chunks.length === 1) return chunks[0]!;
+  const out = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, at);
+    at += chunk.length;
+  }
+  return out;
+}
+
+/** Passes `content` through while keeping its chunks for `onFileContent`. */
+async function* keepChunks(content: AsyncIterable<Uint8Array>, kept: Uint8Array[]): AsyncGenerator<Uint8Array> {
+  for await (const chunk of content) {
+    kept.push(chunk);
+    yield chunk;
+  }
 }
 
 /** Maps a tar type flag to an entry kind; type NUL is a directory when its name ends with "/". */
@@ -106,7 +137,7 @@ export function tarOverheadBudget(limits: TreeLimits): number {
   return limits.maxFiles * ENTRY_OVERHEAD;
 }
 
-async function readEntries(reader: StreamReader, collector: EntryCollector): Promise<void> {
+async function readEntries(reader: StreamReader, collector: EntryCollector, onFile?: TarReadOptions["onFileContent"]): Promise<void> {
   let pax: PaxRecords | undefined;
   let longName: Uint8Array | undefined;
   for (;;) {
@@ -170,8 +201,15 @@ async function readEntries(reader: StreamReader, collector: EntryCollector): Pro
     const kind = tarEntryKind(type, name.path);
     const sparse = logical !== size || consumed > 0 || Object.keys(records).some((k) => k.startsWith("GNU.sparse."));
     let hashed = { size: 0, sha256: "" };
-    if (kind === "regular" && !sparse) hashed = await collector.hashFile(name.path, reader.chunks(physical, false));
-    else {
+    if (kind === "regular" && !sparse) {
+      const content = reader.chunks(physical, false);
+      if (onFile === undefined) hashed = await collector.hashFile(name.path, content);
+      else {
+        const kept: Uint8Array[] = [];
+        hashed = await collector.hashFile(name.path, keepChunks(content, kept));
+        onFile(name.path, joinChunks(kept, hashed.size));
+      }
+    } else {
       // Sparse files are rejected later, but their logical size counts toward the limits first.
       if (kind === "regular") {
         collector.countFile(name.path, logical);
@@ -197,7 +235,7 @@ export async function readTarTree(source: ByteSource, options: TarReadOptions = 
   let reader: StreamReader | undefined;
   try {
     reader = new StreamReader(await gunzipIfNeeded(toAsyncIterable(source), options.compression ?? "auto"), tarOverheadBudget(limits));
-    await readEntries(reader, collector);
+    await readEntries(reader, collector, options.onFileContent);
   } catch (err) {
     throw asTreeError(err);
   } finally {

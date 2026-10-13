@@ -20,7 +20,7 @@ export {
 export type { FileMode, ModeSource, TreeFile, TreeManifest } from "./serialize";
 
 export { LIMITS, buildTree, headerMode } from "./tree";
-export type { BuildOptions, EntryKind, TreeEntry } from "./tree";
+export type { BuildOptions, EntryKind, TreeEntry, TreeLimits } from "./tree";
 
 export { isNoisePath, validatePath } from "./path-rules";
 export { foldKey } from "./collision";
