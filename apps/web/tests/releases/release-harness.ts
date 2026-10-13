@@ -46,7 +46,7 @@ export async function createHarness() {
   `);
 
   async function createKey(userId: string, scopes: string[] | null, revoked = false): Promise<string> {
-    const { plaintext, hash, prefix } = await generateApiKey();
+    const { plaintext, hash, prefix } = await generateApiKey({ scoped: scopes !== null });
     d1.raw
       .prepare("INSERT INTO api_keys (id, user_id, name, key_hash, key_prefix, created_at, revoked_at, scopes) VALUES (?, ?, 'test', ?, ?, 1, ?, ?)")
       .run(`key-${hash.slice(0, 12)}`, userId, hash, prefix, revoked ? 2 : null, scopes === null ? null : JSON.stringify(scopes));

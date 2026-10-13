@@ -1,8 +1,8 @@
 import type { ActionFunctionArgs } from "react-router";
 import { getDb } from "~/lib/db";
-import { skills, installs, apiKeys } from "~/lib/db/schema";
-import { eq, and, isNull, sql } from "drizzle-orm";
-import { verifyApiKey } from "~/lib/auth/api-key-utils";
+import { skills, installs } from "~/lib/db/schema";
+import { eq, sql } from "drizzle-orm";
+import { authenticateApiKey } from "~/lib/auth/authenticate-api-key";
 import { recomputeSkillScores } from "~/lib/leaderboard/recompute-skill-scores";
 import { resolveSkillBySlug } from "~/lib/db/skill-aliases";
 
@@ -22,25 +22,8 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     const authHeader = request.headers.get("Authorization");
 
     if (authHeader?.startsWith("Bearer ")) {
-      const apiKeyPlaintext = authHeader.substring(7);
-      const prefix = apiKeyPlaintext.substring(0, 8);
-      const [foundKey] = await db
-        .select()
-        .from(apiKeys)
-        // Scoped keys never act as full-account keys.
-        .where(and(eq(apiKeys.key_prefix, prefix), isNull(apiKeys.revoked_at), isNull(apiKeys.scopes)))
-        .limit(1);
-
-      if (foundKey) {
-        const isValid = await verifyApiKey(apiKeyPlaintext, foundKey.key_hash);
-        if (isValid) {
-          userId = foundKey.user_id;
-          await db
-            .update(apiKeys)
-            .set({ last_used_at: new Date() })
-            .where(eq(apiKeys.id, foundKey.id));
-        }
-      }
+      // Unscoped keys only; scoped keys never act as full-account keys.
+      userId = (await authenticateApiKey(db, authHeader.substring(7)))?.userId ?? null;
     }
 
     // Need at least one identifier

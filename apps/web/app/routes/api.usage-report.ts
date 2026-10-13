@@ -1,8 +1,8 @@
 import type { ActionFunctionArgs } from "react-router";
 import { getDb } from "~/lib/db";
-import { skills, usageStats, apiKeys } from "~/lib/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
-import { verifyApiKey } from "~/lib/auth/api-key-utils";
+import { skills, usageStats } from "~/lib/db/schema";
+import { eq } from "drizzle-orm";
+import { authenticateApiKey } from "~/lib/auth/authenticate-api-key";
 import { recomputeSkillScores } from "~/lib/leaderboard/recompute-skill-scores";
 
 export async function action({ request, context }: ActionFunctionArgs) {
@@ -19,38 +19,11 @@ export async function action({ request, context }: ActionFunctionArgs) {
       );
     }
 
-    const apiKeyPlaintext = authHeader.substring(7); // Remove "Bearer "
-
-    // Find API key by prefix
-    const prefix = apiKeyPlaintext.substring(0, 8);
-    const [foundKey] = await db
-      .select()
-      .from(apiKeys)
-      .where(
-        and(
-          eq(apiKeys.key_prefix, prefix),
-          isNull(apiKeys.revoked_at),
-          // Scoped keys never act as full-account keys.
-          isNull(apiKeys.scopes)
-        )
-      )
-      .limit(1);
-
+    // Unscoped keys only; scoped keys never act as full-account keys.
+    const foundKey = await authenticateApiKey(db, authHeader.substring(7));
     if (!foundKey) {
       return Response.json({ error: "Invalid API key" }, { status: 401 });
     }
-
-    // Verify the hash
-    const isValid = await verifyApiKey(apiKeyPlaintext, foundKey.key_hash);
-    if (!isValid) {
-      return Response.json({ error: "Invalid API key" }, { status: 401 });
-    }
-
-    // Update last used timestamp
-    await db
-      .update(apiKeys)
-      .set({ last_used_at: new Date() })
-      .where(eq(apiKeys.id, foundKey.id));
 
     // SAFETY: request bodies are untrusted; every field is re-validated below.
     const body = (await request.json()) as Record<string, unknown>;
@@ -90,7 +63,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
     await db.insert(usageStats).values({
       id: usageId,
       skill_id: skill.id,
-      user_id: foundKey.user_id,
+      user_id: foundKey.userId,
       model: model || null,
       outcome,
       duration_ms: duration_ms || null,

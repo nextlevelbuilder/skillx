@@ -3,7 +3,7 @@
  * (`releases:publish:@<handle>`) whose owner owns the active publisher of the
  * package handle. Sessions and legacy unscoped keys are not accepted.
  */
-import { hashApiKey } from "~/lib/auth/api-key-utils";
+import { hashApiKey, hashScopedApiKey } from "~/lib/auth/api-key-utils";
 import { parseStoredScopes, releasePublishScope } from "~/lib/auth/api-key-scopes";
 import { releaseError } from "./release-http";
 
@@ -15,9 +15,16 @@ export interface AuthorizedPublisher {
 }
 
 const API_KEY_PATTERN = /^sx_[0-9a-f]{64}$/;
+const KEY_QUERY = "SELECT id, user_id, scopes FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL";
+
+type KeyRow = { id: string; user_id: string; scopes: string | null };
 
 function unauthorized() {
   return releaseError(401, "auth.invalid_key", "a valid, unrevoked API key is required (Authorization: Bearer sx_...)");
+}
+
+function scopeMissing(handle: string) {
+  return releaseError(403, "auth.scope_missing", `this API key does not hold the ${releasePublishScope(handle)} scope`);
 }
 
 export async function authorizeReleasePublisher(db: D1Database, request: Request, handle: string): Promise<AuthorizedPublisher> {
@@ -25,16 +32,15 @@ export async function authorizeReleasePublisher(db: D1Database, request: Request
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
   if (!API_KEY_PATTERN.test(token)) throw unauthorized();
 
-  const key = await db
-    .prepare("SELECT id, user_id, scopes FROM api_keys WHERE key_hash = ? AND revoked_at IS NULL")
-    .bind(await hashApiKey(token))
-    .first<{ id: string; user_id: string; scopes: string | null }>();
-  if (key === null) throw unauthorized();
+  const key = await db.prepare(KEY_QUERY).bind(await hashScopedApiKey(token)).first<KeyRow>();
+  if (key === null) {
+    // A valid unscoped key gets the clearer "scope missing" answer.
+    const legacy = await db.prepare(KEY_QUERY).bind(await hashApiKey(token)).first<KeyRow>();
+    throw legacy === null ? unauthorized() : scopeMissing(handle);
+  }
 
   const scopes = parseStoredScopes(key.scopes);
-  if (scopes === null || !scopes.includes(releasePublishScope(handle))) {
-    throw releaseError(403, "auth.scope_missing", `this API key does not hold the ${releasePublishScope(handle)} scope`);
-  }
+  if (scopes === null || !scopes.includes(releasePublishScope(handle))) throw scopeMissing(handle);
 
   const publisher = await db
     .prepare("SELECT id, owner_user_id, state FROM publishers WHERE handle = ?")

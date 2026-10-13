@@ -14,25 +14,30 @@ type Value = string | number | null | bigint | Uint8Array;
 
 class FakeStatement {
   constructor(
-    private readonly raw: DatabaseSync,
+    private readonly db: DatabaseSync,
     readonly sql: string,
     readonly params: Value[] = [],
   ) {}
 
   bind(...params: unknown[]): FakeStatement {
-    return new FakeStatement(this.raw, this.sql, params as Value[]);
+    return new FakeStatement(this.db, this.sql, params as Value[]);
   }
 
   async first<T>(): Promise<T | null> {
-    return (this.raw.prepare(this.sql).get(...this.params) as T | undefined) ?? null;
+    return (this.db.prepare(this.sql).get(...this.params) as T | undefined) ?? null;
   }
 
   async all<T>(): Promise<{ results: T[] }> {
-    return { results: this.raw.prepare(this.sql).all(...this.params) as T[] };
+    return { results: this.db.prepare(this.sql).all(...this.params) as T[] };
+  }
+
+  /** Rows as value arrays (used by drizzle-orm's D1 driver for selects). */
+  async raw<T>(): Promise<T[]> {
+    return (this.db.prepare(this.sql).all(...this.params) as Array<Record<string, unknown>>).map((row) => Object.values(row) as T);
   }
 
   runSync() {
-    const info = this.raw.prepare(this.sql).run(...this.params);
+    const info = this.db.prepare(this.sql).run(...this.params);
     return { success: true, meta: { changes: Number(info.changes) } };
   }
 

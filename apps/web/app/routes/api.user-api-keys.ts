@@ -99,7 +99,8 @@ export async function action({ request, context }: ActionFunctionArgs) {
         scopes = requested.scopes;
       }
 
-      const { plaintext, hash, prefix } = await generateApiKey();
+      // A scoped key is stored under a domain-separated hash, so it can never authenticate as the user.
+      const { plaintext, hash, prefix } = await generateApiKey({ scoped: scopes !== null });
       const keyId = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       const now = new Date();
 

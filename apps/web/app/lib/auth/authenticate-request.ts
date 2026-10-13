@@ -4,9 +4,7 @@
  */
 
 import { getDb } from "~/lib/db";
-import { apiKeys } from "~/lib/db/schema";
-import { eq, and, isNull } from "drizzle-orm";
-import { verifyApiKey } from "./api-key-utils";
+import { authenticateApiKey } from "./authenticate-api-key";
 import { getSession } from "./session-helpers";
 
 interface AuthResult {
@@ -21,28 +19,9 @@ export async function authenticateRequest(
   // Try API key first (CLI usage)
   const authHeader = request.headers.get("Authorization");
   if (authHeader?.startsWith("Bearer ")) {
-    const apiKeyPlaintext = authHeader.substring(7);
-    const prefix = apiKeyPlaintext.substring(0, 8);
-
-    const db = getDb(env.DB);
-    const [foundKey] = await db
-      .select()
-      .from(apiKeys)
-      // Scoped keys (scopes NOT NULL) grant only their scopes, never this full-account access.
-      .where(and(eq(apiKeys.key_prefix, prefix), isNull(apiKeys.revoked_at), isNull(apiKeys.scopes)))
-      .limit(1);
-
-    if (foundKey) {
-      const isValid = await verifyApiKey(apiKeyPlaintext, foundKey.key_hash);
-      if (isValid) {
-        // Update last used timestamp (best-effort, may be dropped on Workers after response)
-        await db.update(apiKeys)
-          .set({ last_used_at: new Date() })
-          .where(eq(apiKeys.id, foundKey.id));
-
-        return { userId: foundKey.user_id, method: "api-key" };
-      }
-    }
+    // Scoped keys never authenticate here (see authenticateApiKey).
+    const owner = await authenticateApiKey(getDb(env.DB), authHeader.substring(7));
+    if (owner) return { userId: owner.userId, method: "api-key" };
   }
 
   // Fallback to session (web usage)
