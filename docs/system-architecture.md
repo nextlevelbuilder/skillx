@@ -354,6 +354,8 @@ Response:
 | Method | Path | Purpose |
 |--------|------|---------|
 | POST | `/api/admin/seed` | Load demo data (dev only) |
+| POST | `/api/v1/packages/@h/s/releases/:version/state` | Release state transition (owner: publish draft, yank; admin: all edges) |
+| POST | `/api/v1/publishers/@h/state` | Publisher suspend / reinstate / revoke (admin) |
 
 ## Voting System (NEW)
 
@@ -575,6 +577,52 @@ Lazy-fetch (skill-detail API) also scans + sanitizes before returning
 - 401: Unauthenticated
 - 403: No write access to GitHub repo
 - 404: No SKILL.md files found
+
+## Release Registry (Pinned Whole-Tree Releases)
+
+Flagged by the Worker var `SKILLX_RELEASES_API` (every release endpoint answers
+`404` while it is off). Contracts and endpoint details:
+[API reference](./api-reference.md#publishing-releases).
+
+```
+skillx release pack (git commit -> deterministic tar, tree digest via @skillx/skill-tree)
+        │
+        ▼
+POST /api/v1/packages/@h/s/releases ── scoped key ── tar read + digest ── scan
+        │                                            (published | quarantined)
+        ▼
+R2 (create-only): artifacts/  blobs/  manifests/ (signed skillx.release/v1)
+D1: packages, package_releases (row written last)
+        │
+        ▼
+GET  list / manifest / files / artifact ── release-access rules
+POST .../releases/:version/state, /publishers/@h/state ── compare-and-set + audit
+```
+
+- **Immutability**: a version maps to one tree forever. Bytes are stored and
+  served exactly; no state change touches bytes, digests or R2 objects.
+- **Read rules** (`app/lib/releases/release-access.ts`): unknown or
+  unentitled `404`, then quarantined `403` (tree-wide, fails closed), then
+  suspended/revoked publisher `403`, then yanked (`410` by version, served by
+  digest).
+- **State transitions** (`app/lib/releases/release-transitions.ts`): release
+  edges are the `skillx.release-status/v1` graph (`draft→published`,
+  `published→yanked|quarantined`, `quarantined→yanked`, `yanked→published`).
+  Owners may publish a draft and yank; everything else, and publisher
+  `active→suspended→revoked` (or reinstate), is admin (`ADMIN_SECRET`). Scoped
+  publish keys cannot change state. Each change is a compare-and-set on the
+  expected state (`409` when stale), written in one D1 batch with its audit
+  row in the append-only `release_state_audit` table (migration 0013), which
+  records every attempt, including lost races and denials. Signed status
+  issuance on transition is a follow-up.
+- **Legacy listings**: `skillx use` labels a multi-file legacy listing
+  (references or scripts) as discovery-only, because only SKILL.md text is
+  delivered there; pinned releases carry the whole tree.
+- **Verification**: `apps/web/tests/e2e/releases-full-tree.test.ts` packs a
+  94-file nested fixture from git, publishes it, reads every file back and
+  recomputes the tree digest against the signed manifest, with a
+  child-process spy proving no fixture script runs. It drives the Worker
+  route modules over the in-process D1/R2 test fakes, not `wrangler dev`.
 
 ## Deployment Architecture
 

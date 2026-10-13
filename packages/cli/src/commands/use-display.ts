@@ -44,6 +44,21 @@ function stripAnsi(str: string): string {
   return str.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '');
 }
 
+/**
+ * A legacy listing with references or scripts describes a multi-file skill,
+ * but it only carries SKILL.md text plus links: the other files are not
+ * delivered or pinned. Until the publisher ships a release, such a listing is
+ * discovery-only. Returns null for a single-file listing.
+ */
+export function discoveryOnlyNotice(references?: SkillReference[], scripts?: SkillScript[]): string | null {
+  const extra = (references?.length ?? 0) + (scripts?.length ?? 0);
+  if (extra === 0) return null;
+  return (
+    `Discovery-only: legacy listing of a multi-file skill (${extra} more file${extra === 1 ? '' : 's'} listed as links). ` +
+    'Only SKILL.md is shown; the other files are not installed or pinned. Install a pinned release once the publisher ships one.'
+  );
+}
+
 /** Display a single skill with formatted output */
 export function displaySkill(
   skill: SkillDetails,
@@ -53,8 +68,11 @@ export function displaySkill(
   scripts?: SkillScript[],
 ): void {
   trackInstall(skill.slug);
+  const notice = discoveryOnlyNotice(references, scripts);
 
   if (options.raw) {
+    // stderr keeps piped raw content unchanged.
+    if (notice) console.error(notice);
     console.log(`--- BEGIN EXTERNAL SKILL CONTENT (untrusted, risk: ${skill.risk_label || 'unknown'}) ---`);
     console.log(skill.content);
     if (options.includeRefs && references?.length) {
@@ -81,6 +99,10 @@ export function displaySkill(
   } else if (skill.risk_label === 'caution') {
     console.log(chalk.bgYellow.black.bold(' CAUTION ') +
       chalk.yellow(' Some content patterns flagged for review.\n'));
+  }
+
+  if (notice) {
+    console.log(chalk.bgYellow.black.bold(' DISCOVERY-ONLY ') + chalk.yellow(` ${notice}\n`));
   }
 
   const rating = skill.avg_rating ?? 0;

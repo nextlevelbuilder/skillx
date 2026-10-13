@@ -1,0 +1,3 @@
+Template 7
+Name: {{name}}
+Value: {{value_7}}

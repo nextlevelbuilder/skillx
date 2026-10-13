@@ -1,0 +1,2 @@
+# Release fixtures are hashed byte for byte; never convert their line endings.
+full-tree-94/** -text

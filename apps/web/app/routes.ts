@@ -28,6 +28,8 @@ export default [
   // GET lists releases; POST (the action re-exported from api.v1.release-publish.ts) publishes one.
   route("api/v1/packages/:scope/:slug/releases", "routes/api.v1.package-releases.ts"),
   route("api/v1/packages/:scope/:slug/releases/:version", "routes/api.v1.release-manifest.ts", { id: "release-manifest-by-version" }),
+  route("api/v1/packages/:scope/:slug/releases/:version/state", "routes/api.v1.release-state.ts", { id: "release-state" }),
+  route("api/v1/publishers/:handle/state", "routes/api.v1.release-state.ts", { id: "publisher-state" }),
   route("api/v1/releases/:digest/manifest", "routes/api.v1.release-manifest.ts", { id: "release-manifest-by-digest" }),
   route("api/v1/releases/:digest/files/*", "routes/api.v1.release-file.ts"),
   route("api/v1/releases/:digest/artifact", "routes/api.v1.release-artifact.ts"),

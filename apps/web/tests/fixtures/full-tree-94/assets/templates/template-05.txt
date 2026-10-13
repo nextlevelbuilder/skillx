@@ -1,0 +1,3 @@
+Template 5
+Name: {{name}}
+Value: {{value_5}}

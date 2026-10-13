@@ -59,7 +59,7 @@ type Params = Record<string, string | undefined>;
  * sees a private package as "not found". Without the header the session
  * decides, and no session means anonymous.
  */
-async function resolveViewer(request: Request, env: ReleaseReadEnv): Promise<string | null> {
+export async function resolveViewer(request: Request, env: ReleaseReadEnv): Promise<string | null> {
   const header = request.headers.get("Authorization");
   if (header !== null) {
     // The auth scheme is case-insensitive (RFC 9110 section 11.1).

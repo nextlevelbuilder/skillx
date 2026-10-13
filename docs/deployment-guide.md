@@ -269,6 +269,50 @@ var to about `600`; uploads above roughly 580 distinct files are then refused.
 
 Stored R2 objects and release rows are immutable and stay in place.
 
+#### Release API activation runbook
+
+Run this supervised, by a maintainer, in order. Stop at the first failure.
+
+1. **Back up D1.** Record a Time Travel bookmark (and optionally export a dump):
+   ```bash
+   cd apps/web
+   wrangler d1 time-travel info skillx-db          # note the bookmark
+   wrangler d1 export skillx-db --remote --output=backup-$(date +%Y%m%d%H%M).sql
+   ```
+   Keep the dump outside the repository; it contains user data.
+2. **Apply migrations 0012 and 0013 remotely.** `0012_api_key_scopes` adds
+   `api_keys.scopes`; `0013_release_state_audit` adds the append-only
+   `release_state_audit` table and its two triggers. Both are additive.
+   ```bash
+   pnpm run db:migrate:remote
+   wrangler d1 execute skillx-db --remote \
+     --command "SELECT name FROM d1_migrations ORDER BY id DESC LIMIT 2"
+   ```
+   Confirm both names are listed.
+3. **Deploy** with the flag still `"0"`: `pnpm run deploy`. Check that
+   `GET /api/v1/packages/@agentkit/x/releases` answers `404`.
+4. **Enable.** Set `SKILLX_RELEASES_API` to `"1"` in `apps/web/wrangler.jsonc`
+   and deploy again.
+5. **Supervised smoke** with a throwaway skill of a test publisher:
+   - publish one release through `publish-release.yml` (or `skillx release`
+     with a scoped key) and expect `201` with the signed manifest;
+   - list, fetch the manifest, one file and the artifact; recompute the tree
+     digest locally and compare it with `releaseDigest`;
+   - yank it with the owner's account key
+     (`POST .../releases/<version>/state`,
+     `{"from":"published","to":"yanked","reason":"activation smoke"}`), then
+     replay the same body and expect `409 state_conflict`;
+   - confirm the audit rows:
+     `SELECT outcome, from_state, to_state FROM release_state_audit ORDER BY created_at DESC LIMIT 5`.
+   The smoke release stays yanked; nothing is deleted.
+
+**Rollback of 0013**: disable the flag and redeploy first (the state endpoint
+then answers 404), then run the rollback SQL in the header of
+`0013_release_state_audit.sql` (drops the triggers, index and table, clears
+the `d1_migrations` row). Dropping the table discards the audit trail; export
+it first. Restore from the Time Travel bookmark only when data, not only
+schema, must be reverted.
+
 ### Phase 4: Domain & SSL Setup
 
 ```bash

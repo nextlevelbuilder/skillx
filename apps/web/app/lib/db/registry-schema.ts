@@ -72,6 +72,26 @@ export const packageReleases = sqliteTable(
   ]
 );
 
+// Release and publisher state transitions: one row per attempt (applied, stale, denied or invalid).
+// Append-only: migration 0013 adds triggers that abort any UPDATE or DELETE. No foreign keys, so
+// the history outlives its subject.
+export const releaseStateAudit = sqliteTable(
+  "release_state_audit",
+  {
+    id: text("id").primaryKey(),
+    subject_kind: text("subject_kind").notNull(), // release | publisher
+    subject_id: text("subject_id").notNull(), // package_releases.id or publishers.id
+    actor_kind: text("actor_kind").notNull(), // admin | user
+    actor_id: text("actor_id").notNull(), // 'admin' (shared ADMIN_SECRET) or the user id
+    from_state: text("from_state").notNull(), // the state the actor expected (compare-and-set)
+    to_state: text("to_state").notNull(),
+    outcome: text("outcome").notNull(), // applied | stale | denied | invalid
+    reason: text("reason"),
+    created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("idx_release_state_audit_subject").on(table.subject_kind, table.subject_id, table.created_at)]
+);
+
 // Release verification evidence — binds a verified badge to an exact release digest.
 export const releaseVerificationEvidence = sqliteTable(
   "release_verification_evidence",

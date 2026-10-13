@@ -1,0 +1,3 @@
+# Reference 8
+
+Reference text for the regression fixture. Reference text for the regression fixture. Reference text for the regression fixture. Reference text for the regression fixture. Reference text for the regression fixture. Reference text for the regression fixture. Reference text for the regression fixture. Reference text for the regression fixture. Reference text for the regression fixture. 
