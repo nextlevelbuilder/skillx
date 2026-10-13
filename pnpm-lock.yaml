@@ -20,6 +20,9 @@ importers:
       '@skillx/skill-identity':
         specifier: workspace:*
         version: link:../../packages/skill-identity
+      '@skillx/skill-tree':
+        specifier: workspace:*
+        version: link:../../packages/skill-tree
       better-auth:
         specifier: ^1.2.0
         version: 1.4.18(drizzle-kit@0.31.9)(drizzle-orm@0.41.0(@cloudflare/workers-types@4.20260210.0)(gel@2.2.0)(kysely@0.28.11))(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(vitest@4.0.18(@types/node@22.19.10)(jiti@2.6.1)(lightningcss@1.30.2)(yaml@2.9.1))
@@ -100,6 +103,9 @@ importers:
         specifier: ^8.1.0
         version: 8.2.0
     devDependencies:
+      '@skillx/skill-tree':
+        specifier: workspace:*
+        version: link:../skill-tree
       '@types/node':
         specifier: ^22.0.0
         version: 22.19.10

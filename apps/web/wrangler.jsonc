@@ -38,6 +38,9 @@
     "binding": "AI"
   },
   "vars": {
-    "ENVIRONMENT": "production"
+    "ENVIRONMENT": "production",
+    // Release publish API (POST /api/v1/packages/@handle/slug/releases). "0" = off (404).
+    // Turning it on also needs the secrets SKILLX_REGISTRY_SIGNING_KEY and SKILLX_REGISTRY_SIGNING_KEY_ID.
+    "SKILLX_RELEASES_API": "0"
   }
 }

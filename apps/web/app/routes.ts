@@ -25,5 +25,6 @@ export default [
   route("api/report", "routes/api.usage-report.ts"),
   route("api/user/api-keys", "routes/api.user-api-keys.ts"),
   route("api/user/interactions", "routes/api.user-interactions.ts"),
+  route("api/v1/packages/:scope/:slug/releases", "routes/api.v1.release-publish.ts"),
   route("*", "routes/$.tsx"),
 ] satisfies RouteConfig;

@@ -8,6 +8,11 @@ declare global {
     BETTER_AUTH_SECRET: string;
     ADMIN_SECRET: string;
     TURNSTILE_SECRET: string;
+    // SKILLX_RELEASES_API (release API flag, "1"/"true" = on) is typed from wrangler.jsonc vars.
+    /** Registry Ed25519 signing key, base64 PKCS #8 DER. Secret; never logged or returned. */
+    SKILLX_REGISTRY_SIGNING_KEY?: string;
+    /** Published ID of the registry signing key. */
+    SKILLX_REGISTRY_SIGNING_KEY_ID?: string;
   }
 }
 
