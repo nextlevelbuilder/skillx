@@ -27,7 +27,8 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       const [foundKey] = await db
         .select()
         .from(apiKeys)
-        .where(and(eq(apiKeys.key_prefix, prefix), isNull(apiKeys.revoked_at)))
+        // Scoped keys never act as full-account keys.
+        .where(and(eq(apiKeys.key_prefix, prefix), isNull(apiKeys.revoked_at), isNull(apiKeys.scopes)))
         .limit(1);
 
       if (foundKey) {

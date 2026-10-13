@@ -28,7 +28,8 @@ export async function authenticateRequest(
     const [foundKey] = await db
       .select()
       .from(apiKeys)
-      .where(and(eq(apiKeys.key_prefix, prefix), isNull(apiKeys.revoked_at)))
+      // Scoped keys (scopes NOT NULL) grant only their scopes, never this full-account access.
+      .where(and(eq(apiKeys.key_prefix, prefix), isNull(apiKeys.revoked_at), isNull(apiKeys.scopes)))
       .limit(1);
 
     if (foundKey) {

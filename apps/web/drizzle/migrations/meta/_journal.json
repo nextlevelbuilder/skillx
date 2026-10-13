@@ -85,6 +85,13 @@
       "when": 1791866720909,
       "tag": "0011_release_tree_digest",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1791898098113,
+      "tag": "0012_api_key_scopes",
+      "breakpoints": true
     }
   ]
 }

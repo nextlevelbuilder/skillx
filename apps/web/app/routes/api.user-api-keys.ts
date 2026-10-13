@@ -1,9 +1,11 @@
 import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
 import { getDb } from "~/lib/db";
 import { apiKeys } from "~/lib/db/schema";
+import { publishers } from "~/lib/db/registry-schema";
 import { eq, isNull, and } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
 import { generateApiKey } from "~/lib/auth/api-key-utils";
+import { normalizeRequestedScopes, parseStoredScopes } from "~/lib/auth/api-key-scopes";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   try {
@@ -24,6 +26,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
         key_prefix: apiKeys.key_prefix,
         last_used_at: apiKeys.last_used_at,
         created_at: apiKeys.created_at,
+        scopes: apiKeys.scopes,
       })
       .from(apiKeys)
       .where(
@@ -37,6 +40,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     // Mask keys - show prefix + "..." for security
     const maskedKeys = userKeys.map((key) => ({
       ...key,
+      scopes: parseStoredScopes(key.scopes),
       key_masked: `${key.key_prefix}...`,
     }));
 
@@ -73,6 +77,28 @@ export async function action({ request, context }: ActionFunctionArgs) {
         );
       }
 
+      // Optional scopes make a scoped key (e.g. CI release publishing), which legacy endpoints reject.
+      let scopes: string[] | null = null;
+      if (body.scopes !== undefined) {
+        let requested: { scopes: string[]; handles: string[] };
+        try {
+          requested = normalizeRequestedScopes(body.scopes);
+        } catch (error) {
+          return Response.json({ error: error instanceof Error ? error.message : "Invalid scopes" }, { status: 400 });
+        }
+        for (const handle of requested.handles) {
+          const [owned] = await db
+            .select({ id: publishers.id })
+            .from(publishers)
+            .where(and(eq(publishers.handle, handle), eq(publishers.owner_user_id, session.user.id), eq(publishers.state, "active")))
+            .limit(1);
+          if (!owned) {
+            return Response.json({ error: `You do not own an active publisher @${handle}` }, { status: 403 });
+          }
+        }
+        scopes = requested.scopes;
+      }
+
       const { plaintext, hash, prefix } = await generateApiKey();
       const keyId = `key-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
       const now = new Date();
@@ -86,12 +112,14 @@ export async function action({ request, context }: ActionFunctionArgs) {
         created_at: now,
         last_used_at: null,
         revoked_at: null,
+        scopes: scopes === null ? null : JSON.stringify(scopes),
       });
 
       // Return plaintext key ONCE (never stored)
       return Response.json({
         success: true,
         key: plaintext,
+        scopes,
         message: "Save this key securely. It will not be shown again.",
       });
     } else if (method === "DELETE") {

@@ -245,6 +245,8 @@ export const apiKeys = sqliteTable(
     last_used_at: integer("last_used_at", { mode: "timestamp_ms" }),
     revoked_at: integer("revoked_at", { mode: "timestamp_ms" }),
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+    // NULL = legacy full-account key. JSON array of scopes = scoped key (see lib/auth/api-key-scopes.ts).
+    scopes: text("scopes"),
   },
   (table) => [
     index("idx_api_keys_user").on(table.user_id),

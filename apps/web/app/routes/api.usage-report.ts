@@ -29,7 +29,9 @@ export async function action({ request, context }: ActionFunctionArgs) {
       .where(
         and(
           eq(apiKeys.key_prefix, prefix),
-          isNull(apiKeys.revoked_at)
+          isNull(apiKeys.revoked_at),
+          // Scoped keys never act as full-account keys.
+          isNull(apiKeys.scopes)
         )
       )
       .limit(1);
