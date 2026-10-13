@@ -1190,13 +1190,20 @@ API viewer: `Authorization: Bearer sx_...` with an unscoped account key, or
 the web session. Scoped `releases:publish:@handle` keys are publish-only and
 answer `401 invalid_api_key`, so a leaked CI publish key cannot yank.
 
+**Rate limit**: once the actor is known, every request (admin included, as
+the single caller `user:admin`) counts against `RELEASE_READ_LIMITER`, the
+same 300 per 60 seconds per caller as the read API, before any D1 write. A
+limited request answers `429 rate_limited` with `Retry-After` and writes no
+audit row, so the append-only audit cannot be flooded.
+
 **Compare-and-set**: the change applies only while the row is still in
 `from`; otherwise `409 state_conflict` (re-read and retry). Two concurrent
 changes from the same state (for example a yank and a quarantine) produce
 exactly one winner; the other gets `409`.
 
-**Release transitions** follow the signed status graph exactly, so every
-history can later be issued as `skillx.release-status/v1` documents:
+**Release transitions**: every applied (audited) edge is an edge of the
+signed status graph, so every history can later be issued as
+`skillx.release-status/v1` documents:
 
 | From | To | Owner | Admin |
 |------|----|-------|-------|
@@ -1205,12 +1212,34 @@ history can later be issued as `skillx.release-status/v1` documents:
 | `published` | `quarantined` | no | yes |
 | `quarantined` | `yanked` (lifts a quarantine) | no | yes |
 | `yanked` | `published` | no | yes |
+| `yanked` | `quarantined` (containment composite, below) | no | yes |
 
-Lifting a quarantine is two steps (`quarantined` to `yanked` to `published`);
-`yanked` to `quarantined` is not an edge of the contract graph, and nothing
-returns to `draft`. Any other pair, or `from` equal to `to`, is `422
-transition.invalid`. An owner of a `suspended` or `revoked` publisher gets
-`403 publisher_revoked`.
+Lifting a quarantine is two steps (`quarantined` to `yanked` to `published`),
+and nothing returns to `draft`. Any other pair, or `from` equal to `to`, is
+`422 transition.invalid`. Checks run in this order for an owner: ownership,
+then publisher standing (an owner of a `suspended` or `revoked` publisher
+gets `403 publisher_revoked`, whatever the pair), then the pair, then
+admin-only edges. The publisher standing is checked again inside the
+compare-and-set batch, so a suspension that lands mid-request still refuses
+the change (`403 publisher_revoked`, audited `denied`).
+
+**Containing a yanked release**: `yanked` to `quarantined` is not an edge of
+the v1 contract graph, but a yanked release is still served by digest to
+existing lockfiles, so an admin must be able to contain it. The server applies
+the path `yanked` to `published` to `quarantined` in one atomic D1 batch,
+under the same compare-and-set on `yanked`, and writes one `applied` audit row
+per edge (both, or none; a lost race leaves one `stale` row of the requested
+pair). No reader ever sees it `published`; the response reports
+`"from": "yanked", "to": "quarantined"`. Owners get `403
+transition.admin_only`. A future status issuer must advance the signed
+`sequence` by 2 for this change (the v1 rule accepts a state reachable in at
+most the sequence gap). Do not reproduce it as two separate requests: between
+them the version is installable.
+
+**Several quarantined releases of one tree**: quarantine judges the bytes, so
+every read of a tree digest is `403 release_quarantined` while any release
+with that digest, in any package, is quarantined. Lifting one of them leaves
+the tree blocked until all are lifted.
 
 **Publisher transitions** (admin only): `active` to `suspended`, `suspended`
 to `active` (reinstate) or `revoked`; `revoked` is final. A suspended or
@@ -1224,7 +1253,8 @@ manifests never change, and the version still cannot receive another tree
 (`409 release.version_exists` on upload). Nothing is deleted.
 
 **Audit**: every attempt by an authenticated actor on an existing release or
-publisher writes one `release_state_audit` row (actor kind and id, expected
+publisher that passes the rate limit writes one `release_state_audit` row
+(two for an applied containment composite; actor kind and id, expected
 `from`, `to`, outcome `applied`, `stale`, `denied` or `invalid`, reason,
 time), in the same D1 batch as the change, so a lost compare-and-set is
 recorded too. The admin actor id is `admin` (the shared secret carries no
@@ -1263,6 +1293,7 @@ The publisher route answers `{"handle", "from", "to", "state", "changedAt"}`.
 | 413 | `request_too_large` |
 | 415 | `unsupported_media_type` |
 | 422 | `transition.invalid`, `release.incomplete` |
+| 429 | `rate_limited` (with `Retry-After`) |
 | 500 | `release.internal_error` |
 
 ### Database table (migration `0013_release_state_audit`)

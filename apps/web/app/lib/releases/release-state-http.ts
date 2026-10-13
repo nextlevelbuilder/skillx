@@ -10,12 +10,15 @@
  * a fall back), else the viewer of the read API: an unscoped account API key
  * or the web session. Scoped `releases:publish:@handle` keys are publish-only
  * credentials and are refused here (401), so a leaked CI key cannot yank.
+ * Every actor is then counted against `RELEASE_READ_LIMITER` before any D1
+ * write; a limited request is 429 and leaves no audit row.
  * Every answer is `no-store`.
  */
 import { RELEASE_STATES, RELEASE_STATUS_REASON_MAX_BYTES, isReleaseState } from "@skillx/contracts";
 import { parsePackageIdentity, parseReleaseVersion } from "./release-access";
 import { ReleaseHttpError, errorResponse, notFoundResponse, releaseError } from "./release-http";
 import { releasesApiEnabled } from "./release-limits";
+import { checkReleaseRateLimit, rateLimitCaller } from "./release-rate-limit";
 import { resolveViewer } from "./release-read";
 import { PUBLISHER_STATES, transitionPublisher, transitionRelease } from "./release-transitions";
 import type { PublisherState, TransitionActor } from "./release-transitions";
@@ -131,6 +134,34 @@ export const methodNotAllowed = () =>
 
 type Params = Record<string, string | undefined>;
 
+/** 429 with the same body and `Retry-After` as the read routes. */
+class RateLimitedError extends ReleaseHttpError {
+  readonly retryAfterSeconds: number;
+
+  constructor(retryAfterSeconds: number) {
+    super(429, "rate_limited", `too many requests; retry after ${retryAfterSeconds} seconds`);
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+/**
+ * Resolves the actor and counts the request against the release API rate
+ * limit (admin included, keyed `user:admin`). It runs before any D1 write,
+ * so a limited request leaves no audit row: the append-only audit cannot be
+ * flooded faster than the limit allows.
+ */
+async function resolveLimitedActor(request: Request, env: ReleaseStateEnv): Promise<TransitionActor> {
+  const actor = await resolveActor(request, env);
+  const decision = await checkReleaseRateLimit(env.RELEASE_READ_LIMITER, rateLimitCaller(request, actor.id));
+  if (!decision.allowed) throw new RateLimitedError(decision.retryAfterSeconds);
+  return actor;
+}
+
+function failureHeaders(error: ReleaseHttpError): Record<string, string> {
+  if (error instanceof RateLimitedError) return { "Retry-After": String(error.retryAfterSeconds) };
+  return error.status === 401 ? { "WWW-Authenticate": "Bearer" } : {};
+}
+
 /** Serves one transition request; `params.handle` selects the publisher route. */
 export async function serveStateChange(request: Request, env: ReleaseStateEnv, params: Params, now: () => Date = () => new Date()): Promise<Response> {
   if (!releasesApiEnabled(env)) return notFoundResponse();
@@ -139,19 +170,17 @@ export async function serveStateChange(request: Request, env: ReleaseStateEnv, p
   try {
     if (params.handle !== undefined) {
       const handle = parsePublisherHandle(params.handle);
-      const actor = await resolveActor(request, env);
+      const actor = await resolveLimitedActor(request, env);
       const change = await readStateChange(request, isPublisherState, PUBLISHER_STATES);
       return ok(await transitionPublisher(env.DB, handle, { ...change, actor, now: now() }));
     }
     const identity = parsePackageIdentity(params.scope, params.slug);
     const version = parseReleaseVersion(params.version);
-    const actor = await resolveActor(request, env);
+    const actor = await resolveLimitedActor(request, env);
     const change = await readStateChange(request, isReleaseState, RELEASE_STATES);
     return ok(await transitionRelease(env.DB, identity, version, { ...change, actor, now: now() }));
   } catch (error) {
-    if (error instanceof ReleaseHttpError) {
-      return errorResponse(error, error.status === 401 ? { "WWW-Authenticate": "Bearer" } : {});
-    }
+    if (error instanceof ReleaseHttpError) return errorResponse(error, failureHeaders(error));
     console.error("release state change failed:", error instanceof Error ? error.message : String(error));
     return errorResponse(releaseError(500, "release.internal_error", "release state change failed"));
   }

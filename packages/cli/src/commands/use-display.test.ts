@@ -46,6 +46,10 @@ describe('discoveryOnlyNotice', () => {
     expect(discoveryOnlyNotice()).toBeNull();
     expect(discoveryOnlyNotice([], [])).toBeNull();
   });
+
+  it('drops the label once a published release exists', () => {
+    expect(discoveryOnlyNotice(refs, scripts, true)).toBeNull();
+  });
 });
 
 describe('displaySkill discovery-only label', () => {
@@ -58,6 +62,11 @@ describe('displaySkill discovery-only label', () => {
     displaySkill(skill, 'demo', { raw: true }, refs, scripts);
     expect(err.join('\n')).toContain('Discovery-only');
     expect(out.join('\n')).not.toContain('Discovery-only');
+  });
+
+  it('prints no label when a published release exists', () => {
+    displaySkill(skill, 'demo', { raw: false }, refs, scripts, true);
+    expect([...out, ...err].join('\n')).not.toContain('Discovery-only');
   });
 
   it('prints no label for a single-file listing', () => {

@@ -3,9 +3,8 @@
  * compare-and-set: the caller names the state it expects (`from`), and the
  * change applies only while the row is still in it; otherwise `409
  * state_conflict`. Every attempt by an authenticated actor on an existing
- * subject leaves one append-only `release_state_audit` row (`applied`,
- * `stale`, `denied` or `invalid`), written in the same D1 batch as the change
- * itself, so the audit and the state never disagree. Nothing is deleted.
+ * subject is audited in `release_state_audit` (`applied`, `stale`, `denied`
+ * or `invalid`; see `release-state-cas.ts`). Nothing is deleted.
  *
  * Only `release_state`/`publishers.state` and the matching `*_at` timestamp
  * change. Bytes, digests, keys and manifests are never touched, so a yanked or
@@ -14,14 +13,23 @@
  * Release edges are exactly the `skillx.release-status/v1` graph
  * (`RELEASE_STATE_TRANSITIONS`, repeats excluded), so every state history this
  * API creates can later be issued as signed statuses. Lifting a quarantine is
- * therefore two steps (`quarantined` -> `yanked` -> `published`). Package
- * owners may take `draft -> published` and `published -> yanked`; every other
- * edge, and every publisher transition, is admin-only.
+ * therefore two steps (`quarantined` -> `yanked` -> `published`). The one
+ * composite is containment: an admin may quarantine a yanked release, which
+ * applies `yanked` -> `published` -> `quarantined` in one atomic batch with
+ * one audit row per edge, so the release is never observable as `published`.
+ * A status issuer must advance the signed `sequence` by 2 for it (the v1 rule
+ * accepts a state reachable in at most the sequence gap).
+ *
+ * Package owners may take `draft -> published` and `published -> yanked`;
+ * every other edge, the containment composite and every publisher
+ * transition are admin-only.
  */
 import { RELEASE_STATE_TRANSITIONS } from "@skillx/contracts";
 import type { ReleaseState } from "@skillx/contracts";
 import { notFound } from "./release-access";
 import { releaseError } from "./release-http";
+import { compareAndSet, recordAttempt } from "./release-state-cas";
+import type { Attempt, CasGuard, CasOutcome, SubjectKind } from "./release-state-cas";
 
 export const PUBLISHER_STATES = ["active", "suspended", "revoked"] as const;
 export type PublisherState = (typeof PUBLISHER_STATES)[number];
@@ -35,6 +43,11 @@ export const PUBLISHER_STATE_TRANSITIONS: Readonly<Record<PublisherState, readon
 
 /** Release edges a package owner may take; every other edge is admin-only. */
 const OWNER_RELEASE_EDGES: ReadonlySet<string> = new Set(["draft>published", "published>yanked"]);
+
+/** Admin-only requests applied as several v1 edges in one atomic batch, keyed `from>to`. */
+const COMPOSITE_RELEASE_PATHS: Readonly<Record<string, readonly ReleaseState[]>> = {
+  "yanked>quarantined": ["yanked", "published", "quarantined"],
+};
 
 /** `admin` is the shared `ADMIN_SECRET` (no individual identity); `user` is a session or account API key. */
 export type TransitionActor = { kind: "admin"; id: "admin" } | { kind: "user"; id: string };
@@ -63,21 +76,6 @@ export interface PublisherTransitionResult {
   changedAt: string;
 }
 
-type SubjectKind = "release" | "publisher";
-type AttemptOutcome = "denied" | "invalid";
-
-interface Attempt {
-  kind: SubjectKind;
-  subjectId: string;
-  input: TransitionInput<string>;
-}
-
-/** Fixed table and column of each subject kind; never built from input. */
-const TARGETS = {
-  release: { table: "package_releases", column: "release_state" },
-  publisher: { table: "publishers", column: "state" },
-} as const;
-
 /** The timestamp a release state records on entry (`published_at` keeps the first publication). */
 const RELEASE_ENTRY_TIMESTAMP: Partial<Record<ReleaseState, string>> = {
   published: ", published_at = COALESCE(published_at, ?)",
@@ -85,48 +83,14 @@ const RELEASE_ENTRY_TIMESTAMP: Partial<Record<ReleaseState, string>> = {
   quarantined: ", quarantined_at = ?",
 };
 
-const AUDIT_COLUMNS = "id, subject_kind, subject_id, actor_kind, actor_id, from_state, to_state, outcome, reason, created_at";
+/** Re-checked inside the batch for owners, so a suspension landing after the pre-check still refuses the change. */
+const ACTIVE_PUBLISHER_GUARD = `EXISTS (SELECT 1 FROM package_releases gr JOIN packages gp ON gp.id = gr.package_id
+  JOIN publishers gpub ON gpub.id = gp.publisher_id WHERE gr.id = ? AND gpub.state = 'active')`;
 
-function auditValues({ kind, subjectId, input }: Attempt): unknown[] {
-  return [kind, subjectId, input.actor.kind, input.actor.id, input.from, input.to];
-}
+const publisherInactive = () => releaseError(403, "publisher_revoked", "the publisher of this package is suspended or revoked");
 
-/** Records an attempt that never reached the compare-and-set. */
-async function recordAttempt(db: D1Database, attempt: Attempt, outcome: AttemptOutcome): Promise<void> {
-  await db
-    .prepare(`INSERT INTO release_state_audit (${AUDIT_COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-    .bind(`rsa_${crypto.randomUUID()}`, ...auditValues(attempt), outcome, attempt.input.reason, attempt.input.now.getTime())
-    .run();
-}
-
-/**
- * One atomic batch: the audit row decides `applied` or `stale` from the
- * current state, and the update applies only when that row says `applied`.
- * D1 runs a batch as one transaction, so no other write lands in between.
- */
-async function compareAndSet(db: D1Database, attempt: Attempt, extraSet = "", extraBinds: unknown[] = []): Promise<boolean> {
-  const { table, column } = TARGETS[attempt.kind];
-  const auditId = `rsa_${crypto.randomUUID()}`;
-  const { input, subjectId } = attempt;
-  const record = db
-    .prepare(
-      `INSERT INTO release_state_audit (${AUDIT_COLUMNS})
-       SELECT ?, ?, ?, ?, ?, ?, ?,
-              CASE WHEN EXISTS (SELECT 1 FROM ${table} WHERE id = ? AND ${column} = ?) THEN 'applied' ELSE 'stale' END, ?, ?`,
-    )
-    .bind(auditId, ...auditValues(attempt), subjectId, input.from, input.reason, input.now.getTime());
-  const update = db
-    .prepare(
-      `UPDATE ${table} SET ${column} = ?${extraSet}
-        WHERE id = ? AND ${column} = ?
-          AND EXISTS (SELECT 1 FROM release_state_audit WHERE id = ? AND outcome = 'applied')`,
-    )
-    .bind(input.to, ...extraBinds, subjectId, input.from, auditId);
-  const results = await db.batch([record, update]);
-  return (results[1]?.meta.changes ?? 0) === 1;
-}
-
-function staleState(kind: SubjectKind, from: string): never {
+function failedChange(kind: SubjectKind, from: string, outcome: Exclude<CasOutcome, "applied">): never {
+  if (outcome === "denied") throw publisherInactive();
   throw releaseError(409, "state_conflict", `the ${kind} is no longer ${from}; read its current state and retry`);
 }
 
@@ -169,21 +133,20 @@ export async function transitionRelease(
   if (subject === null) throw notFound();
   const attempt: Attempt = { kind: "release", subjectId: subject.id, input };
   const { from, to, actor } = input;
+  const edge = `${from}>${to}`;
+  const composite = COMPOSITE_RELEASE_PATHS[edge];
 
+  // Authorization first: ownership, then the publisher's standing, then the graph.
   if (actor.kind !== "admin") {
     if (subject.owner_user_id === null || subject.owner_user_id !== actor.id) {
       // A private package stays indistinguishable from an unknown one.
       await denied(db, attempt, subject.visibility === "public" ? releaseError(403, "transition.not_owner", `only the owner of ${identity} or an admin may change its state`) : notFound());
     }
+    if (subject.publisher_state !== "active") await denied(db, attempt, publisherInactive());
   }
-  if (from === to || !RELEASE_STATE_TRANSITIONS[from].includes(to)) await invalidTransition(db, attempt);
-  if (actor.kind !== "admin") {
-    if (subject.publisher_state !== "active") {
-      await denied(db, attempt, releaseError(403, "publisher_revoked", "the publisher of this package is suspended or revoked"));
-    }
-    if (!OWNER_RELEASE_EDGES.has(`${from}>${to}`)) {
-      await denied(db, attempt, releaseError(403, "transition.admin_only", `only an admin may move a release from ${from} to ${to}`));
-    }
+  if (from === to || (composite === undefined && !RELEASE_STATE_TRANSITIONS[from].includes(to))) await invalidTransition(db, attempt);
+  if (actor.kind !== "admin" && !OWNER_RELEASE_EDGES.has(edge)) {
+    await denied(db, attempt, releaseError(403, "transition.admin_only", `only an admin may move a release from ${from} to ${to}`));
   }
   if (to === "published" && (subject.release_digest === null || subject.signed_manifest_key === null)) {
     await recordAttempt(db, attempt, "invalid");
@@ -191,8 +154,14 @@ export async function transitionRelease(
   }
 
   const timestamp = RELEASE_ENTRY_TIMESTAMP[to];
-  const applied = await compareAndSet(db, attempt, timestamp ?? "", timestamp === undefined ? [] : [input.now.getTime()]);
-  if (!applied) staleState("release", from);
+  const guard: CasGuard | undefined = actor.kind === "admin" ? undefined : { sql: ACTIVE_PUBLISHER_GUARD, binds: [subject.id] };
+  const outcome = await compareAndSet(db, attempt, {
+    path: composite,
+    extraSet: timestamp,
+    extraBinds: timestamp === undefined ? [] : [input.now.getTime()],
+    guard,
+  });
+  if (outcome !== "applied") failedChange("release", from, outcome);
   return { identity, version, releaseDigest: subject.release_digest, from, to, changedAt: input.now.toISOString() };
 }
 
@@ -210,6 +179,7 @@ export async function transitionPublisher(
     await denied(db, attempt, releaseError(403, "transition.admin_only", "only an admin may change a publisher's state"));
   }
   if (!PUBLISHER_STATE_TRANSITIONS[from].includes(to)) await invalidTransition(db, attempt);
-  if (!(await compareAndSet(db, attempt))) staleState("publisher", from);
+  const outcome = await compareAndSet(db, attempt);
+  if (outcome !== "applied") failedChange("publisher", from, outcome);
   return { handle, from, to, changedAt: input.now.toISOString() };
 }

@@ -612,17 +612,29 @@ POST .../releases/:version/state, /publishers/@h/state ── compare-and-set + 
   `active→suspended→revoked` (or reinstate), is admin (`ADMIN_SECRET`). Scoped
   publish keys cannot change state. Each change is a compare-and-set on the
   expected state (`409` when stale), written in one D1 batch with its audit
-  row in the append-only `release_state_audit` table (migration 0013), which
-  records every attempt, including lost races and denials. Signed status
-  issuance on transition is a follow-up.
+  rows in the append-only `release_state_audit` table (migration 0013), which
+  records every attempt, including lost races and denials
+  (`app/lib/releases/release-state-cas.ts`). An admin may contain a yanked
+  release: `yanked→published→quarantined` runs as one batch with one audit
+  row per edge, never observable as `published`. Owners' publisher standing
+  is re-checked inside the batch. Requests are rate limited by
+  `RELEASE_READ_LIMITER` before any D1 write. Signed status issuance on
+  transition is a follow-up (the containment composite must advance the
+  status `sequence` by 2).
 - **Legacy listings**: `skillx use` labels a multi-file legacy listing
   (references or scripts) as discovery-only, because only SKILL.md text is
-  delivered there; pinned releases carry the whole tree.
+  delivered there; pinned releases carry the whole tree. The label is dropped
+  when the release list of the candidate package (`@author/skill`, or
+  `@org/leaf` for `org/repo/.../leaf`) has a `published` release; any lookup
+  failure keeps it. The register fallback reads references and scripts from
+  the detail endpoint so first contact is labelled too.
 - **Verification**: `apps/web/tests/e2e/releases-full-tree.test.ts` packs a
   94-file nested fixture from git, publishes it, reads every file back and
-  recomputes the tree digest against the signed manifest, with a
-  child-process spy proving no fixture script runs. It drives the Worker
-  route modules over the in-process D1/R2 test fakes, not `wrangler dev`.
+  recomputes the tree digest against the signed manifest. Non-execution is
+  asserted with marker files the fixture scripts write if run, plus a
+  positive control that runs one script and sees its marker. It drives the
+  Worker route modules over the in-process D1/R2 test fakes, not
+  `wrangler dev`.
 
 ## Deployment Architecture
 

@@ -48,11 +48,12 @@ function stripAnsi(str: string): string {
  * A legacy listing with references or scripts describes a multi-file skill,
  * but it only carries SKILL.md text plus links: the other files are not
  * delivered or pinned. Until the publisher ships a release, such a listing is
- * discovery-only. Returns null for a single-file listing.
+ * discovery-only. Returns null for a single-file listing, and once a
+ * published release exists (`releaseExists`).
  */
-export function discoveryOnlyNotice(references?: SkillReference[], scripts?: SkillScript[]): string | null {
+export function discoveryOnlyNotice(references?: SkillReference[], scripts?: SkillScript[], releaseExists = false): string | null {
   const extra = (references?.length ?? 0) + (scripts?.length ?? 0);
-  if (extra === 0) return null;
+  if (extra === 0 || releaseExists) return null;
   return (
     `Discovery-only: legacy listing of a multi-file skill (${extra} more file${extra === 1 ? '' : 's'} listed as links). ` +
     'Only SKILL.md is shown; the other files are not installed or pinned. Install a pinned release once the publisher ships one.'
@@ -66,9 +67,10 @@ export function displaySkill(
   options: DisplayOptions,
   references?: SkillReference[],
   scripts?: SkillScript[],
+  releaseExists = false,
 ): void {
   trackInstall(skill.slug);
-  const notice = discoveryOnlyNotice(references, scripts);
+  const notice = discoveryOnlyNotice(references, scripts, releaseExists);
 
   if (options.raw) {
     // stderr keeps piped raw content unchanged.

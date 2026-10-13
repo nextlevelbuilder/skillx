@@ -1,10 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { createHash } from "node:crypto";
-import { action as stateAction, loader as stateLoader } from "~/routes/api.v1.release-state";
 import { loader as manifestLoader } from "~/routes/api.v1.release-manifest";
 import { loader as artifactLoader } from "~/routes/api.v1.release-artifact";
-import { FakeRateLimiter } from "./fake-rate-limiter";
-import { createHarness, file, tarOf } from "./release-harness";
+import { file, tarOf } from "./release-harness";
+import {
+  ADMIN,
+  audit,
+  change,
+  changePublisher,
+  expectError,
+  holdBatches,
+  immutableSnapshot,
+  publish,
+  read,
+  skillFiles,
+  sql,
+  stateOf,
+  useStateHarness,
+} from "./release-state-helpers";
+import type { Harness } from "./release-state-helpers";
 
 /** The web session is the only part of authentication that is faked; API keys run the real lookup. */
 const session = vi.hoisted(() => ({ user: null as { id: string } | null }));
@@ -12,93 +25,16 @@ vi.mock("~/lib/auth/session-helpers", () => ({
   getSession: async () => (session.user === null ? null : { user: session.user }),
 }));
 
-type Harness = Awaited<ReturnType<typeof createHarness>>;
-const ADMIN = "test-admin-secret-0123456789";
-const sha = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
-
 let h: Harness;
 let ownerKey: string;
 let otherKey: string;
 
 beforeEach(async () => {
-  h = await createHarness();
+  h = await useStateHarness();
   session.user = null;
   ownerKey = await h.createKey("user-a", null);
   otherKey = await h.createKey("user-b", null);
 });
-
-interface ChangeOptions {
-  key?: string;
-  admin?: string;
-  env?: Record<string, unknown>;
-  headers?: Record<string, string>;
-  method?: string;
-  rawBody?: string;
-}
-
-const envOf = (extra: Record<string, unknown> = {}) => ({
-  SKILLX_RELEASES_API: "1",
-  DB: h.deps.db,
-  R2: h.deps.bucket,
-  ADMIN_SECRET: ADMIN,
-  RELEASE_READ_LIMITER: new FakeRateLimiter(10_000),
-  ...extra,
-});
-
-function stateRequest(path: string, body: unknown, o: ChangeOptions): Request {
-  const headers = new Headers({ "Content-Type": "application/json", ...o.headers });
-  if (o.key !== undefined) headers.set("Authorization", `Bearer ${o.key}`);
-  if (o.admin !== undefined) headers.set("X-Admin-Secret", o.admin);
-  const method = o.method ?? "POST";
-  const payload = method === "GET" ? undefined : (o.rawBody ?? JSON.stringify(body));
-  return new Request(`https://skillx.test${path}`, { method, headers, body: payload });
-}
-
-async function change(name: string, version: string, body: unknown, o: ChangeOptions = {}) {
-  const [scope, slug] = name.split("/") as [string, string];
-  const request = stateRequest(`/api/v1/packages/${name}/releases/${version}/state`, body, o);
-  const args = { request, params: { scope, slug, version }, context: { cloudflare: { env: envOf(o.env) } } } as never;
-  const res = o.method === "GET" ? await stateLoader(args) : await stateAction(args);
-  return { status: res.status, headers: res.headers, body: (await res.json()) as Record<string, any> };
-}
-
-async function changePublisher(handle: string, body: unknown, o: ChangeOptions = {}) {
-  const request = stateRequest(`/api/v1/publishers/${handle}/state`, body, o);
-  const res = await stateAction({ request, params: { handle }, context: { cloudflare: { env: envOf(o.env) } } } as never);
-  return { status: res.status, body: (await res.json()) as Record<string, any> };
-}
-
-const read = (loader: typeof manifestLoader, path: string, params: Record<string, string>) =>
-  loader({ request: new Request(`https://skillx.test${path}`), params, context: { cloudflare: { env: envOf() } } } as never);
-
-const skillFiles = () => [file("SKILL.md", "---\nname: demo\ndescription: Demo\n---\n# Demo\n"), file("scripts/run.sh", "#!/bin/sh\necho hi\n", "100755")];
-
-async function publish(name = "@alpha/demo", version = "1.0.0", files = skillFiles()) {
-  const res = await h.upload(name, tarOf(files), { version });
-  expect(res.status).toBe(200);
-  return res.body.releaseDigest as string;
-}
-
-const stateOf = (version: string, name = "@alpha/demo") =>
-  (h.d1.raw.prepare("SELECT r.release_state AS s FROM package_releases r JOIN packages p ON p.id = r.package_id WHERE p.name = ? AND r.version = ?").get(name, version) as { s: string }).s;
-const audit = () =>
-  h.d1.raw.prepare("SELECT subject_kind, actor_kind, actor_id, from_state, to_state, outcome, reason FROM release_state_audit ORDER BY rowid").all() as Array<Record<string, unknown>>;
-const sql = (statement: string, ...params: Array<string | number | null>) => h.d1.raw.prepare(statement).run(...params);
-
-/** Everything a transition must never change: release identity columns and every stored object. */
-function immutableSnapshot() {
-  return {
-    rows: h.d1.raw
-      .prepare("SELECT id, version, release_digest, artifact_key, artifact_digest, artifact_size, signed_manifest_key, file_count, tree_size, created_at FROM package_releases ORDER BY id")
-      .all(),
-    objects: [...h.r2.objects.entries()].map(([key, value]) => [key, sha(value.bytes)]).sort(),
-  };
-}
-
-function expectError(res: { status: number; body: Record<string, any> }, status: number, code: string) {
-  expect(res.status).toBe(status);
-  expect(res.body).toEqual({ error: { code, message: expect.any(String) } });
-}
 
 describe("release state: owner and admin transitions", () => {
   it("lets the owner yank with an account key, audits it, and never touches bytes or digests", async () => {
@@ -223,7 +159,7 @@ describe("release state: negative cases", () => {
   it.each([
     ["published", "draft"],
     ["quarantined", "published"],
-    ["yanked", "quarantined"],
+    ["draft", "yanked"],
     ["published", "published"],
   ])("answers 422 transition.invalid for %s -> %s, even for an admin", async (from, to) => {
     await publish();
@@ -289,19 +225,6 @@ describe("release state: negative cases", () => {
 });
 
 describe("release state: concurrent yank and quarantine", () => {
-  /** Parks D1 batches until `count` are waiting, so both requests pass every check before either writes. */
-  function holdBatches(count: number) {
-    const original = h.d1.batch.bind(h.d1);
-    const waiting: Array<() => void> = [];
-    h.d1.batch = async (statements: Parameters<typeof original>[0]) => {
-      await new Promise<void>((resolve) => {
-        waiting.push(resolve);
-        if (waiting.length >= count) for (const resume of waiting.splice(0)) resume();
-      });
-      return original(statements);
-    };
-  }
-
   it("lets exactly one compare-and-set win, and audits both attempts", async () => {
     const digest = await publish();
     const before = immutableSnapshot();

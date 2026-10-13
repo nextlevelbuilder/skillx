@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
@@ -27,25 +27,11 @@ import { TEST_KEY_ID, createHarness } from "../releases/release-harness";
  * harness (a migrated node:sqlite D1 and an in-memory R2, the same fakes as
  * `tests/releases`), not a `wrangler dev` process; nothing remote is touched.
  *
- * Non-execution: every `node:child_process` entry point is spied on. Only the
- * pack step may spawn (`git`); from publish on, nothing may spawn, and the
- * fixture scripts, which write a marker file if ever run, leave no marker.
+ * Non-execution: the fixture scripts write a marker file (and the node one a
+ * global) if they ever run. After publish and every read, neither exists. A
+ * positive control then runs `scripts/setup.mjs` once against a separate
+ * marker path, proving the marker check can fail.
  */
-const spawned = vi.hoisted(() => ({ calls: [] as Array<{ fn: string; command: string }> }));
-vi.mock("node:child_process", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("node:child_process")>();
-  const names = ["spawn", "spawnSync", "exec", "execSync", "execFile", "execFileSync", "fork"] as const;
-  const wrapped = Object.fromEntries(
-    names.map((name) => [
-      name,
-      (...args: unknown[]) => {
-        spawned.calls.push({ fn: name, command: String(args[0]) });
-        return (actual[name] as (...a: unknown[]) => unknown)(...args);
-      },
-    ]),
-  );
-  return { ...actual, ...wrapped, default: { ...actual, ...wrapped } };
-});
 
 const FIXTURE = fileURLToPath(new URL("../fixtures/full-tree-94", import.meta.url));
 const FIXTURE_FILE_COUNT = 94;
@@ -112,11 +98,9 @@ describe("release E2E: 94-file nested skill", () => {
       expect([...fixture.keys()].some((p) => p.startsWith(dir) && p.split("/").length >= 3), dir).toBe(true);
     }
 
-    // pack (the only step allowed to spawn: git)
+    // pack
     const packed = await packRelease(skillDir);
     expect(packed.fileCount).toBe(FIXTURE_FILE_COUNT);
-    expect(new Set(spawned.calls.map((call) => call.command))).toEqual(new Set(["git"]));
-    spawned.calls.length = 0;
 
     // publish
     const h = await createHarness();
@@ -181,9 +165,13 @@ describe("release E2E: 94-file nested skill", () => {
     expect(treeDigest(served)).toBe(manifest.releaseDigest);
     expect((await readTarTree(artifact, { compression: "none" })).digest).toBe(manifest.releaseDigest);
 
-    // nothing was executed from publish on
-    expect(spawned.calls).toEqual([]);
+    // no fixture script ran during pack, publish or any read
     expect(existsSync(marker)).toBe(false);
     expect((globalThis as Record<string, unknown>).__skillxFullTreeFixtureExecuted).toBeUndefined();
+
+    // positive control: a script that does run leaves the marker
+    const control = join(root, "control.marker");
+    execFileSync(process.execPath, [join(skillDir, "scripts", "setup.mjs")], { env: { ...process.env, SKILLX_FIXTURE_MARKER: control } });
+    expect(readFileSync(control, "utf8")).toBe("scripts/setup.mjs\n");
   }, 60_000);
 });

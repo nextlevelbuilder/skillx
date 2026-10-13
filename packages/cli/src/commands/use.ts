@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import ora from 'ora';
 import { apiRequest, ApiError } from '../lib/api-client.js';
 import { searchSkills } from '../lib/search-api.js';
+import { hasPublishedRelease } from '../lib/release-lookup.js';
 import {
   displaySkill,
   type SkillDetails,
@@ -126,7 +127,7 @@ async function resolveBySlug(
   try {
     const res = await apiRequest<SkillDetailResponse>(buildSkillEndpoint(slug, fallback.identity));
     spinner.stop();
-    displaySkill(res.skill, displayId, options, res.references, res.scripts);
+    await showSkill(res, displayId, options);
   } catch (err) {
     if (!(err instanceof ApiError && err.status === 404)) {
       spinner.stop();
@@ -141,7 +142,7 @@ async function resolveBySlug(
           body: JSON.stringify(fallback.registerFallback),
         });
         spinner.stop();
-        handleRegisterResult(registerRes, displayId, options);
+        await handleRegisterResult(registerRes, displayId, options);
       } catch (regErr) {
         spinner.stop();
         throw regErr;
@@ -157,17 +158,40 @@ async function resolveBySlug(
   }
 }
 
+/**
+ * Display a skill detail. Only a multi-file listing can be discovery-only, so
+ * only then is the release listing asked whether a published release exists.
+ */
+async function showSkill(detail: SkillDetailResponse, displayId: string, options: DisplayOptions): Promise<void> {
+  const multiFile = (detail.references?.length ?? 0) + (detail.scripts?.length ?? 0) > 0;
+  const releaseExists = multiFile ? await hasPublishedRelease(displayId) : false;
+  displaySkill(detail.skill, displayId, options, detail.references, detail.scripts, releaseExists);
+}
+
+/**
+ * The register response carries the skill row only, so its references and
+ * scripts come from the detail endpoint. If that read fails, the row is
+ * shown without them (and so without the discovery-only label).
+ */
+async function registeredDetail(skill: SkillDetails): Promise<SkillDetailResponse> {
+  try {
+    return await apiRequest<SkillDetailResponse>(buildSkillEndpoint(skill.slug));
+  } catch {
+    return { skill };
+  }
+}
+
 /** Handle register API response (single skill or multi-skill scan) */
-function handleRegisterResult(
+async function handleRegisterResult(
   res: RegisterResponse,
   displayId: string,
   options: DisplayOptions,
-): void {
+): Promise<void> {
   if (res.skill) {
     if (res.created) {
       console.log(chalk.green(`\nRegistered new skill from GitHub: ${displayId}`));
     }
-    displaySkill(res.skill, displayId, options);
+    await showSkill(await registeredDetail(res.skill), displayId, options);
     return;
   }
 
