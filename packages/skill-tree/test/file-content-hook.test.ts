@@ -14,6 +14,8 @@ const SKILL = enc.encode("---\nname: demo\ndescription: Demo.\n---\n");
 // Bytes a sanitizer would alter: zero-width space, ANSI escape, CRLF, NUL.
 const HOSTILE = enc.encode("a​b\u001b[31mred\u001b[0m\r\n\0end");
 const BIG = new Uint8Array(3 * (1 << 20) + 17).map((_, i) => (i * 13) % 251);
+// Element-wise toEqual on megabytes is too slow for CI; compare the buffers directly.
+const sameBytes = (a: Uint8Array | undefined, b: Uint8Array) => a !== undefined && Buffer.compare(a, b) === 0;
 const LONG = `${"nested/".repeat(16)}file.md`;
 
 const specs: TarSpec[] = [
@@ -36,7 +38,7 @@ describe("readTarTree onFileContent", () => {
     expect([...seen.keys()].sort()).toEqual(plain.files.map((f) => f.path).sort());
     expect(seen.get("SKILL.md")).toEqual(SKILL);
     expect(seen.get("hostile.txt")).toEqual(HOSTILE);
-    expect(seen.get("assets/big.bin")).toEqual(BIG);
+    expect(sameBytes(seen.get("assets/big.bin"), BIG)).toBe(true);
     expect(seen.get("empty.md")).toEqual(new Uint8Array(0));
     expect(seen.get(LONG)).toEqual(enc.encode("long\n"));
   });
@@ -45,6 +47,6 @@ describe("readTarTree onFileContent", () => {
     const seen = new Map<string, Uint8Array>();
     const manifest = await readTarTree(tarStream(specs), { onFileContent: (path, content) => seen.set(path, content.slice()) });
     expect(manifest.digest).toBe((await readTarTree(await tarBytes(specs))).digest);
-    expect(seen.get("assets/big.bin")).toEqual(BIG);
+    expect(sameBytes(seen.get("assets/big.bin"), BIG)).toBe(true);
   });
 });
