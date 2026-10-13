@@ -11,8 +11,11 @@ and its digest. Go parity is pinned by the vendored conformance vectors under
 - Cloudflare Workers: enable the `nodejs_compat` compatibility flag. The
   package imports `node:crypto` (`createHash`) for SHA-256.
 - `@skillx/skill-tree/rules` exports only the pure path, collision and
-  identity rules (no Node.js import, no archive readers). Worker and browser
-  code that validates manifests, such as `@skillx/contracts`, imports it.
+  identity rules plus the canonical tree serialization (`serializeTree`,
+  `compareUtf8`, `sortFiles`), with no Node.js import, no hashing and no
+  archive readers. Worker and browser code that validates manifests, such as
+  `@skillx/contracts`, imports it and hashes `serializeTree(files)` with
+  WebCrypto to recompute the tree digest.
 
 ## Ingest overhead guard (tar)
 

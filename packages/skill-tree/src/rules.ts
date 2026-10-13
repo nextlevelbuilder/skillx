@@ -13,3 +13,6 @@ export { checkCollisions, foldKey } from "./collision";
 export { UNICODE_VERSION } from "./unicode-15";
 
 export { IDENTITY_PATTERN, RESERVED_PUBLISHER, checkPublisher, validateIdentity } from "./identity";
+
+export { MODE_EXECUTABLE, MODE_REGULAR, TREE_SCHEMA, compareUtf8, serializeTree, sortFiles } from "./tree-format";
+export type { FileMode, TreeFile } from "./tree-format";
