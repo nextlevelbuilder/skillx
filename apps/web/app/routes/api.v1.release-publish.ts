@@ -1,7 +1,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { ingestRelease } from "~/lib/releases/ingest-release";
 import { notFoundResponse } from "~/lib/releases/release-http";
-import { releasesApiEnabled } from "~/lib/releases/release-limits";
+import { releaseSubrequestBudget, releasesApiEnabled } from "~/lib/releases/release-limits";
 import { loadRegistrySigner } from "~/lib/releases/sign-manifest";
 
 /**
@@ -25,5 +25,6 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     db: env.DB,
     bucket: env.R2,
     loadSigner: () => loadRegistrySigner(env),
+    subrequestBudget: releaseSubrequestBudget(env),
   });
 }

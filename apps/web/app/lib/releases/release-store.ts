@@ -82,8 +82,10 @@ export async function insertRelease(db: D1Database, release: NewRelease): Promis
   const statements = [
     db
       .prepare(
-        `INSERT OR IGNORE INTO packages (id, publisher_id, name, slug, kind, visibility, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'public', ?, ?)`,
+        // Only an existing name is skipped; any other constraint failure aborts the batch.
+        `INSERT INTO packages (id, publisher_id, name, slug, kind, visibility, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'public', ?, ?)
+         ON CONFLICT(name) DO NOTHING`,
       )
       .bind(packageId, release.publisherId, release.identity, release.slug, release.kind, release.createdAt, release.createdAt),
     db

@@ -13,7 +13,7 @@ import { ERROR_CODES, SkillTreeError, readTarTree } from "@skillx/skill-tree";
 import type { TreeManifest } from "@skillx/skill-tree";
 import { authorizeReleasePublisher } from "./release-auth";
 import { ReleaseHttpError, errorResponse, releaseError } from "./release-http";
-import { BLOB_WRITE_CONCURRENCY, MAX_RELEASE_UPLOAD_BYTES, RELEASE_SERVER_TREE_LIMITS } from "./release-limits";
+import { BLOB_WRITE_CONCURRENCY, MAX_RELEASE_UPLOAD_BYTES, RELEASE_SERVER_TREE_LIMITS, assertSubrequestBudget } from "./release-limits";
 import { RELEASE_METADATA_HEADER, parseReleaseMetadata, parseReleaseName, readUploadBody } from "./release-request";
 import { scanRelease } from "./release-scan";
 import { findPackage, findRelease, insertRelease } from "./release-store";
@@ -27,6 +27,8 @@ export interface IngestDeps {
   bucket: R2Bucket;
   loadSigner: () => Promise<RegistrySigner>;
   now?: () => Date;
+  /** Subrequests one publish may spend; defaults to DEFAULT_RELEASE_SUBREQUEST_BUDGET. */
+  subrequestBudget?: number;
 }
 
 interface ReadTree {
@@ -125,13 +127,14 @@ async function ingest(request: Request, params: { scope?: string; slug?: string 
     throw releaseError(400, "release.invalid_metadata", `release metadata is invalid: ${detail}`);
   }
   const manifestHex = await sha256Hex(signed.bytes);
+  const blobs = [...new Map(tree.files.map((f) => [f.sha256, contents.get(f.path)!])).entries()];
+  assertSubrequestBudget(blobs.length, deps.subrequestBudget);
 
   await putCreateOnly(deps.bucket, artifactKey(artifactHex), body, {
     sha256Hex: artifactHex,
     contentType: "application/x-tar",
     verifyExisting: true,
   });
-  const blobs = [...new Map(tree.files.map((f) => [f.sha256, contents.get(f.path)!])).entries()];
   await forEachLimited(blobs, BLOB_WRITE_CONCURRENCY, ([hex, bytes]) =>
     putCreateOnly(deps.bucket, blobKey(hex), bytes, { sha256Hex: hex, contentType: "application/octet-stream" }),
   );
@@ -162,7 +165,8 @@ async function ingest(request: Request, params: { scope?: string; slug?: string 
   });
   if (outcome === "conflict") {
     const winner = await findRelease(deps.db, name.identity, metadata.version);
-    if (winner === null) throw releaseError(409, "release.kind_conflict", `${name.identity} exists with another kind or publisher`);
+    // The release insert matched no package row: one with this name was created concurrently by another publisher or kind.
+    if (winner === null) throw releaseError(409, "release.kind_conflict", `${name.identity} was created concurrently with another kind or publisher`);
     return existingOutcome(name.identity, metadata.version, winner, tree.digest);
   }
   return Response.json({
