@@ -6,6 +6,7 @@ import { findCommand } from './commands/find.js';
 import { reportCommand } from './commands/report.js';
 import { configCommand } from './commands/config.js';
 import { publishCommand } from './commands/publish.js';
+import { releaseCommand } from './commands/release-publish.js';
 
 /** Injected at build time from packages/cli/package.json by tsup (see tsup.config.ts). */
 declare const __SKILLX_VERSION__: string;
@@ -23,5 +24,6 @@ program.addCommand(findCommand);
 program.addCommand(reportCommand);
 program.addCommand(configCommand);
 program.addCommand(publishCommand);
+program.addCommand(releaseCommand);
 
 program.parse(process.argv);

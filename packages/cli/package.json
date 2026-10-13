@@ -18,6 +18,7 @@
     "ora": "^8.1.0"
   },
   "devDependencies": {
+    "@skillx/skill-tree": "workspace:*",
     "tsup": "^8.0.0",
     "typescript": "^5.6.0",
     "@types/node": "^22.0.0"
