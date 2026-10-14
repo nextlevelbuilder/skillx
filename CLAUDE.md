@@ -64,7 +64,7 @@ packages/cli/src/        # `skillx` npm package
 pnpm install              # Install all dependencies
 pnpm dev                  # Start dev server (apps/web) → http://localhost:5173
 pnpm build                # Build for production
-pnpm typecheck            # TypeScript check
+pnpm typecheck            # TypeScript check (every workspace package)
 pnpm test                 # Run unit tests (vitest) once
 pnpm test:watch           # Run unit tests in watch mode
 pnpm seed                 # Seed DB (requires ADMIN_SECRET env var)

@@ -8,7 +8,8 @@ import type { GitPackSource } from '../lib/git-tree-tar.js';
 import { writeDeterministicTar } from '../lib/deterministic-tar.js';
 
 export interface PackedRelease {
-  tar: Uint8Array;
+  /** Backed by a plain ArrayBuffer, so it is a valid fetch body. */
+  tar: Uint8Array<ArrayBuffer>;
   /** agentkit.skill-tree/v1 digest of the files: the release identity the registry recomputes. */
   releaseDigest: string;
   /** sha256 of the tar bytes. */

@@ -1,0 +1,62 @@
+# Pull request gate for the whole workspace: apps/web, packages/contracts,
+# packages/skill-tree and packages/cli. It runs the same commands a developer
+# runs locally, plus the CLI release build and a run of the built binary, so a
+# bundling-only break (issue #73) cannot merge.
+#
+# Only docs/ and plans/ are skipped: no build or test reads them.
+name: PR checks
+
+on:
+  pull_request:
+    branches: [main]
+    paths-ignore:
+      - "docs/**"
+      - "plans/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-checks-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      # Reads the pnpm version from package.json `packageManager`.
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck (web, contracts, skill-tree, cli)
+        run: pnpm typecheck
+
+      # Same command as release-cli.yml, then the built binary itself.
+      - name: Build CLI
+        run: pnpm --filter skillx-sh build
+
+      - name: Run built CLI
+        run: |
+          node packages/cli/bin/skillx.js --version
+          node packages/cli/bin/skillx.js --help > /dev/null
+          node packages/cli/bin/skillx.js release publish --help > /dev/null
+
+      # Includes packages/cli/src/built-cli.test.ts: built-binary pack and
+      # publish against a loopback stub registry.
+      - name: Test
+        run: pnpm test
+
+      - name: Build web
+        run: pnpm --filter web build

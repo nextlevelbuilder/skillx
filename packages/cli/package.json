@@ -9,6 +9,7 @@
   "main": "./dist/index.js",
   "scripts": {
     "build": "tsup",
+    "typecheck": "tsc --noEmit",
     "dev": "tsup --watch"
   },
   "dependencies": {

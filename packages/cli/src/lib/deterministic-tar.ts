@@ -57,7 +57,7 @@ function paxRecord(key: string, value: Uint8Array): Uint8Array {
 const padding = (size: number) => (BLOCK - (size % BLOCK)) % BLOCK;
 
 /** Writes the archive. Throws on a duplicate path. */
-export function writeDeterministicTar(files: readonly TarFile[]): Uint8Array {
+export function writeDeterministicTar(files: readonly TarFile[]): Uint8Array<ArrayBuffer> {
   const sorted = [...files].sort((a, b) => compareUtf8(a.path, b.path));
   const parts: Uint8Array[] = [];
   let total = 0;
