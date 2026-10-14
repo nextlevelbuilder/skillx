@@ -663,7 +663,8 @@ Flagged by `SKILLX_PERSONAL_KITS_API`; full contract in the
 ```
 contracts (packages/contracts/src/personal-kit): overlay envelope, apply, 3-way rebase, document + lock
 POST /api/v1/kits/@h/n/revisions ── verify: pinned base bytes (release-access rules) ── recompute compositionDigest
-D1: personal_kits (generation CAS), personal_kit_revisions (immutable), personal_kit_conflicts, personal_kit_audit
+D1: personal_kits (generation CAS), personal_kit_revisions (immutable), personal_kit_conflicts, personal_kit_audit,
+    personal_kit_proposals (immutable review metadata of session-derived revisions)
 ```
 
 - **Deterministic only**: the engine applies overlays and rebases (B0, U0,
@@ -676,6 +677,12 @@ D1: personal_kits (generation CAS), personal_kit_revisions (immutable), personal
   private/paid base or parent is refused. Bases are read with the owner's
   entitlement and re-checked on activation and lock reads
   (`kit.locked_incompatible`).
+- **Session-derived proposals**: AgentKit uploads only a reviewed overlay
+  (`skillx.kit-proposal/v1`), never raw session data. A proposal is private.
+  It is refused before storage on a secret, a local path or an undeclared
+  permission, and stored `quarantined` on other scan danger. Only the
+  owner's review (exact digest, declared permissions, consent) makes it
+  activatable. Operators can quarantine any revision.
 
 ## Deployment Architecture
 

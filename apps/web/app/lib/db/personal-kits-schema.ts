@@ -96,3 +96,23 @@ export const personalKitAudit = sqliteTable(
   },
   (table) => [index("idx_personal_kit_audit_kit").on(table.kit_id, table.created_at)]
 );
+
+// Review metadata of a session-derived proposal (issue #56): the declared permissions the user
+// must acknowledge, the optional size-bounded evidence summary and the scan finding codes.
+// Never transcripts, prompts, environment or paths. Immutable (migration 0016 triggers).
+export const personalKitProposals = sqliteTable(
+  "personal_kit_proposals",
+  {
+    revision_id: text("revision_id")
+      .primaryKey()
+      .references(() => personalKitRevisions.id),
+    kit_id: text("kit_id").notNull(),
+    identity: text("identity").notNull(),
+    declared_permissions_json: text("declared_permissions_json").notNull(),
+    required_permissions_json: text("required_permissions_json").notNull(),
+    evidence_json: text("evidence_json"),
+    scan_json: text("scan_json").notNull(),
+    created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("idx_personal_kit_proposals_kit").on(table.kit_id)]
+);

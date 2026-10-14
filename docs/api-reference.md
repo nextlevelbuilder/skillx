@@ -1279,7 +1279,7 @@ column and deletes the `0012_api_key_scopes.sql` row from `d1_migrations`.
 
 ### Personal kits
 
-`/api/v1/kits/@{handle}/{name}[/...]` (flag `SKILLX_PERSONAL_KITS_API`): owner-private kit revisions, foundation rebase, conflict resolution, activation and locks. See [Personal Kits API](./personal-kits-api.md).
+`/api/v1/kits/@{handle}/{name}[/...]` (flag `SKILLX_PERSONAL_KITS_API`): owner-private kit revisions, foundation rebase, conflict resolution, session-derived proposals and review, activation and locks. See [Personal Kits API](./personal-kits-api.md).
 
 ### Changing release and publisher state
 

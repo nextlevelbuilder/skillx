@@ -7,7 +7,9 @@ import { json, parseKitName, readKitBody, requireGeneration, requireId, requireI
 import type { KitCaller, KitEnv } from "./kit-http";
 import { readConflict, readConflicts, resolveConflict } from "./kit-conflicts";
 import { activateRevision, readLock, rejectRevision } from "./kit-lifecycle";
+import { submitProposal, validateProposal } from "./kit-proposals";
 import { previewUpdate, rebaseKit } from "./kit-rebase";
+import { quarantineRevision, readProposalReview, reviewProposal } from "./kit-review";
 import { readDiff, readKit, readRevision, readRevisions, storeRevision, storedResponse } from "./kit-revisions";
 import { notFoundResponse } from "~/lib/releases/release-http";
 
@@ -17,6 +19,8 @@ interface RouteDef {
   pattern: RegExp;
   get?: Handler;
   post?: Handler;
+  /** Operator-only (admin secret); owners get 403. */
+  admin?: true;
 }
 
 const body = (c: KitCaller, fields: string[]) => readKitBody(c.request, fields);
@@ -44,6 +48,21 @@ const ROUTES: RouteDef[] = [
     pattern: /^revisions\/([^/]+)\/reject$/,
     post: async (c, k, [id]) => rejectRevision(c, k, requireId(id, "revision"), requireGeneration((await body(c, ["expectedGeneration"])).expectedGeneration)),
   },
+  { pattern: /^revisions\/([^/]+)\/proposal$/, get: (c, k, [id]) => readProposalReview(c, k, requireId(id, "revision")) },
+  {
+    pattern: /^revisions\/([^/]+)\/review$/,
+    post: async (c, k, [id]) => {
+      const b = await body(c, ["expectedGeneration", "decision", "approval"]);
+      return reviewProposal(c, k, requireId(id, "revision"), b, requireGeneration(b.expectedGeneration));
+    },
+  },
+  {
+    pattern: /^revisions\/([^/]+)\/quarantine$/,
+    admin: true,
+    post: async (c, k, [id]) => quarantineRevision(c, k, requireId(id, "revision"), (await body(c, ["reason"])).reason),
+  },
+  { pattern: /^proposals$/, post: async (c, k) => submitProposal(c, k, await body(c, ["expectedGeneration", "idempotencyKey", "proposal"])) },
+  { pattern: /^proposals\/validate$/, post: async (c, k) => validateProposal(c, k, await body(c, ["expectedGeneration", "proposal"])) },
   {
     pattern: /^diff$/,
     get: (c, k) => readDiff(c, k, requireId(query(c, "from"), "from"), requireId(query(c, "to"), "to")),
@@ -92,7 +111,7 @@ export async function serveKitRequest(request: Request, env: KitEnv, params: Rec
   return serveKit(
     request,
     env,
-    method !== "GET",
+    route?.admin === true ? "admin" : method !== "GET" ? "write" : "read",
     async (caller) => {
       if (route === undefined) return notFoundResponse();
       if (handler === undefined) return methodNotAllowed(route.get !== undefined && route.post !== undefined ? "GET, POST" : route.get !== undefined ? "GET" : "POST");

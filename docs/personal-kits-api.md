@@ -233,7 +233,81 @@ digest, otherwise 409 `kit.approval_required`. Before moving
 `GET /lock` runs the same check, so a second machine either restores the
 identical lock or gets the explicit reason. A `proposed` revision must be
 reviewed before activation (`kit.review_required`). A rejected or quarantined
-revision cannot be activated (`kit.revision_unusable`).
+revision cannot be activated (`kit.revision_unusable`). A quarantined
+effective revision makes `GET /lock` fail with `kit.locked_incompatible`
+(reason `the revision is quarantined`) until the owner activates or rolls back
+to another revision.
+
+## Session-derived proposals
+
+AgentKit can turn improvements learned in local sessions into a proposal. The
+server accepts only the reviewed overlay, never raw session data, and the
+proposal is always private. The owner reviews it, then activates it as usual.
+Nothing activates implicitly.
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /proposals/validate` `{expectedGeneration?, proposal}` | Every check below, including the server-side composition. Writes nothing. Returns `state`, `revisionDigest`, `compositionDigest`, `requiredPermissions`, `declaredPermissions`, `findings`, `changedPaths`, `generation` and `generationConflict`. |
+| `POST /proposals` `{expectedGeneration, idempotencyKey, proposal}` | Stores a `session-derived` revision (201; an idempotent replay is 200), parented to `fromRevisionId`, in state `proposed`, or `quarantined` when the scan finds danger. Its review metadata is written in the same batch. |
+| `GET /revisions/:id/proposal` | What the owner reviews: declared and required permissions, the evidence, finding codes and changed paths. |
+| `POST /revisions/:id/review` `{expectedGeneration, decision, approval?}` | `reject` is final. `approve` needs `approval: {revisionDigest, permissions, visibility: "private", consent: true}`, where `permissions` are exactly the declared ones; otherwise 409 `kit.approval_required`. The revision becomes `reviewed`, with the proof in `approval_json` (kept on activation under `review`). Only a `proposed` revision can be reviewed. |
+| `POST /revisions/:id/quarantine` `{reason?}` | Operators only (`X-Admin-Secret`); owners get 403 `kit.admin_only`. Quarantines any revision. |
+
+### Envelope `skillx.kit-proposal/v1`
+
+```json
+{
+  "schema": "skillx.kit-proposal/v1",
+  "fromRevisionId": "pkr_…",
+  "skill": { "identity": "@alpha/demo", "base": { "package": "@alpha/demo", "version": "1.0.0", "releaseDigest": "sha256:…" },
+             "overlay": { "schema": "agentkit.skill-overlay/v1", "baseTreeDigest": "sha256:…", "ops": [] }, "compositionDigest": "sha256:…" },
+  "declaredPermissions": ["allowed-tools:Bash"],
+  "evidence": { "summary": "redacted, at most 2 KiB", "signals": { "sessions": 3 } },
+  "visibility": "private"
+}
+```
+
+The server copies the from revision's document. It replaces that one skill's
+overlay and `compositionDigest`, sets the visibility to `private`, and
+verifies the result like any revision.
+
+- **Base and skill**: the skill must be in the from revision, and `base` must
+  equal its pin exactly. Otherwise the proposal fails with
+  `proposal.unknown_skill` or `proposal.base_mismatch`. A rebase moves a base;
+  a proposal does not.
+- **Raw session data**: a key that names a transcript, session, prompt,
+  messages, conversation, environment, secret or token, working directory,
+  history, tool output or logs, at any depth, fails with 422
+  `proposal.forbidden_field`. The message names the key path, never its value.
+  A key with a numeric value (an evidence signal) is allowed. Unknown fields
+  are refused. An unknown top-level body field is 400 `invalid_request`.
+- **Visibility**: anything but `"private"` fails with 422
+  `proposal.private_only`.
+- **Evidence**: optional. `summary` is at most 2048 UTF-8 bytes
+  (`proposal.evidence_too_large`). `signals` holds at most 16 short lowercase
+  names mapped to finite numbers.
+- **Content scan**: covers every file the new overlay changes or adds against
+  the from composition, plus the evidence summary as `evidence/summary.md`.
+  - A secret, or an absolute local path, fails with 422
+    `proposal.content_refused`, and nothing is stored. Local paths are
+    `/home/<user>`, `/Users/<user>`, `/root`, `C:\Users\<user>` and UNC shares.
+    `error.findings` lists `danger:<rule>:<path>` codes, never the matched
+    text.
+  - Any other `danger` finding, such as prompt injection or a
+    `javascript:` URL, stores the proposal as `quarantined`. A quarantined
+    proposal cannot be reviewed or activated.
+- **Permissions**: the server derives the permissions a change needs from the
+  two compositions:
+  - `allowed-tools:<tool>` for a newly allowed tool, or `allowed-tools:*` when
+    the restriction is dropped;
+  - `hooks` for a new or changed `hooks` value;
+  - `script:<path>` for a changed declared script or executable;
+  - `executable:<path>` for a newly executable file;
+  - `binary:<path>` for a changed binary file.
+
+  A required permission that is not declared fails with 422
+  `proposal.undeclared_permission`, and `error.required` and `error.missing`
+  list them. At most 64 permissions can be declared.
 
 ## Hard invariants
 
@@ -252,7 +326,7 @@ revision cannot be activated (`kit.revision_unusable`).
 - **No AI auto-accept**: only the deterministic engine and the user's explicit
   decisions write revisions. Nothing activates implicitly.
 
-## Database (migration `0015_personal_kits`)
+## Database (migrations `0015_personal_kits`, `0016_personal_kit_proposals`)
 
 The migration is strictly additive. It creates four tables:
 
@@ -267,11 +341,25 @@ Foreign keys are `ON DELETE RESTRICT`. Four triggers guard immutability
 and the append-only audit. The rollback SQL is recorded in the migration
 header.
 
+Migration `0016_personal_kit_proposals` is also strictly additive. It creates
+`personal_kit_proposals`, keyed by `revision_id`, which holds:
+
+- the skill identity;
+- the declared and required permissions;
+- the optional evidence;
+- the scan finding codes and changed paths.
+
+It also adds an index on `kit_id` and two triggers that make the rows
+immutable and undeletable. It never holds transcripts, prompts, environment
+or file content. Its rollback SQL is in its header.
+
 ## Error codes
 
 | Code | Status |
 |---|---|
-| `kit.generation_conflict`, `kit.idempotency_conflict`, `kit.revision_exists`, `kit.composition_digest_mismatch`, `overlay.conflict`, `kit.approval_required`, `kit.review_required`, `kit.revision_unusable`, `kit.revision_effective`, `kit.discard_unconfirmed`, `kit.conflict_closed`, `kit.locked_incompatible` | 409 |
+| `kit.generation_conflict`, `kit.idempotency_conflict`, `kit.revision_exists`, `kit.composition_digest_mismatch`, `overlay.conflict`, `kit.approval_required`, `kit.review_required`, `kit.revision_unusable`, `kit.revision_effective`, `kit.discard_unconfirmed`, `kit.conflict_closed`, `kit.locked_incompatible`, `kit.not_a_proposal` | 409 |
+| `proposal.invalid`, `proposal.forbidden_field`, `proposal.private_only`, `proposal.evidence_too_large`, `proposal.unknown_skill`, `proposal.base_mismatch`, `proposal.content_refused` (`findings`), `proposal.undeclared_permission` (`required`, `missing`) | 422 |
+| `kit.admin_only` | 403 |
 | `kit.invalid`, `overlay.invalid`, `schema.unsupported_version`, `kit.duplicate_identity`, `kit.mode_violation`, `kit.alias_collision`, `overlay.shared_alias`, `identity.reserved_alias`, `kit.request_too_large`, `kit.cycle`, `kit.multi_parent`, `kit.public_derivative_forbidden`, `kit.base_unavailable` (409 when resolving a conflict) | 422 |
 | `kit.publisher_not_owned` | 403 |
 | `invalid_request` (malformed body, ids or updates) | 400 |

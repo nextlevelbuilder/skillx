@@ -30,7 +30,7 @@ interface LockCheck {
 export async function checkLock(caller: KitCaller, rev: RevisionRow): Promise<LockCheck> {
   const loaded = await loadChain(caller, documentOf(rev));
   const { chain } = loaded;
-  const reasons: string[] = [];
+  const reasons: string[] = rev.state === "quarantined" ? ["the revision is quarantined"] : [];
   const warnings: string[] = [];
   for (const { entry } of resolveLineage(chain)) {
     try {
@@ -70,7 +70,16 @@ export async function activateRevision(caller: KitCaller, kitName: string, body:
   if (check.reasons.length > 0) return incompatible(check.reasons);
   const doc = documentOf(rev);
   const at = caller.now.getTime();
-  const approval = JSON.stringify({ approvedBy: "user", userId: caller.userId, revisionDigest: rev.revision_digest, at: new Date(at).toISOString(), action: rollback ? "rollback" : "activate" });
+  // A reviewed proposal keeps its review proof next to the activation approval.
+  const review = rev.origin === "session-derived" && rev.approval_json !== null ? (JSON.parse(rev.approval_json) as { review?: unknown }) : null;
+  const approval = JSON.stringify({
+    approvedBy: "user",
+    userId: caller.userId,
+    revisionDigest: rev.revision_digest,
+    at: new Date(at).toISOString(),
+    action: rollback ? "rollback" : "activate",
+    ...(review === null ? {} : { review: review.review ?? review }),
+  });
   const ok = await commitKitMutation(caller.env.DB, {
     kitId: kit.id,
     generation,

@@ -113,6 +113,13 @@
       "when": 1791994090168,
       "tag": "0015_personal_kits",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1791994326116,
+      "tag": "0016_personal_kit_proposals",
+      "breakpoints": true
     }
   ]
 }

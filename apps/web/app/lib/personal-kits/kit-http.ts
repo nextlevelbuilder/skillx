@@ -73,14 +73,29 @@ export function requireId(raw: unknown, field: string): string {
   return raw;
 }
 
+/** A refusal that carries machine-readable fields next to `code` and `message` (never content). */
+export class DetailedKitError extends ReleaseHttpError {
+  readonly details: Record<string, unknown>;
+
+  constructor(status: number, code: string, message: string, details: Record<string, unknown>) {
+    super(status, code, message);
+    this.details = details;
+  }
+}
+
 export interface KitCaller {
+  /** The owner acting; `"admin"` for an operator call (admin routes only). */
   userId: string;
+  admin: boolean;
   env: KitEnv;
   request: Request;
   now: Date;
   /** Release, manifest and blob reads shared by every phase of this request, with its budget. */
   bases: BaseCache;
 }
+
+/** `read` (viewer), `write` (owner) or `admin` (operator secret only). */
+export type KitAccess = "read" | "write" | "admin";
 
 async function readCaller(request: Request, env: KitEnv): Promise<string> {
   const userId = await resolveViewer(request, env);
@@ -96,24 +111,28 @@ async function readCaller(request: Request, env: KitEnv): Promise<string> {
 export async function serveKit(
   request: Request,
   env: KitEnv,
-  write: boolean,
+  access: KitAccess,
   handler: (caller: KitCaller) => Promise<Response>,
   now: () => Date = () => new Date(),
 ): Promise<Response> {
   if (!personalKitsApiEnabled(env)) return notFoundResponse();
   try {
     let userId: string;
-    if (write) {
-      const actor = await resolveLimitedActor(request, env);
-      // The admin secret names no owner, so it sees no kit.
-      if (actor.kind !== "user") throw kitNotFound();
-      userId = actor.id;
-    } else {
+    if (access === "read") {
       userId = await readCaller(request, env);
+    } else {
+      const actor = await resolveLimitedActor(request, env);
+      // The admin secret names no owner, so it sees no kit except on an admin route.
+      if (access === "admin" && actor.kind !== "admin") throw releaseError(403, "kit.admin_only", "this action is reserved to operators");
+      if (access === "write" && actor.kind !== "user") throw kitNotFound();
+      userId = actor.id;
     }
-    return await handler({ userId, env, request, now: now(), bases: newBaseCache() });
+    return await handler({ userId, admin: access === "admin", env, request, now: now(), bases: newBaseCache() });
   } catch (error) {
     if (error instanceof PersonalKitError) return errorResponse(contractError(error));
+    if (error instanceof DetailedKitError) {
+      return json({ error: { code: error.code, message: error.message, ...error.details } }, error.status);
+    }
     if (error instanceof ReleaseHttpError) {
       const retry = (error as { retryAfter?: number }).retryAfter;
       return errorResponse(error, retry === undefined ? failureHeaders(error) : { "Retry-After": String(retry) });

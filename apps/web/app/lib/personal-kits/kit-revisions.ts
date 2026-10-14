@@ -25,6 +25,7 @@ import {
 } from "./kit-store";
 import type { GuardedStatement, KitRow, RevisionRow } from "./kit-store";
 import { verifyDocument } from "./kit-verify";
+import type { VerifiedDocument } from "./kit-verify";
 
 export type RevisionOrigin = "manual" | "rebase" | "resolution" | "session-derived";
 
@@ -36,10 +37,8 @@ export interface StoreRequest {
   origin: RevisionOrigin;
   state?: "draft" | "proposed" | "quarantined";
   parentRevisionId?: string | null;
-  /** Extra columns written with the revision (#56 evidence and permissions). */
-  extra?: Record<string, string | null>;
-  /** Runs after verification and before the write; may refuse the document. */
-  check?: (doc: PersonalKitDocument, kit: KitRow | null) => Promise<void> | void;
+  /** Runs after verification and before the write; may refuse the document or decide its initial state. */
+  check?: (doc: PersonalKitDocument, kit: KitRow | null, verified: VerifiedDocument) => Promise<{ state?: StoreRequest["state"] } | void>;
   /** Further guarded statements written atomically with the revision. */
   also?: (revisionId: string) => GuardedStatement[];
   /** Audit action; defaults to `revision.<origin>`. */
@@ -96,15 +95,15 @@ export async function storeRevision(caller: KitCaller, req: StoreRequest): Promi
   if (existing !== null) await requireActivePublisher(db, existing, caller.userId);
   const publisherId = existing?.publisher_id ?? (await ownedPublisher(db, handleOfKit(req.kitName), caller.userId));
   if (publisherId === null) throw releaseError(403, "kit.publisher_not_owned", `you do not own an active publisher @${handleOfKit(req.kitName)}`);
-  const { warnings } = await verifyDocument(caller, req.kitName, doc);
+  const verified = await verifyDocument(caller, req.kitName, doc);
+  const { warnings } = verified;
   if (existing !== null && (await revisionByDigest(db, existing.id, digest)) !== null) throw conflict("kit.revision_exists", "an identical revision already exists");
-  await req.check?.(doc, existing);
+  const state = (await req.check?.(doc, existing, verified))?.state ?? req.state ?? "draft";
 
   const kitId = existing?.id ?? newId("pk");
   const id = newId("pkr");
   const number = Number(existing?.latest_revision_number ?? 0) + 1;
   const at = caller.now.getTime();
-  const extra = Object.entries(req.extra ?? {});
   const ok = await commitKitMutation(db, {
     kitId,
     generation: req.expectedGeneration,
@@ -112,18 +111,18 @@ export async function storeRevision(caller: KitCaller, req: StoreRequest): Promi
     statements: [
       {
         sql: `INSERT INTO personal_kit_revisions (id, kit_id, revision_number, parent_revision_id, revision_digest, document_json, state, origin,
-                author_user_id, idempotency_key, created_at, quarantined_at${extra.map(([k]) => `, ${k}`).join("")})
-              SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${extra.map(() => ", ?").join("")} WHERE {guard}`,
+                author_user_id, idempotency_key, created_at, quarantined_at)
+              SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE {guard}`,
         binds: [
-          id, kitId, number, req.parentRevisionId ?? existing?.effective_revision_id ?? null, digest, canonicalJson(doc), req.state ?? "draft", req.origin,
-          caller.userId, req.idempotencyKey, at, req.state === "quarantined" ? at : null, ...extra.map(([, v]) => v),
+          id, kitId, number, req.parentRevisionId ?? existing?.effective_revision_id ?? null, digest, canonicalJson(doc), state, req.origin,
+          caller.userId, req.idempotencyKey, at, state === "quarantined" ? at : null,
         ],
       },
       ...(req.also?.(id) ?? []),
     ],
     kitSet: ", latest_revision_number = ?",
     kitBinds: [number],
-    audit: { actorKind: "user", actorId: caller.userId, action: req.action ?? `revision.${req.origin}`, revisionId: id, detail: req.state ?? "draft", at },
+    audit: { actorKind: "user", actorId: caller.userId, action: req.action ?? `revision.${req.origin}`, revisionId: id, detail: state, at },
   });
   if (!ok) throw generationConflict();
   return { revision: await getRevision(db, kitId, id), generation: req.expectedGeneration + 1, warnings, replayed: false };
