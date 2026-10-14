@@ -16,7 +16,7 @@ import { RESOLUTION_SCHEMA, compareUtf8, emptyOverlay, revisionDigest, validateO
 import type { KitSkillEntry, PersonalKitDocument } from "@skillx/contracts";
 import { badRequest, conflict, json, kitNotFound } from "./kit-http";
 import type { KitCaller } from "./kit-http";
-import { commitKitMutation, documentOf, getRevision, ownedKit, revisionView, writableKit } from "./kit-store";
+import { assertSeedRevision, commitKitMutation, documentOf, getRevision, ownedKit, revisionView, writableKit } from "./kit-store";
 import { generationConflict, storeRevision, storedResponse } from "./kit-revisions";
 import type { RebaseReport } from "./kit-rebase";
 
@@ -120,6 +120,8 @@ export async function resolveConflict(caller: KitCaller, kitName: string, id: st
   for (const identity of open.keys()) if (!decisions.some((d) => d.identity === identity)) throw badRequest(`decide ${identity}`);
 
   const fromRow = await getRevision(caller.env.DB, kit.id, row.from_revision_id);
+  // The from revision may have been quarantined or rejected since the rebase.
+  assertSeedRevision(fromRow);
   const from = documentOf(fromRow);
   const skills = from.skills.flatMap((entry) => {
     const d = decisions.find((x) => x.identity === entry.identity);

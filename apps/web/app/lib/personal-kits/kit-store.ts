@@ -89,6 +89,18 @@ export async function getRevision(db: D1Database, kitId: string, id: string): Pr
   return row;
 }
 
+/**
+ * Refuses a revision that may not seed a new revision (proposal or rebase):
+ * a rejected or quarantined one, and an unreviewed proposal, since building
+ * on it would carry its content and permissions past review.
+ */
+export function assertSeedRevision(from: RevisionRow): void {
+  if (from.state === "rejected" || from.state === "quarantined") throw releaseError(409, "kit.revision_unusable", `the from revision is ${from.state}`);
+  if (from.state === "proposed" || (from.origin === "session-derived" && from.state !== "reviewed")) {
+    throw releaseError(409, "kit.review_required", "the from revision is an unreviewed proposal; review it first");
+  }
+}
+
 /** The live (not rejected) revision of `digest`; a rejected document may be stored again as a new revision. */
 export async function revisionByDigest(db: D1Database, kitId: string, digest: string): Promise<RevisionRow | null> {
   return db

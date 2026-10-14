@@ -9,12 +9,22 @@
  * A repeated `idempotencyKey` replays the stored revision or conflict before
  * the generation is checked, so a retry after a lost answer is not a 409.
  */
-import { rebaseOverlay } from "@skillx/contracts";
+import { canonicalJson, compareUtf8, rebaseOverlay } from "@skillx/contracts";
 import type { KitSkillEntry, PersonalKitDocument, RebaseFinding } from "@skillx/contracts";
 import { baseFailure, loadPinnedBase, loadUpstream } from "./base-loader";
 import { badRequest, conflict, json } from "./kit-http";
 import type { KitCaller } from "./kit-http";
-import { commitKitMutation, documentOf, getRevision, newId, ownedKit, revisionByIdempotency, revisionView, writableKit } from "./kit-store";
+import {
+  assertSeedRevision,
+  commitKitMutation,
+  documentOf,
+  getRevision,
+  newId,
+  ownedKit,
+  revisionByIdempotency,
+  revisionView,
+  writableKit,
+} from "./kit-store";
 import type { KitRow, RevisionRow } from "./kit-store";
 import { generationConflict, storeRevision, storedResponse } from "./kit-revisions";
 
@@ -102,11 +112,21 @@ export async function computeRebase(caller: KitCaller, from: RevisionRow, update
   return { report, candidates, candidate };
 }
 
+/** The revision a rebase starts from; an unreviewed, rejected or quarantined one is refused like a proposal's. */
 async function fromRevision(caller: KitCaller, kit: KitRow, raw: unknown): Promise<RevisionRow> {
   const id = raw ?? kit.effective_revision_id;
   if (typeof id !== "string") throw badRequest("fromRevisionId is required while the kit has no effective revision");
-  return getRevision(caller.env.DB, kit.id, id);
+  const from = await getRevision(caller.env.DB, kit.id, id);
+  assertSeedRevision(from);
+  return from;
 }
+
+/** Canonical form of what a rebase request asks for besides its from revision (sorted updates, includeForks). */
+const requestKey = (updates: Update[], includeForks: boolean) =>
+  canonicalJson({ includeForks, updates: [...updates].sort((a, b) => compareUtf8(a.package, b.package) || compareUtf8(a.version, b.version)) });
+
+/** Audit action of the row that records the request of a clean rebase revision. */
+const REQUEST_ACTION = "rebase.request";
 
 /** `POST .../preview-update`: the report only; nothing is written. */
 export async function previewUpdate(caller: KitCaller, kitName: string, body: Record<string, unknown>): Promise<Response> {
@@ -120,13 +140,18 @@ export async function previewUpdate(caller: KitCaller, kitName: string, body: Re
 const idempotencyConflict = () => conflict("kit.idempotency_conflict", "idempotencyKey was already used for a different request");
 
 /** The stored answer of an earlier rebase with the same key, or null. */
-async function replayRebase(caller: KitCaller, kit: KitRow, body: Record<string, unknown>, idempotencyKey: string): Promise<Response | null> {
+async function replayRebase(caller: KitCaller, kit: KitRow, body: Record<string, unknown>, idempotencyKey: string, request: string): Promise<Response | null> {
   const db = caller.env.DB;
   const generation = Number(kit.generation);
   const sameFrom = (fromId: string | null) => body.fromRevisionId === undefined || body.fromRevisionId === fromId;
   const rev = await revisionByIdempotency(db, kit.id, idempotencyKey);
   if (rev !== null) {
     if (rev.origin !== "rebase" || !sameFrom(rev.parent_revision_id)) throw idempotencyConflict();
+    const recorded = await db
+      .prepare("SELECT detail FROM personal_kit_audit WHERE kit_id = ? AND revision_id = ? AND action = ? LIMIT 1")
+      .bind(kit.id, rev.id, REQUEST_ACTION)
+      .first<{ detail: string | null }>();
+    if (recorded?.detail !== request) throw idempotencyConflict();
     return json({ status: "clean", revision: revisionView(rev), generation, warnings: [], replayed: true });
   }
   const row = await db
@@ -134,21 +159,39 @@ async function replayRebase(caller: KitCaller, kit: KitRow, body: Record<string,
     .bind(kit.id, idempotencyKey)
     .first<{ id: string; from_revision_id: string; report_json: string }>();
   if (row === null) return null;
-  if (!sameFrom(row.from_revision_id)) throw idempotencyConflict();
-  const { report } = JSON.parse(row.report_json) as { report: RebaseReport };
-  return json({ status: "needs-review", conflictId: row.id, report, generation, replayed: true });
+  const stored = JSON.parse(row.report_json) as { report: RebaseReport; request?: string };
+  if (!sameFrom(row.from_revision_id) || stored.request !== request) throw idempotencyConflict();
+  return json({ status: "needs-review", conflictId: row.id, report: stored.report, generation, replayed: true });
 }
 
 export async function rebaseKit(caller: KitCaller, kitName: string, body: Record<string, unknown>, generation: number, idempotencyKey: string): Promise<Response> {
   const kit = await writableKit(caller.env.DB, kitName, caller.userId);
-  const replay = await replayRebase(caller, kit, body, idempotencyKey);
+  const updates = parseUpdates(body.updates);
+  const includeForks = body.includeForks === true;
+  const request = requestKey(updates, includeForks);
+  const replay = await replayRebase(caller, kit, body, idempotencyKey, request);
   if (replay !== null) return replay;
   if (Number(kit.generation) !== generation) throw generationConflict();
   const from = await fromRevision(caller, kit, body.fromRevisionId);
-  const { report, candidates, candidate } = await computeRebase(caller, from, parseUpdates(body.updates), body.includeForks === true);
+  const { report, candidates, candidate } = await computeRebase(caller, from, updates, includeForks);
   if (report.status === "clean") {
     if (Object.keys(candidates).length === 0) return json({ status: "unchanged", report, generation });
-    const stored = await storeRevision(caller, { kitName, document: candidate, expectedGeneration: generation, idempotencyKey, origin: "rebase", parentRevisionId: from.id });
+    const stored = await storeRevision(caller, {
+      kitName,
+      document: candidate,
+      expectedGeneration: generation,
+      idempotencyKey,
+      origin: "rebase",
+      parentRevisionId: from.id,
+      // Records what was asked, so a reused key with other updates is an idempotency conflict, not a replay.
+      also: (revisionId) => [
+        {
+          sql: `INSERT INTO personal_kit_audit (id, kit_id, actor_kind, actor_id, action, revision_id, detail, created_at)
+                SELECT ?, ?, 'user', ?, ?, ?, ?, ? WHERE {guard}`,
+          binds: [newId("pka"), kit.id, caller.userId, REQUEST_ACTION, revisionId, request, caller.now.getTime()],
+        },
+      ],
+    });
     const res = storedResponse(stored);
     return json({ status: "clean", report, ...(await res.json()) as object }, res.status);
   }
@@ -161,7 +204,7 @@ export async function rebaseKit(caller: KitCaller, kitName: string, body: Record
       {
         sql: `INSERT INTO personal_kit_conflicts (id, kit_id, from_revision_id, report_json, status, idempotency_key, created_at)
               SELECT ?, ?, ?, ?, 'open', ?, ? WHERE {guard}`,
-        binds: [conflictId, kit.id, from.id, JSON.stringify({ report, candidates }), idempotencyKey, at],
+        binds: [conflictId, kit.id, from.id, JSON.stringify({ report, candidates, request }), idempotencyKey, at],
       },
       // A newer conflict supersedes every older open one of the kit.
       { sql: "UPDATE personal_kit_conflicts SET status = 'superseded' WHERE kit_id = ? AND status = 'open' AND id <> ? AND {guard}", binds: [kit.id, conflictId] },

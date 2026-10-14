@@ -51,6 +51,30 @@ describe("proposal lineage", () => {
     expect(b.body.revision.parentRevisionId).toBe(a.id);
   });
 
+  it("refuses an unreviewed, rejected or quarantined revision as the source of a rebase or preview", async () => {
+    await k.publish("@alpha/demo", "2.0.0", { "SKILL.md": skillText(BODY.replace("eight\n", "eight (v2)\n")) });
+    const updates = [{ package: "@alpha/demo", version: "2.0.0" }];
+    const a = (await submit(await proposal(with_("step A\n")), 1)).body.revision;
+    const q = (await submit(await proposal(with_("[x](javascript:alert(1))\n")), 2)).body.revision;
+    expect(q.state).toBe("quarantined");
+    const c = (await submit(await proposal(with_("step C\n")), 3)).body.revision;
+    expect((await k.call(`revisions/${c.id}/review`, { expectedGeneration: 4, decision: "reject" }, WEB)).body.state).toBe("rejected");
+    const cases: Array<[string, string]> = [[a.id, "kit.review_required"], [q.id, "kit.revision_unusable"], [c.id, "kit.revision_unusable"]];
+    for (const [fromRevisionId, code] of cases) {
+      for (const o of [{}, WEB]) {
+        const rebase = await k.call("rebase", { expectedGeneration: 5, idempotencyKey: k.idem(), fromRevisionId, updates }, o);
+        expect(rebase.status).toBe(409);
+        expect(rebase.body.error.code).toBe(code);
+        expect((await k.call("preview-update", { fromRevisionId, updates }, o)).body.error.code).toBe(code);
+      }
+    }
+    expect([k.count("personal_kit_conflicts"), k.count("personal_kit_revisions")]).toEqual([0, 4]);
+    expect((await approve(a, 5)).status).toBe(200);
+    const ok = await k.call("rebase", { expectedGeneration: 6, idempotencyKey: k.idem(), fromRevisionId: a.id, updates });
+    expect(ok.status).toBe(201);
+    expect(ok.body.revision).toMatchObject({ state: "draft", origin: "rebase", parentRevisionId: a.id });
+  });
+
   it("never uses an unreviewed proposal as a parent kit revision", async () => {
     const a = (await submit(await proposal(with_("step A\n")), 1)).body.revision;
     const document = k.doc([], { kit: "@alpha/child", localId: "local/child", parent: { kit: "@alpha/my-kit", revisionDigest: a.digest } });
@@ -68,6 +92,25 @@ describe("proposal content", () => {
     expect(leaked.body.error).toMatchObject({ code: "proposal.content_refused", findings: ["danger:local-path:notes.md"] });
     const secret = await k.call("proposals/validate", { proposal: await proposal(with_("password=" + "hunter22\n")) });
     expect(secret.body.error.findings).toEqual(["danger:secret-password:notes.md"]);
+  });
+
+  it("refuses a new YAML password value under a key line the from revision already has", async () => {
+    const yaml = (v: string) => ({ ...MINE, "config.yml": `db:\n  password:\n    ${v}\n` });
+    const from = (await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: k.doc([await k.entry("@alpha/demo", "1.0.0", yaml("<set-me>"))]) })).body.revision;
+    const res = await k.call("proposals/validate", { proposal: await proposal(yaml("hunter" + "22"), from.id) });
+    expect(res.status).toBe(422);
+    expect(res.body.error.findings).toEqual(["danger:secret-password:config.yml"]);
+    const block = await k.call("proposals/validate", { proposal: await proposal({ ...yaml("<set-me>"), "config.yml": "db:\n  password: |\n    " + "hunter" + "22\n" }, from.id) });
+    expect(block.body.error.findings).toEqual(["danger:secret-password:config.yml"]);
+  });
+
+  it("refuses absolute paths outside the system allowlist and keeps system paths", async () => {
+    for (const path of ["/workspaces/acme-internal/x", "//host/share", "%2Fsrv%2Fclient"]) {
+      const res = await k.call("proposals/validate", { proposal: await proposal(with_(`see ${path}\n`)) });
+      expect(res.body.error).toMatchObject({ code: "proposal.content_refused", findings: ["danger:local-path:notes.md"] });
+    }
+    const ok = await k.call("proposals/validate", { proposal: await proposal(with_("run /usr/bin/env node 2>/dev/null\n")) });
+    expect(ok.status).toBe(200);
   });
 
   it("refuses binary and byte-order-mark content", async () => {
@@ -104,6 +147,19 @@ describe("proposal approval", () => {
     expect(act.status).toBe(200);
     const stored = k.h.d1.raw.prepare("SELECT approval_json FROM personal_kit_revisions WHERE id = ?").get(rev.id) as { approval_json: string };
     expect(JSON.parse(stored.approval_json)).toMatchObject({ credential: "web-session", review: { credential: "web-session" } });
+  });
+
+  it("rejects a proposal only through its web-session review, never the generic reject", async () => {
+    const rev = (await submit(await proposal(with_("x\n")), 1)).body.revision;
+    for (const o of [{}, WEB]) {
+      const res = await k.call(`revisions/${rev.id}/reject`, { expectedGeneration: 2 }, o);
+      expect(res.status).toBe(403);
+      expect(res.body.error.code).toBe("kit.interactive_approval_required");
+    }
+    expect(k.count("personal_kit_audit")).toBe(2);
+    expect((await k.call(`revisions/${rev.id}/review`, { expectedGeneration: 2, decision: "reject" }, WEB)).body.state).toBe("rejected");
+    // A manual draft is still rejected through the generic route.
+    expect((await k.call(`revisions/${r1.id}/reject`, { expectedGeneration: 3 })).status).toBe(200);
   });
 
   it("keeps proposals on private kits: refused on a public kit, never activated after the kit turned public", async () => {

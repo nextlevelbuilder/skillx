@@ -64,6 +64,22 @@ describe("foreign parents", () => {
     expect(JSON.stringify(lock.body.documents)).not.toContain("overlay");
   });
 
+  it("fails the lock and activation with kit.locked_incompatible once a parent is no longer available", async () => {
+    const active = await betaRevision(0, "public", true);
+    const rev = (await k.call("revisions", { expectedGeneration: 0, idempotencyKey: k.idem(), document: child(active.digest) })).body.revision;
+    expect((await k.call("activate", { expectedGeneration: 1, revisionId: rev.id, approval: { revisionDigest: rev.digest } })).status).toBe(200);
+    const again = (await k.call("revisions", { expectedGeneration: 2, idempotencyKey: k.idem(), document: { ...child(active.digest), exclude: ["@alpha/demo"] } })).body.revision;
+    // The owner makes the parent kit private: the foreign parent is gone for this user.
+    k.sql("UPDATE personal_kits SET visibility = 'private' WHERE name = '@beta/base'");
+    const lock = await k.call("lock");
+    expect(lock.status).toBe(409);
+    expect(lock.body.error.code).toBe("kit.locked_incompatible");
+    expect(lock.body.error.reasons).toEqual([`parent revision ${active.digest} of @beta/base is not available`]);
+    const act = await k.call("activate", { expectedGeneration: 3, revisionId: again.id, approval: { revisionDigest: again.digest } });
+    expect(act.status).toBe(409);
+    expect(act.body.error.code).toBe("kit.locked_incompatible");
+  });
+
   it("refuses a foreign revision that was authored while the kit was private", async () => {
     const early = await betaRevision(0, "private", true);
     await betaRevision(2, "public", true, { ...MINE, "notes.md": "n\n" });
@@ -109,6 +125,23 @@ describe("rebase safety", () => {
     expect(again.status).toBe(200);
     expect(again.body).toMatchObject({ status: "needs-review", conflictId: first.body.conflictId, replayed: true });
     expect(k.count("personal_kit_conflicts")).toBe(1);
+    for (const changed of [{ updates: [{ package: "@alpha/demo", version: "2.0.1" }] }, { updates: UPDATE, includeForks: true }]) {
+      const reused = await k.call("rebase", { expectedGeneration: 2, idempotencyKey: "rebase-key-01", ...changed });
+      expect(reused.status).toBe(409);
+      expect(reused.body.error.code).toBe("kit.idempotency_conflict");
+    }
+  });
+
+  it("refuses a reused key with other updates instead of replaying a clean rebase", async () => {
+    await k.publish("@alpha/demo", "2.0.0", { "SKILL.md": skillText(BODY.replace("eight\n", "eight (v2)\n")) });
+    await activeKit();
+    const first = await k.call("rebase", { expectedGeneration: 2, idempotencyKey: "rebase-key-03", updates: UPDATE });
+    expect(first.status).toBe(201);
+    const reused = await k.call("rebase", { expectedGeneration: 2, idempotencyKey: "rebase-key-03", updates: [{ package: "@alpha/demo", version: "2.0.1" }] });
+    expect(reused.status).toBe(409);
+    expect(reused.body.error.code).toBe("kit.idempotency_conflict");
+    const forks = await k.call("rebase", { expectedGeneration: 2, idempotencyKey: "rebase-key-03", updates: UPDATE, includeForks: true });
+    expect(forks.body.error.code).toBe("kit.idempotency_conflict");
   });
 
   it("replays a clean rebase revision", async () => {

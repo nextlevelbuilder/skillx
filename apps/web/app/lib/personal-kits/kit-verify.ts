@@ -35,13 +35,20 @@ export interface VerifiedDocument {
 
 const UNUSABLE_PARENT_STATES = new Set(["proposed", "rejected", "quarantined"]);
 
+/** AgentKit's reserved alias prefixes (`ak-`, `ak:`, any case). */
+const RESERVED_ALIAS = /^ak[-:]/i;
+const nameOf = (identity: string) => identity.slice(identity.indexOf("/") + 1);
+
 /**
- * Skill identities that may not be overlaid in place: those owned by AgentKit
- * `kits/core` or shipped by more than one official kit. The deployment sets
- * them in `SKILLX_SHARED_SKILL_ALIASES` (comma or whitespace separated).
+ * Skills that may not be overlaid in place: those owned by AgentKit
+ * `kits/core` or shipped by more than one official kit. Fails closed: any
+ * skill whose directory alias or name starts with `ak-` or `ak:` is always
+ * shared, and `SKILLX_SHARED_SKILL_ALIASES` (comma or whitespace separated
+ * identities) adds to that default.
  */
-export function sharedSkills(env: { SKILLX_SHARED_SKILL_ALIASES?: string }): Set<string> {
-  return new Set((env.SKILLX_SHARED_SKILL_ALIASES ?? "").split(/[\s,]+/).filter((s) => s !== ""));
+export function sharedSkills(env: { SKILLX_SHARED_SKILL_ALIASES?: string }): (identity: string, alias: string) => boolean {
+  const listed = new Set((env.SKILLX_SHARED_SKILL_ALIASES ?? "").split(/[\s,]+/).filter((s) => s !== ""));
+  return (identity, alias) => listed.has(identity) || RESERVED_ALIAS.test(alias) || RESERVED_ALIAS.test(nameOf(identity));
 }
 
 /** A foreign parent must be a public, activated, reviewed revision that was authored public. */
@@ -53,15 +60,19 @@ export interface LoadedChain {
   parentPublic: boolean;
   /** Indexes into `chain` of documents the caller does not own. */
   foreign: Set<number>;
+  /** A parent was unavailable (reported in `reasons`), so `chain` stops before it. */
+  incomplete: boolean;
 }
 
 /**
  * Child-first lineage of `doc`: parents are found by kit name and revision
- * digest. An unreviewed proposal is never a parent. With `quarantined`, a
- * parent quarantined after it was used is kept and reported there (the lock
- * fails with `kit.locked_incompatible`); without it, it is unavailable.
+ * digest. An unreviewed proposal is never a parent. With `reasons` (the
+ * lock), a parent quarantined after it was used is kept and reported there,
+ * and a parent that is missing or no longer usable is reported there and
+ * ends the chain (`incomplete`); either way the lock fails with
+ * `kit.locked_incompatible`. Without it, both are `kit.base_unavailable`.
  */
-export async function loadChain(caller: KitCaller, doc: PersonalKitDocument, quarantined?: string[]): Promise<LoadedChain> {
+export async function loadChain(caller: KitCaller, doc: PersonalKitDocument, reasons?: string[]): Promise<LoadedChain> {
   const { env, userId } = caller;
   const chain = [doc];
   const foreign = new Set<number>();
@@ -74,18 +85,21 @@ export async function loadChain(caller: KitCaller, doc: PersonalKitDocument, qua
     const owned = kit !== null && kit.owner_user_id === userId;
     const readable = owned || (kit !== null && kit.visibility === "public");
     const row = readable ? await revisionByDigest(env.DB, kit!.id, cur.parent.revisionDigest) : null;
-    const held = row !== null && row.state === "quarantined" && quarantined !== undefined && (owned || (row.activated_at !== null && documentOf(row).visibility === "public"));
+    const held = row !== null && row.state === "quarantined" && reasons !== undefined && (owned || (row.activated_at !== null && documentOf(row).visibility === "public"));
     const usable = row !== null && !UNUSABLE_PARENT_STATES.has(row.state) && (owned || usableForeignParent(row));
-    if (held) quarantined.push(`parent ${cur.parent.kit} revision ${cur.parent.revisionDigest} is quarantined`);
+    if (held) reasons.push(`parent ${cur.parent.kit} revision ${cur.parent.revisionDigest} is quarantined`);
     else if (!usable) {
-      throw kitError(KIT_CODES.baseUnavailable, "parent", `parent revision ${cur.parent.revisionDigest} of ${cur.parent.kit} is not available`);
+      const detail = `parent revision ${cur.parent.revisionDigest} of ${cur.parent.kit} is not available`;
+      if (reasons === undefined) throw kitError(KIT_CODES.baseUnavailable, "parent", detail);
+      reasons.push(detail);
+      return { chain, parentPublic: false, foreign, incomplete: true };
     }
     if (kit!.visibility !== "public") parentPublic = false;
     if (!owned) foreign.add(chain.length);
     chain.push(documentOf(row!));
   }
   resolveLineage(chain);
-  return { chain, parentPublic, foreign };
+  return { chain, parentPublic, foreign, incomplete: false };
 }
 
 /** The chain as returned to the caller: own documents in full, foreign ancestors as digest references only. */
@@ -96,8 +110,7 @@ export const chainView = ({ chain, foreign }: LoadedChain) =>
 export async function verifyDocument(caller: KitCaller, kitName: string, doc: PersonalKitDocument): Promise<VerifiedDocument> {
   const { env, userId } = caller;
   if (doc.kit !== kitName) throw kitError(KIT_CODES.documentInvalid, "kit", `document names ${doc.kit}, not ${kitName}`);
-  const shared = sharedSkills(env);
-  const sharedViolation = sharedAliasViolation(doc, (id) => shared.has(id));
+  const sharedViolation = sharedAliasViolation(doc, sharedSkills(env));
   if (sharedViolation !== null) throw sharedViolation;
   const bases = new Map<string, LoadedBase>();
   const warnings: string[] = [];

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { addedLines, genericSecrets, hasByteOrderMark, hasLocalPath } from "~/lib/personal-kits/proposal-detectors";
+import { addedLines, genericSecrets, hasByteOrderMark, hasLocalPath, hasMultilinePassword } from "~/lib/personal-kits/proposal-detectors";
+import { sharedSkills } from "~/lib/personal-kits/kit-verify";
 import { assertNoForbiddenKeys } from "~/lib/personal-kits/proposal-envelope";
 
 describe("absolute local path detector", () => {
@@ -24,6 +25,38 @@ describe("absolute local path detector", () => {
     "/private/var/x",
     "/root/.bashrc",
     String.raw`"\/home\/kai\/x"`,
+    // Every absolute POSIX path outside the system allowlist.
+    "/opt/acme/bin/tool",
+    "/opt/homebrew/bin/node",
+    "/srv/client/data",
+    "/var/www/site",
+    "cd /workspaces/acme-internal",
+    "/data/exports/x.csv",
+    "/nix/store/abc-pkg",
+    "/Applications/Tool.app/x",
+    "path:/workspace/acme",
+    // Case variants of the user and temp roots.
+    "/users/kai/repo",
+    "/USERS/kai",
+    "cd /TMP",
+    "/Home/kai",
+    // Forward-slash UNC and SMB.
+    "//host/share/x",
+    "see //fileserver/public",
+    "smb://host/share",
+    "SMB://host/share",
+    "FILE:///etc/passwd",
+    // Percent-encoded separators.
+    "%2Fhome%2Fkai%2Fx",
+    "%2fsrv%2fclient%2fx",
+    "%5C%5Chost%5Cshare",
+    "C%3A%5CUsers%5Ckai",
+    "%252Fhome%252Fkai",
+    // Climbing out of a system root.
+    "/usr/bin/../../home/kai",
+    "/etc/../srv/x",
+    "/dev/sda1/x",
+    "/dev/null/x",
   ])("refuses %s", (text) => expect(hasLocalPath(text)).toBe(true));
 
   it.each([
@@ -38,6 +71,18 @@ describe("absolute local path detector", () => {
     String.raw`"\\n\\t"`,
     "ratio a:b",
     "/homepage and /tmpl",
+    // The system allowlist, in any case.
+    "#!/bin/sh",
+    "/usr/local/bin/tool",
+    "/sbin/ifconfig",
+    "edit /etc/hosts",
+    "/proc/self/status",
+    "cmd 2>/dev/null",
+    "read /dev/stdin, write /dev/stdout and /dev/stderr",
+    "/USR/BIN/env",
+    "https://example.com/var/www/x?y=%2Fz",
+    "dates 12/31/2025 and 1/2",
+    "run /ak:plan now",
   ])("allows %s", (text) => expect(hasLocalPath(text)).toBe(false));
 });
 
@@ -59,6 +104,44 @@ describe("generic secret detector", () => {
     "ignores %s",
     (text) => expect(genericSecrets(text)).toEqual([]),
   );
+});
+
+describe("multi-line YAML password detector", () => {
+  const value = "hunter" + "22";
+  it.each([
+    `db:\n  password:\n    ${value}\n`,
+    `password: |\n  ${value}\n`,
+    `password: >-\n  ${value}\n  more\n`,
+    `PASSWORD:\n\n  ${value}\n`,
+  ])("finds %j", (text) => expect(hasMultilinePassword(null, text)).toBe(true));
+
+  it.each(["password: |\n  <your-password>\n", "password:\n  ${DB_PASSWORD}\n", "password:\nnext: 1\n", "password: |\n  ab\n"])(
+    "ignores %j",
+    (text) => expect(hasMultilinePassword(null, text)).toBe(false),
+  );
+
+  it("finds a new value under a key the base already has, not a block kept from the base", () => {
+    const base = "db:\n  password:\n    <set-me>\n";
+    expect(hasMultilinePassword(base, `db:\n  password:\n    ${value}\n`)).toBe(true);
+    const kept = `db:\n  password:\n    ${value}\n`;
+    expect(hasMultilinePassword(kept, `${kept}other: 1\n`)).toBe(false);
+  });
+});
+
+describe("shared skill guard", () => {
+  it("treats every ak- and ak: skill as shared when unset, and adds the configured list", () => {
+    const unset = sharedSkills({});
+    expect(unset("@agentkit/ak-plan", "ak-plan")).toBe(true);
+    expect(unset("@agentkit/plan", "AK:plan")).toBe(true);
+    expect(unset("@agentkit/AK-x", "x")).toBe(true);
+    expect(unset("@agentkit/plan", "plan")).toBe(false);
+    expect(unset("@agentkit/akplan", "akplan")).toBe(false);
+    const listed = sharedSkills({ SKILLX_SHARED_SKILL_ALIASES: "@agentkit/plan,\n@agentkit/cook" });
+    expect(listed("@agentkit/plan", "plan")).toBe(true);
+    expect(listed("@agentkit/cook", "cook")).toBe(true);
+    expect(listed("@agentkit/ak-review", "ak-review")).toBe(true);
+    expect(listed("@agentkit/other", "other")).toBe(false);
+  });
 });
 
 describe("helpers", () => {

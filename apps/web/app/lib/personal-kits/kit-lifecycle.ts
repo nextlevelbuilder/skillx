@@ -7,11 +7,13 @@
  * a session-derived revision activates only on a private kit and only from
  * an interactive web session. A quarantined revision anywhere in the chain
  * fails the lock with `kit.locked_incompatible`.
- * Rejection is final for that revision. The lock is derived on read from the
+ * Rejection is final for that revision; a proposal is rejected only through
+ * its web-session review, never through the generic reject. The lock is derived on read from the
  * immutable documents, so equal revisions always give equal lock bytes;
  * ancestors owned by someone else are returned as digest references only.
  */
 import { buildKitLock, resolveLineage } from "@skillx/contracts";
+import { releaseError } from "~/lib/releases/release-http";
 import { baseFailure, loadPinnedBase } from "./base-loader";
 import { badRequest, conflict, json, kitNotFound, requireId, requireInteractive } from "./kit-http";
 import type { KitCaller } from "./kit-http";
@@ -23,7 +25,8 @@ import { generationConflict } from "./kit-revisions";
 const ACTIVATABLE = new Set(["draft", "reviewed"]);
 
 interface LockCheck {
-  lock: Awaited<ReturnType<typeof buildKitLock>>;
+  /** Null when the lineage is incomplete; `reasons` then says why. */
+  lock: Awaited<ReturnType<typeof buildKitLock>> | null;
   documents: unknown[];
   reasons: string[];
   warnings: string[];
@@ -33,6 +36,7 @@ interface LockCheck {
 export async function checkLock(caller: KitCaller, rev: RevisionRow): Promise<LockCheck> {
   const reasons: string[] = rev.state === "quarantined" ? ["the revision is quarantined"] : [];
   const loaded = await loadChain(caller, documentOf(rev), reasons);
+  if (loaded.incomplete) return { lock: null, documents: [], reasons, warnings: [] };
   const { chain } = loaded;
   const warnings: string[] = [];
   for (const { entry } of resolveLineage(chain)) {
@@ -115,6 +119,10 @@ export async function rejectRevision(caller: KitCaller, kitName: string, id: str
   const rev = await getRevision(caller.env.DB, kit.id, id);
   if (rev.id === kit.effective_revision_id) throw conflict("kit.revision_effective", "the effective revision cannot be rejected; activate another one first");
   if (rev.state !== "draft" && rev.state !== "proposed") throw conflict("kit.revision_unusable", `the revision is ${rev.state}`);
+  // A proposal is decided by a human in a web session, through `/review` only.
+  if (rev.state === "proposed" || rev.origin === "session-derived") {
+    throw releaseError(403, "kit.interactive_approval_required", "reject a session-derived proposal through its review, signed in on the web");
+  }
   const at = caller.now.getTime();
   const ok = await commitKitMutation(caller.env.DB, {
     kitId: kit.id,

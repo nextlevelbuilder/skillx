@@ -108,6 +108,17 @@ describe("personal kit revisions", () => {
     const res = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: official }, shared);
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe("overlay.shared_alias");
+
+    // Unset, the guard fails closed on AgentKit's ak- / ak: skills; set, the list adds to that default.
+    const ak = (name: string) => k.doc([{ ...mine, identity: `@agentkit/${name}`, base: { ...mine.base, package: `@agentkit/${name}` } }]);
+    for (const [document, o] of [[ak("ak-plan"), {}], [ak("ak-cook"), {}], [ak("ak-plan"), shared]] as const) {
+      const refused = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document }, o);
+      expect(refused.status).toBe(422);
+      expect(refused.body.error.code).toBe("overlay.shared_alias");
+    }
+    // Other official skills pass the guard unless listed (this one then fails only on its unpublished base).
+    const unlisted = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: official });
+    expect(unlisted.body.error.code).toBe("kit.base_unavailable");
   });
 
   it("resolves a pin by package, not by a tree another package also ships", async () => {

@@ -17,7 +17,7 @@
 import { applyOverlay, textOf, treeFacts } from "@skillx/contracts";
 import type { KitTree, SkillOverlay } from "@skillx/contracts";
 import { scanRelease } from "~/lib/releases/release-scan";
-import { addedLines, genericSecrets, hasByteOrderMark, hasLocalPath } from "./proposal-detectors";
+import { addedLines, genericSecrets, hasByteOrderMark, hasLocalPath, hasMultilinePassword } from "./proposal-detectors";
 
 export interface ProposalScan {
   /** Sorted permissions the change needs. */
@@ -36,6 +36,8 @@ interface Changed {
   path: string;
   /** What the change introduces, or null for binary or BOM content (refused). */
   introduced: string | null;
+  /** The change adds a YAML password whose value sits below its key line. */
+  multilinePassword: boolean;
   bom: boolean;
   becameExecutable: boolean;
 }
@@ -50,7 +52,13 @@ async function changedFiles(before: KitTree, after: KitTree): Promise<Changed[]>
     const bom = hasByteOrderMark(bytes);
     const text = bom ? null : textOf(bytes);
     const was = prev === undefined || text === null ? null : textOf(await before.read(f.path));
-    out.push({ path: f.path, introduced: text === null ? null : addedLines(was, text), bom, becameExecutable: f.mode === "100755" && prev?.mode !== "100755" });
+    out.push({
+      path: f.path,
+      introduced: text === null ? null : addedLines(was, text),
+      multilinePassword: text !== null && hasMultilinePassword(was, text),
+      bom,
+      becameExecutable: f.mode === "100755" && prev?.mode !== "100755",
+    });
   }
   return out;
 }
@@ -72,8 +80,12 @@ export async function scanProposal(base: KitTree, fromOverlay: SkillOverlay, ove
     else if (code.has(f.path)) required.add(`script:${f.path}`);
     if (f.introduced === null) refusing.add(`danger:${f.bom ? "byte-order-mark" : "binary-content"}:${f.path}`);
     else texts.push({ path: f.path, text: f.introduced });
+    if (f.multilinePassword) refusing.add(`danger:secret-password:${f.path}`);
   }
-  if (evidenceSummary !== null) texts.push({ path: EVIDENCE_PATH, text: evidenceSummary });
+  if (evidenceSummary !== null) {
+    texts.push({ path: EVIDENCE_PATH, text: evidenceSummary });
+    if (hasMultilinePassword(null, evidenceSummary)) refusing.add(`danger:secret-password:${EVIDENCE_PATH}`);
+  }
 
   const quarantining = new Set<string>();
   const encoder = new TextEncoder();

@@ -16,7 +16,7 @@ import { canonicalJson, revisionDigest, validateKitDocument } from "@skillx/cont
 import type { PersonalKitDocument } from "@skillx/contracts";
 import { DetailedKitError, conflict, json, requireGeneration, requireIdempotencyKey } from "./kit-http";
 import type { KitCaller } from "./kit-http";
-import { documentOf, getRevision, writableKit } from "./kit-store";
+import { assertSeedRevision, documentOf, getRevision, writableKit } from "./kit-store";
 import type { KitRow, RevisionRow } from "./kit-store";
 import { storeRevision, storedResponse } from "./kit-revisions";
 import { verifyDocument } from "./kit-verify";
@@ -42,11 +42,7 @@ async function prepare(caller: KitCaller, kitName: string, raw: unknown): Promis
   }
   const proposal = readProposal(raw);
   const from = await getRevision(caller.env.DB, kit.id, proposal.fromRevisionId);
-  if (from.state === "rejected" || from.state === "quarantined") throw conflict("kit.revision_unusable", `the from revision is ${from.state}`);
-  // Chaining on an unreviewed proposal would carry its content and permissions past review.
-  if (from.state === "proposed" || (from.origin === "session-derived" && from.state !== "reviewed")) {
-    throw conflict("kit.review_required", "the from revision is an unreviewed proposal; review it first");
-  }
+  assertSeedRevision(from);
   const fromDoc = documentOf(from);
   const index = fromDoc.skills.findIndex((s) => s.identity === proposal.skill.identity);
   if (index < 0) throw proposalError("proposal.unknown_skill", `${proposal.skill.identity} is not in the from revision`);

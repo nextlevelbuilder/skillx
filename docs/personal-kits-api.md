@@ -69,7 +69,11 @@ without an explicit user approval.
 ```
 
 - `localId` is the offline id `local/<name>`. On publish it maps to
-  `@<handle>/<name>`.
+  `@<handle>/<name>`. A kit has a `localId` only when its name is an AgentKit
+  kit ID (`^[a-z0-9]+(-[a-z0-9]+)*$`, at most 64 bytes); otherwise 422
+  `kit.invalid`.
+- `exclude` is stored sorted and without duplicates, so equivalent documents
+  have one revision digest.
 - `parent` names a single kit revision. An array is refused with
   `kit.multi_parent`.
 - Lineage is resolved child first, up to depth 4. Cycles are refused with
@@ -80,11 +84,13 @@ without an explicit user approval.
   - `override` keeps the base identity and can change anything.
   - `fork` requires a new identity under the kit handle and its own `alias`.
 - Shared skills, those owned by AgentKit `kits/core` or shipped by more than
-  one official kit, are listed by the deployment in
-  `SKILLX_SHARED_SKILL_ALIASES` (comma or whitespace separated identities).
-  They can be forked but never overlaid; an overlay is refused with 422
-  `overlay.shared_alias` (AgentKit code). Other `@agentkit/*` skills may be
-  overlaid.
+  one official kit, can be forked but never overlaid; an in-place overlay is
+  refused with 422 `overlay.shared_alias` (AgentKit code). The guard fails
+  closed: every skill whose name or directory alias starts with `ak-` or
+  `ak:` (any case) is always shared, whether or not
+  `SKILLX_SHARED_SKILL_ALIASES` is set. That variable (comma or whitespace
+  separated identities) adds further shared skills to this default. Other
+  `@agentkit/*` skills may be overlaid.
 - A fork alias that starts with `ak-` or `ak:` is refused with 422
   `identity.reserved_alias` (AgentKit code).
 - Kit names, identities and fork identities pass the full identity rules
@@ -133,7 +139,9 @@ Every kit has a `generation`. `GET` returns it, with an `ETag` of `"g<n>"`.
     `kit.idempotency_conflict`.
   - The key is looked up before the generation, so a retry after a lost answer
     replays (200, `replayed: true`) instead of failing as stale. A rebase key
-    replays its stored revision or its recorded conflict.
+    replays its stored revision or its recorded conflict only for the same
+    request (`fromRevisionId`, `updates` and `includeForks`); other updates
+    under the same key fail with 409 `kit.idempotency_conflict`.
 - Storing a document equal to a live revision fails with 409
   `kit.revision_exists`. A rejected document may be stored again as a new
   revision.
@@ -145,7 +153,7 @@ Every kit has a `generation`. `GET` returns it, with an `ETag` of `"g<n>"`.
 | `GET` | Kit summary: `kit`, `localId`, `visibility`, `generation`, `latestRevisionNumber`, `effectiveRevision`, `openConflicts`. |
 | `GET /revisions`, `GET /revisions/:id` | Revision list, or one revision with its `document`. |
 | `POST /revisions` `{expectedGeneration, idempotencyKey, document}` | Store a `draft` revision with origin `manual`. 201 `{revision, generation, replayed, warnings}`. The first write creates the kit. |
-| `POST /revisions/:id/reject` `{expectedGeneration}` | Reject a draft or proposal. Rejecting the effective revision fails with 409 `kit.revision_effective`. |
+| `POST /revisions/:id/reject` `{expectedGeneration}` | Reject a draft. Rejecting the effective revision fails with 409 `kit.revision_effective`. A session-derived proposal is refused with 403 `kit.interactive_approval_required`; it is rejected only through `POST /revisions/:id/review` in a web session. |
 | `GET /diff?from=&to=` | Read-only structural diff: changed document fields, and added, removed and changed entries with their overlay paths. |
 | `POST /preview-update` `{updates:[{package,version}], fromRevisionId?, includeForks?}` | Rebase report only. Writes nothing. |
 | `POST /rebase` `{expectedGeneration, idempotencyKey, updates, fromRevisionId?, includeForks?}` | Clean: 201, a `draft` revision with origin `rebase` (never activated). Otherwise: 200 `{status:"needs-review", conflictId, report}`. A newer conflict supersedes older open ones. |
@@ -237,7 +245,10 @@ revision cannot be activated (`kit.revision_unusable`). A quarantined
 revision, effective or anywhere in the parent chain, makes `GET /lock` fail
 with `kit.locked_incompatible` (reason `the revision is quarantined`, or the
 quarantined parent) until the owner activates or rolls back to another
-revision.
+revision. A parent revision that is no longer available (missing, rejected,
+or a foreign kit that is no longer public) fails the lock and activation the
+same way, with the parent named in `error.reasons`; storing a new revision on
+such a parent stays 422 `kit.base_unavailable`.
 
 ## Session-derived proposals
 
@@ -257,7 +268,13 @@ Nothing activates implicitly.
 - **No chaining on unreviewed proposals**: a from-revision that is `proposed`
   (or any session-derived revision that is not `reviewed`) fails with 409
   `kit.review_required`, and an unreviewed proposal is never usable as a
-  parent kit revision.
+  parent kit revision. The same rule applies to the source of
+  `preview-update` and `rebase` (and to the from revision when a conflict is
+  resolved): an unreviewed proposal fails with 409 `kit.review_required`, a
+  rejected or quarantined revision with 409 `kit.revision_unusable`.
+- **Rejection only through review**: the generic `POST /revisions/:id/reject`
+  refuses a proposal with 403 `kit.interactive_approval_required`; use
+  `POST /revisions/:id/review` with `decision: "reject"` in a web session.
 
 | Endpoint | Purpose |
 |---|---|
@@ -305,15 +322,23 @@ verifies the result like any revision.
   evidence summary as `evidence/summary.md`. Lines kept from the base are not
   scanned, so a finding already in the base never refuses a proposal.
   - Fails with 422 `proposal.content_refused`, nothing stored: a secret
-    (vendor token formats, `password=`/`passwd:` assignments, Bearer tokens,
-    URLs with `user:pass@`, JWTs, private key blocks, dotenv-style secret
-    keys), binary content, text with a byte order mark (UTF-8/16/32), and
-    every absolute local path: any drive-letter path (also JSON-escaped
-    `C:\\...`), UNC shares (also escaped), `file:` URLs, and `/home`,
-    `/Users`, `/root`, `/mnt`, `/media`, `/Volumes`, `/var/folders`, `/tmp`,
-    `/private`, `/run/user` after any non-path character. System paths such as
-    `/usr/bin/env` are allowed. `error.findings` lists `danger:<rule>:<path>`
-    codes, never the matched text.
+    (vendor token formats, `password=`/`passwd:` assignments, a YAML
+    `password:` key whose new value sits on the following indented lines or in
+    a `|` / `>` block scalar, even when the key line is kept from the base,
+    Bearer tokens, URLs with `user:pass@`, JWTs, private key blocks,
+    dotenv-style secret keys), binary content, text with a byte order mark
+    (UTF-8/16/32), and every absolute local path, matched case-insensitively
+    and also JSON-escaped (`\/`, `\\`) or percent-encoded (`%2F`, `%5C`,
+    `%3A`): any drive-letter path, UNC shares (`\\host\share` and
+    `//host/share`), `file:` and `smb:` URLs, a bare `/home`, `/Users`,
+    `/root`, `/mnt`, `/media`, `/Volumes`, `/var/folders`, `/tmp`, `/private`
+    or `/run/user`, and any other POSIX path of two or more segments (such as
+    `/opt/...`, `/srv/...`, `/var/www/...`, `/workspaces/...`). Only these
+    system paths are allowed: `/usr/`, `/bin/`, `/sbin/`, `/etc/`, `/proc/`,
+    `/dev/null`, `/dev/stdin`, `/dev/stdout` and `/dev/stderr` (a `..` segment
+    that climbs out of them is refused). Web URLs (`https://host/path`) are not
+    local paths. `error.findings` lists `danger:<rule>:<path>` codes, never
+    the matched text.
   - Any other `danger` finding, such as prompt injection or a
     `javascript:` URL, stores the proposal as `quarantined`. A quarantined
     proposal cannot be reviewed or activated.
