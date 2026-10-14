@@ -10,15 +10,19 @@
  * a fall back), else the viewer of the read API: an unscoped account API key
  * or the web session. Scoped `releases:publish:@handle` keys are publish-only
  * credentials and are refused here (401), so a leaked CI key cannot yank.
- * Every actor is then counted against `RELEASE_READ_LIMITER` before any D1
- * write; a limited request is 429 and leaves no audit row.
+ * Writes have their own limiter, `RELEASE_WRITE_LIMITER`: a request carrying
+ * `X-Admin-Secret` is first counted by client IP, so secret guessing is
+ * throttled, and every actor is then counted before any D1 write. A limited
+ * request is 429 and leaves no audit row. For an account the write limiter
+ * fails closed (503 when missing or failing); the admin is let through so
+ * containment never depends on it.
  * Every answer is `no-store`.
  */
 import { RELEASE_STATES, RELEASE_STATUS_REASON_MAX_BYTES, isReleaseState } from "@skillx/contracts";
 import { parsePackageIdentity, parseReleaseVersion } from "./release-access";
 import { ReleaseHttpError, errorResponse, notFoundResponse, releaseError } from "./release-http";
 import { releasesApiEnabled } from "./release-limits";
-import { checkReleaseRateLimit, rateLimitCaller } from "./release-rate-limit";
+import { RELEASE_WRITE_RATE_WINDOW_SECONDS, checkReleaseRateLimit, rateLimitCaller } from "./release-rate-limit";
 import { resolveViewer } from "./release-read";
 import { PUBLISHER_STATES, transitionPublisher, transitionRelease } from "./release-transitions";
 import type { PublisherState, TransitionActor } from "./release-transitions";
@@ -144,16 +148,28 @@ class RateLimitedError extends ReleaseHttpError {
   }
 }
 
+/** Counts one write of `caller`; throws 429 when limited, 503 when a fail-closed limiter is unavailable. */
+async function enforceWriteLimit(env: ReleaseStateEnv, caller: string, failClosed: boolean): Promise<void> {
+  const decision = await checkReleaseRateLimit(env.RELEASE_WRITE_LIMITER, caller, {
+    binding: "RELEASE_WRITE_LIMITER",
+    windowSeconds: RELEASE_WRITE_RATE_WINDOW_SECONDS,
+    failClosed,
+  });
+  if (decision.allowed) return;
+  if (decision.unavailable) throw releaseError(503, "rate_limit_unavailable", "state changes are unavailable; retry later");
+  throw new RateLimitedError(decision.retryAfterSeconds);
+}
+
 /**
- * Resolves the actor and counts the request against the release API rate
- * limit (admin included, keyed `user:admin`). It runs before any D1 write,
- * so a limited request leaves no audit row: the append-only audit cannot be
- * flooded faster than the limit allows.
+ * Resolves the actor and counts the request against the write limit (admin
+ * included, keyed `user:admin`). It runs before any D1 write, so a limited
+ * request leaves no audit row: the append-only audit cannot be flooded faster
+ * than the limit allows.
  */
 async function resolveLimitedActor(request: Request, env: ReleaseStateEnv): Promise<TransitionActor> {
+  if (request.headers.get("X-Admin-Secret") !== null) await enforceWriteLimit(env, rateLimitCaller(request, null), false);
   const actor = await resolveActor(request, env);
-  const decision = await checkReleaseRateLimit(env.RELEASE_READ_LIMITER, rateLimitCaller(request, actor.id));
-  if (!decision.allowed) throw new RateLimitedError(decision.retryAfterSeconds);
+  await enforceWriteLimit(env, rateLimitCaller(request, actor.id), actor.kind !== "admin");
   return actor;
 }
 

@@ -323,10 +323,16 @@ installable. Quarantine judges the bytes: if several releases (in any package)
 share a quarantined tree digest, every read of that tree stays
 `403 release_quarantined` until each of those releases is lifted.
 
-**Rate limit.** The state endpoint counts every request against
-`RELEASE_READ_LIMITER` (300 per 60 s per caller; the admin secret counts as
-one caller, `user:admin`) before any D1 write. A limited request answers
-`429 rate_limited` with `Retry-After` and writes no audit row.
+**Rate limit.** The state endpoint has its own binding,
+`RELEASE_WRITE_LIMITER` (`ratelimits` in `wrangler.jsonc`, 30 per 60 s per
+caller, namespace `5402`), separate from the read limiter. A request carrying
+`X-Admin-Secret` is first counted by client IP, so secret guessing is
+throttled; every actor is then counted (the admin as `user:admin`) before any
+D1 write. A limited request answers `429 rate_limited` with `Retry-After` and
+writes no audit row. For accounts the limiter fails closed: a missing or
+failing binding answers `503 rate_limit_unavailable`. The admin is let
+through so containment never depends on the binding. Check the binding is
+listed in the `wrangler deploy` output before enabling the flag.
 
 **Rollback of 0013**: disable the flag and redeploy first (the state endpoint
 then answers 404), then run the rollback SQL in the header of

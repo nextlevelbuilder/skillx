@@ -48,6 +48,16 @@
         "limit": 300,
         "period": 60
       }
+    },
+    // Per-caller limit of the release state write routes; every write appends an audit row.
+    // Keep limit/period in sync with RELEASE_WRITE_RATE_LIMIT / _WINDOW_SECONDS in release-rate-limit.ts.
+    {
+      "name": "RELEASE_WRITE_LIMITER",
+      "namespace_id": "5402",
+      "simple": {
+        "limit": 30,
+        "period": 60
+      }
     }
   ],
   "vars": {

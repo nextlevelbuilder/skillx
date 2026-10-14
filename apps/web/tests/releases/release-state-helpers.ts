@@ -40,6 +40,7 @@ export const envOf = (extra: Record<string, unknown> = {}) => ({
   R2: harness().deps.bucket,
   ADMIN_SECRET: ADMIN,
   RELEASE_READ_LIMITER: new FakeRateLimiter(10_000),
+  RELEASE_WRITE_LIMITER: new FakeRateLimiter(10_000),
   ...extra,
 });
 

@@ -1190,13 +1190,16 @@ API viewer: `Authorization: Bearer sx_...` with an unscoped account key, or
 the web session. Scoped `releases:publish:@handle` keys are publish-only and
 answer `401 invalid_api_key`, so a leaked CI publish key cannot yank.
 
-**Rate limit**: once the actor is known, every request (admin included, as
-the single caller `user:admin`) counts against `RELEASE_READ_LIMITER`, the
-same 300 per 60 seconds per caller as the read API, before any D1 write. A
-limited request answers `429 rate_limited` with `Retry-After` and writes no
-audit row. This bounds audit growth per caller but does not stop it: the
-limit is counted per Cloudflare location, and a missing or failing binding
-lets the request through.
+**Rate limit**: writes count against their own binding,
+`RELEASE_WRITE_LIMITER`, 30 per 60 seconds per caller. A request carrying
+`X-Admin-Secret` is first counted by client IP, before the secret is checked,
+so guessing is throttled. Once the actor is known, every request (admin
+included, as the single caller `user:admin`) is counted before any D1 write.
+A limited request answers `429 rate_limited` with `Retry-After` and writes no
+audit row. For accounts a missing or failing binding answers
+`503 rate_limit_unavailable`; the admin is let through so containment never
+depends on it. The limit is counted per Cloudflare location, so it bounds
+audit growth per caller without stopping it.
 
 **Compare-and-set**: the change applies only while the row is still in
 `from`; otherwise `409 state_conflict` (re-read and retry). Two concurrent
@@ -1324,7 +1327,7 @@ All error responses follow a consistent shape:
 
 ## Rate Limits
 
-No explicit rate limiting at the API layer, except the release read and release state APIs (300 requests per minute per caller, `429` with `Retry-After`; see [Reading releases](#reading-releases-pinned-whole-tree-read-api)). Cloudflare Workers handles DDoS protection. Search results cached in KV (5min TTL) for performance.
+No explicit rate limiting at the API layer, except the release read API (300 requests per minute per caller) and the release state API (30 per minute per caller), both `429` with `Retry-After`; see [Reading releases](#reading-releases-pinned-whole-tree-read-api)). Cloudflare Workers handles DDoS protection. Search results cached in KV (5min TTL) for performance.
 
 ## Source Files
 
