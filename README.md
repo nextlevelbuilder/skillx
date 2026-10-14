@@ -198,7 +198,7 @@ DELETE /api/user/api-keys/:id                   # Revoke key
 ## Development
 
 ### Prerequisites
-- Node.js >=18
+- Node.js >=22
 - pnpm
 - Cloudflare account
 

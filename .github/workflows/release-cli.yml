@@ -32,7 +32,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           registry-url: https://registry.npmjs.org
 
       - name: Install dependencies
@@ -40,6 +40,16 @@ jobs:
 
       - name: Build CLI
         run: pnpm --filter skillx-sh build
+
+      # Never publish a bundle that cannot start (see #73): run the built binary first.
+      - name: Run built CLI
+        run: |
+          node packages/cli/bin/skillx.js --version
+          node packages/cli/bin/skillx.js --help > /dev/null
+          node packages/cli/bin/skillx.js release publish --help > /dev/null
+
+      - name: Test built CLI
+        run: pnpm exec vitest run packages/cli/src/built-cli.test.ts
 
       - name: Publish to NPM
         run: pnpm --filter skillx-sh publish --no-git-checks --access public
