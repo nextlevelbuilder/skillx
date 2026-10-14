@@ -618,7 +618,7 @@ POST .../releases/:version/state, /publishers/@h/state ── compare-and-set + 
   release: `yanked→published→quarantined` runs as one batch with one audit
   row per edge, never observable as `published`. Owners' publisher standing
   is re-checked inside the batch. Requests are rate limited by their own
-  `RELEASE_WRITE_LIMITER` before any D1 write (admin-secret requests by IP
+  `RELEASE_WRITE_LIMITER` before any state or audit write (admin-secret requests by IP
   first; fail closed for accounts, open for the admin). Signed status issuance on
   transition is a follow-up (the containment composite must advance the
   status `sequence` by 2).

@@ -12,7 +12,8 @@
  * credentials and are refused here (401), so a leaked CI key cannot yank.
  * Writes have their own limiter, `RELEASE_WRITE_LIMITER`: a request carrying
  * `X-Admin-Secret` is first counted by client IP, so secret guessing is
- * throttled, and every actor is then counted before any D1 write. A limited
+ * throttled, and every actor is then counted before the body is read and
+ * before any state or audit write. A limited
  * request is 429 and leaves no audit row. For an account the write limiter
  * fails closed (503 when missing or failing); the admin is let through so
  * containment never depends on it.
@@ -162,7 +163,8 @@ async function enforceWriteLimit(env: ReleaseStateEnv, caller: string, failClose
 
 /**
  * Resolves the actor and counts the request against the write limit (admin
- * included, keyed `user:admin`). It runs before any D1 write, so a limited
+ * included, keyed `user:admin`). It runs before any state or audit write
+ * (an API key's `last_used_at` may already be touched), so a limited
  * request leaves no audit row: the append-only audit cannot be flooded faster
  * than the limit allows.
  */

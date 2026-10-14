@@ -45,17 +45,18 @@ export interface RateLimitOptions {
   failClosed?: boolean;
 }
 
-let warnedUnavailable = false;
+/** Bindings already reported missing or failing in this isolate. */
+const warnedBindings = new Set<string>();
 
-function warnOnce(message: string, failClosed: boolean): void {
-  if (warnedUnavailable) return;
-  warnedUnavailable = true;
+function warnOnce(binding: string, message: string, failClosed: boolean): void {
+  if (warnedBindings.has(binding)) return;
+  warnedBindings.add(binding);
   console.warn(`release API: ${message}; ${failClosed ? "requests are refused" : "rate limiting is off"}`);
 }
 
 /** Test hook: lets the next missing or failing binding log again. */
 export function resetRateLimitWarning(): void {
-  warnedUnavailable = false;
+  warnedBindings.clear();
 }
 
 /** Rate-limit identity of a request: `user:<id>` when authenticated, else `ip:<client ip>`. */
@@ -75,7 +76,7 @@ export async function checkReleaseRateLimit(
 ): Promise<RateLimitDecision> {
   const { binding = "RELEASE_READ_LIMITER", windowSeconds = RELEASE_READ_RATE_WINDOW_SECONDS, failClosed = false } = options;
   const unavailable = (message: string): RateLimitDecision => {
-    warnOnce(message, failClosed);
+    warnOnce(binding, message, failClosed);
     return failClosed ? { allowed: false, retryAfterSeconds: windowSeconds, unavailable: true } : { allowed: true };
   };
   if (limiter === undefined || typeof limiter.limit !== "function") return unavailable(`no ${binding} binding`);

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loader as artifactLoader } from "~/routes/api.v1.release-artifact";
 import { loader as manifestLoader } from "~/routes/api.v1.release-manifest";
+import { checkReleaseRateLimit, resetRateLimitWarning } from "~/lib/releases/release-rate-limit";
 import { FakeRateLimiter } from "./fake-rate-limiter";
 import {
   ADMIN,
@@ -84,6 +85,38 @@ describe("release state: rate limit", () => {
     failing.failing = true;
     expect((await change("@alpha/demo", "1.0.0", contain, { ...admin, env: { RELEASE_WRITE_LIMITER: failing } })).status).toBe(200);
     expect(stateOf("1.0.0")).toBe("quarantined");
+  });
+
+  it("refuses a limited request before reading its body", async () => {
+    await publish();
+    const exhausted = { env: { RELEASE_WRITE_LIMITER: new FakeRateLimiter(0) } };
+    expectError(await change("@alpha/demo", "1.0.0", yank, { key: ownerKey, rawBody: "{not json", ...exhausted }), 429, "rate_limited");
+    expectError(await change("@alpha/demo", "1.0.0", yank, { key: ownerKey, headers: { "Content-Type": "text/plain" }, ...exhausted }), 429, "rate_limited");
+    expect(audit()).toHaveLength(0);
+  });
+
+  it("answers 401, not 503, to a wrong admin secret when the write limiter is missing", async () => {
+    await publish();
+    expectError(await change("@alpha/demo", "1.0.0", yank, { admin: "wrong", env: { RELEASE_WRITE_LIMITER: undefined } }), 401, "invalid_admin_secret");
+  });
+
+  it("refuses account publisher changes with 503 when the write limiter is missing", async () => {
+    expectError(await changePublisher("@alpha", { from: "active", to: "suspended" }, { key: ownerKey, env: { RELEASE_WRITE_LIMITER: undefined } }), 503, "rate_limit_unavailable");
+  });
+
+  it("warns about a missing write limiter even after the read limiter warned", async () => {
+    resetRateLimitWarning();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      await publish();
+      await checkReleaseRateLimit(undefined, "ip:198.51.100.1");
+      expect(String(warn.mock.calls[0]![0])).toContain("no RELEASE_READ_LIMITER binding");
+      await change("@alpha/demo", "1.0.0", yank, { key: ownerKey, env: { RELEASE_READ_LIMITER: undefined, RELEASE_WRITE_LIMITER: undefined } });
+      expect(warn.mock.calls.map((call) => String(call[0])).filter((line) => line.includes("no RELEASE_WRITE_LIMITER binding"))).toHaveLength(1);
+    } finally {
+      warn.mockRestore();
+      resetRateLimitWarning();
+    }
   });
 
   it("throttles X-Admin-Secret guesses by client IP before checking the secret", async () => {

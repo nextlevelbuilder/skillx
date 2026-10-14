@@ -328,11 +328,15 @@ share a quarantined tree digest, every read of that tree stays
 caller, namespace `5402`), separate from the read limiter. A request carrying
 `X-Admin-Secret` is first counted by client IP, so secret guessing is
 throttled; every actor is then counted (the admin as `user:admin`) before any
-D1 write. A limited request answers `429 rate_limited` with `Retry-After` and
-writes no audit row. For accounts the limiter fails closed: a missing or
-failing binding answers `503 rate_limit_unavailable`. The admin is let
-through so containment never depends on the binding. Check the binding is
-listed in the `wrangler deploy` output before enabling the flag.
+state or audit write. A limited request answers `429 rate_limited` with
+`Retry-After` and writes no audit row. For accounts the limiter fails closed:
+a missing or failing binding answers `503 rate_limit_unavailable`, so during
+such an outage an owner who must yank asks an admin. The admin is let through
+so containment never depends on the binding. All operators share the single
+`user:admin` bucket, so bulk containment runs at most 30 transitions per
+minute per Cloudflare location: pace a large incident and retry on `429`
+after `Retry-After`. Check the binding is listed in the `wrangler deploy`
+output before enabling the flag.
 
 **Rollback of 0013**: disable the flag and redeploy first (the state endpoint
 then answers 404), then run the rollback SQL in the header of

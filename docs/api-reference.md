@@ -1194,7 +1194,8 @@ answer `401 invalid_api_key`, so a leaked CI publish key cannot yank.
 `RELEASE_WRITE_LIMITER`, 30 per 60 seconds per caller. A request carrying
 `X-Admin-Secret` is first counted by client IP, before the secret is checked,
 so guessing is throttled. Once the actor is known, every request (admin
-included, as the single caller `user:admin`) is counted before any D1 write.
+included, as the single caller `user:admin`) is counted before any state or
+audit write.
 A limited request answers `429 rate_limited` with `Retry-After` and writes no
 audit row. For accounts a missing or failing binding answers
 `503 rate_limit_unavailable`; the admin is let through so containment never
