@@ -101,6 +101,7 @@ pnpm db:migrate:remote    # Apply migrations to remote D1
 | `/api/v1/packages/:scope/:slug/releases/:version`, `/api/v1/releases/:digest/manifest` | api.v1.release-manifest.ts | Optional Key/Session (404 unless `SKILLX_RELEASES_API` on) |
 | `/api/v1/releases/:digest/files/*`, `/api/v1/releases/:digest/artifact` | api.v1.release-file.ts, api.v1.release-artifact.ts | Optional Key/Session (404 unless `SKILLX_RELEASES_API` on) |
 | `/api/v1/packages/:scope/:slug/releases/:version/state`, `/api/v1/publishers/:handle/state` | api.v1.release-state.ts (POST compare-and-set state change, audited) | Admin `X-Admin-Secret` or owner session/full API key; scoped keys refused (404 unless `SKILLX_RELEASES_API` on) |
+| `/api/v1/publishers` | api.v1.publishers.ts (POST provision an active publisher; idempotent, audited) | Admin `X-Admin-Secret` only; accounts 403 (404 unless `SKILLX_RELEASES_API` on) |
 | `/api/v1/keys` | api.v1.signing-keys.ts | None (404 unless `SKILLX_RELEASES_API` on) |
 
 ## Database Tables (Drizzle schema)

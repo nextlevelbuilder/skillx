@@ -33,13 +33,17 @@ export type ReleaseStateEnv = Env;
 
 /** Largest accepted request body; a reason is at most 512 UTF-8 bytes. */
 export const MAX_STATE_BODY_BYTES = 4096;
-const BODY_FIELDS = new Set(["from", "to", "reason"]);
-const PUBLISHER_HANDLE = /^@([a-z0-9][a-z0-9._-]{0,63})$/;
+const BODY_FIELDS: ReadonlySet<string> = new Set(["from", "to", "reason"]);
+/** A publisher handle as stored in `publishers.handle`: lowercase, without the `@`. */
+const HANDLE_SOURCE = "[a-z0-9][a-z0-9._-]{0,63}";
+const PUBLISHER_HANDLE = new RegExp(`^@(${HANDLE_SOURCE})$`);
+/** A bare publisher handle (no `@`), the form of `publishers.handle`. */
+export const BARE_PUBLISHER_HANDLE = new RegExp(`^${HANDLE_SOURCE}$`);
 /** Control, format (bidi included), line/paragraph separator and lone surrogate characters. */
 const FORBIDDEN_REASON = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u;
-const NO_STORE = { "Cache-Control": "no-store" };
+export const NO_STORE = { "Cache-Control": "no-store" };
 
-const invalidRequest = (message: string) => releaseError(400, "invalid_request", message);
+export const invalidRequest = (message: string) => releaseError(400, "invalid_request", message);
 
 async function sha256(text: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
@@ -95,7 +99,8 @@ async function readCappedText(request: Request): Promise<string> {
   }
 }
 
-function parseReason(raw: unknown): string | null {
+/** An optional audit reason: 1 to 512 UTF-8 bytes without control, format or separator characters. */
+export function parseReason(raw: unknown): string | null {
   if (raw === undefined || raw === null) return null;
   if (typeof raw !== "string") throw invalidRequest("reason must be a string");
   const size = new TextEncoder().encode(raw).length;
@@ -104,12 +109,11 @@ function parseReason(raw: unknown): string | null {
   return raw;
 }
 
-/** Reads `{from, to, reason?}`; `from` and `to` must be states of the subject. */
-export async function readStateChange<S extends string>(
-  request: Request,
-  isState: (value: unknown) => value is S,
-  states: readonly string[],
-): Promise<{ from: S; to: S; reason: string | null }> {
+/**
+ * Reads a capped `application/json` body that must be a JSON object holding
+ * only `fields` (an unknown field is 400). Values are not checked here.
+ */
+export async function readJsonObject(request: Request, fields: ReadonlySet<string>): Promise<Record<string, unknown>> {
   let body: unknown;
   try {
     body = JSON.parse(await readCappedText(request));
@@ -119,8 +123,18 @@ export async function readStateChange<S extends string>(
   }
   if (typeof body !== "object" || body === null || Array.isArray(body)) throw invalidRequest("body must be a JSON object");
   const record = body as Record<string, unknown>;
-  const unknown = Object.keys(record).filter((key) => !BODY_FIELDS.has(key));
+  const unknown = Object.keys(record).filter((key) => !fields.has(key));
   if (unknown.length > 0) throw invalidRequest(`unknown field: ${unknown.join(", ")}`);
+  return record;
+}
+
+/** Reads `{from, to, reason?}`; `from` and `to` must be states of the subject. */
+export async function readStateChange<S extends string>(
+  request: Request,
+  isState: (value: unknown) => value is S,
+  states: readonly string[],
+): Promise<{ from: S; to: S; reason: string | null }> {
+  const record = await readJsonObject(request, BODY_FIELDS);
   if (!isState(record.from) || !isState(record.to)) throw invalidRequest(`from and to must be one of: ${states.join(", ")}`);
   return { from: record.from, to: record.to, reason: parseReason(record.reason) };
 }
@@ -168,14 +182,15 @@ async function enforceWriteLimit(env: ReleaseStateEnv, caller: string, failClose
  * request leaves no audit row: the append-only audit cannot be flooded faster
  * than the limit allows.
  */
-async function resolveLimitedActor(request: Request, env: ReleaseStateEnv): Promise<TransitionActor> {
+export async function resolveLimitedActor(request: Request, env: ReleaseStateEnv): Promise<TransitionActor> {
   if (request.headers.get("X-Admin-Secret") !== null) await enforceWriteLimit(env, rateLimitCaller(request, null), false);
   const actor = await resolveActor(request, env);
   await enforceWriteLimit(env, rateLimitCaller(request, actor.id), actor.kind !== "admin");
   return actor;
 }
 
-function failureHeaders(error: ReleaseHttpError): Record<string, string> {
+/** `Retry-After` for a 429, `WWW-Authenticate` for a 401. */
+export function failureHeaders(error: ReleaseHttpError): Record<string, string> {
   if (error instanceof RateLimitedError) return { "Retry-After": String(error.retryAfterSeconds) };
   return error.status === 401 ? { "WWW-Authenticate": "Bearer" } : {};
 }

@@ -297,7 +297,27 @@ Run this supervised, by a maintainer, in order. Stop at the first failure.
    `GET /api/v1/packages/@agentkit/x/releases` answers `404`.
 4. **Enable.** Set `SKILLX_RELEASES_API` to `"1"` in `apps/web/wrangler.jsonc`
    and deploy again.
-5. **Supervised smoke** with a throwaway skill of a test publisher:
+5. **Provision the smoke publisher.** No publisher exists until an admin
+   creates one, and scoped key creation and uploads both require an active
+   publisher owned by the key owner. Find the owner's user id (the Better Auth
+   table is `user`):
+   ```bash
+   wrangler d1 execute skillx-db --remote \
+     --command "SELECT id FROM \"user\" WHERE email = 'owner@example.com'"
+   ```
+   Then, with the admin secret exported in your shell as `ADMIN_SECRET` (never
+   paste it into a file or a ticket):
+   ```bash
+   curl -sS -X POST https://skillx.sh/api/v1/publishers \
+     -H "X-Admin-Secret: $ADMIN_SECRET" \
+     -H "Content-Type: application/json" \
+     -d '{"handle":"<handle>","ownerUserId":"<user id>","reason":"activation smoke"}'
+   ```
+   Expect `200` with `"state": "active"` and `"created": true`; a replay
+   answers `"created": false`, and `409 publisher.conflict` means the handle
+   already belongs to another user. `handle` is lowercase without `@`. The
+   owner can now create a `releases:publish:@<handle>` key in Settings.
+6. **Supervised smoke** with a throwaway skill of a test publisher:
    - publish one release through `publish-release.yml` (or `skillx release`
      with a scoped key) and expect `200` with `"created": true` and the
      signed manifest (a replay of the same tree answers `200` with

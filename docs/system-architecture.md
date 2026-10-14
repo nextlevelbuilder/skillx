@@ -356,6 +356,7 @@ Response:
 | POST | `/api/admin/seed` | Load demo data (dev only) |
 | POST | `/api/v1/packages/@h/s/releases/:version/state` | Release state transition (owner: publish draft, yank; admin: all edges) |
 | POST | `/api/v1/publishers/@h/state` | Publisher suspend / reinstate / revoke (admin) |
+| POST | `/api/v1/publishers` | Provision an active publisher for an existing user (admin; idempotent, audited with `from_state` `none`) |
 
 ## Voting System (NEW)
 

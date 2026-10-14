@@ -1302,11 +1302,59 @@ The publisher route answers `{"handle", "from", "to", "state", "changedAt"}`.
 | 429 | `rate_limited` (with `Retry-After`) |
 | 500 | `release.internal_error` |
 
+### Provisioning a publisher
+
+`POST /api/v1/publishers` (admin only) creates an `active` publisher, the
+prerequisite of scoped key creation and of every upload. Same flag (`404
+not_found` while off; other methods `405 method_not_allowed`), same admin
+secret check and same `RELEASE_WRITE_LIMITER` counting as a state change
+(client IP first, then `user:admin`, before the body is read). Without
+`X-Admin-Secret` an account (unscoped key or session) is `403
+publisher.admin_only`; no credentials at all is `401 auth.required`.
+
+**Request**: `Content-Type: application/json`, at most 4 KiB:
+
+```json
+{ "handle": "acme", "ownerUserId": "<user.id>", "verifiedBy": "admin", "reason": "<optional>" }
+```
+
+- `handle`: the bare lowercase handle, without `@`
+  (`[a-z0-9][a-z0-9._-]{0,63}`), as stored in `publishers.handle`. The display
+  name is set to the handle.
+- `ownerUserId`: the `id` of an existing row of the `user` table; an unknown
+  id is `404 user.not_found`.
+- `verifiedBy`: optional, and only `admin` (the default) is accepted. The
+  `publishers` table has no verification column, and every signed release
+  manifest records `verifiedBy: "admin"`.
+- `reason`: optional, the state change reason rules; stored on the audit row.
+- Any other member is `400 invalid_request`.
+
+**Response** `200` (`Cache-Control: no-store`):
+
+```json
+{ "handle": "acme", "ownerUserId": "<user.id>", "verifiedBy": "admin", "state": "active", "created": true }
+```
+
+Idempotent and race safe (`INSERT ... ON CONFLICT(handle) DO NOTHING`, then a
+read back). Replaying the same handle and owner answers `200` with
+`"created": false` and the publisher's stored `state` (a suspended publisher
+stays suspended), and writes nothing. The same handle with another owner is
+`409 publisher.conflict`. A creation writes one `release_state_audit` row in
+the same batch: `subject_kind` `publisher`, actor `admin`, `from_state`
+`none`, `to_state` `active`, outcome `applied`.
+
+**Errors**: `400 invalid_request`, `401 auth.required` / `invalid_api_key` /
+`invalid_admin_secret`, `403 publisher.admin_only`, `404 not_found` (API
+disabled) / `user.not_found`, `409 publisher.conflict`, `413
+request_too_large`, `415 unsupported_media_type`, `429 rate_limited`, `500
+release.internal_error`.
+
 ### Database table (migration `0013_release_state_audit`)
 
 `release_state_audit`: `id`, `subject_kind` (`release` or `publisher`),
-`subject_id`, `actor_kind` (`admin` or `user`), `actor_id`, `from_state`,
-`to_state`, `outcome`, `reason`, `created_at`, index
+`subject_id`, `actor_kind` (`admin` or `user`), `actor_id`, `from_state`
+(`none` for a publisher creation), `to_state`, `outcome`, `reason`,
+`created_at`, index
 `idx_release_state_audit_subject`, and triggers
 `release_state_audit_no_update` / `release_state_audit_no_delete`. No foreign
 keys, so the history outlives its subject. Additive; the header rollback drops
