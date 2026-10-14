@@ -234,9 +234,10 @@ digest, otherwise 409 `kit.approval_required`. Before moving
 identical lock or gets the explicit reason. A `proposed` revision must be
 reviewed before activation (`kit.review_required`). A rejected or quarantined
 revision cannot be activated (`kit.revision_unusable`). A quarantined
-effective revision makes `GET /lock` fail with `kit.locked_incompatible`
-(reason `the revision is quarantined`) until the owner activates or rolls back
-to another revision.
+revision, effective or anywhere in the parent chain, makes `GET /lock` fail
+with `kit.locked_incompatible` (reason `the revision is quarantined`, or the
+quarantined parent) until the owner activates or rolls back to another
+revision.
 
 ## Session-derived proposals
 
@@ -244,6 +245,19 @@ AgentKit can turn improvements learned in local sessions into a proposal. The
 server accepts only the reviewed overlay, never raw session data, and the
 proposal is always private. The owner reviews it, then activates it as usual.
 Nothing activates implicitly.
+
+- **Private kits only**: a proposal for a public kit fails with 409
+  `proposal.private_kit_required` (fork it to a private kit first), and so
+  does activating a session-derived revision once the kit has become public.
+  The kit's visibility is never flipped by a proposal.
+- **A human approves**: review (approve or reject) and activation of a
+  session-derived revision need an interactive web session. An API key, such
+  as the one AgentKit submits with, gets 403
+  `kit.interactive_approval_required`. The proofs record `credential`.
+- **No chaining on unreviewed proposals**: a from-revision that is `proposed`
+  (or any session-derived revision that is not `reviewed`) fails with 409
+  `kit.review_required`, and an unreviewed proposal is never usable as a
+  parent kit revision.
 
 | Endpoint | Purpose |
 |---|---|
@@ -286,13 +300,20 @@ verifies the result like any revision.
 - **Evidence**: optional. `summary` is at most 2048 UTF-8 bytes
   (`proposal.evidence_too_large`). `signals` holds at most 16 short lowercase
   names mapped to finite numbers.
-- **Content scan**: covers every file the new overlay changes or adds against
-  the from composition, plus the evidence summary as `evidence/summary.md`.
-  - A secret, or an absolute local path, fails with 422
-    `proposal.content_refused`, and nothing is stored. Local paths are
-    `/home/<user>`, `/Users/<user>`, `/root`, `C:\Users\<user>` and UNC shares.
-    `error.findings` lists `danger:<rule>:<path>` codes, never the matched
-    text.
+- **Content scan**: covers what the new overlay introduces against the from
+  composition (the lines a changed file gains, a new file whole), plus the
+  evidence summary as `evidence/summary.md`. Lines kept from the base are not
+  scanned, so a finding already in the base never refuses a proposal.
+  - Fails with 422 `proposal.content_refused`, nothing stored: a secret
+    (vendor token formats, `password=`/`passwd:` assignments, Bearer tokens,
+    URLs with `user:pass@`, JWTs, private key blocks, dotenv-style secret
+    keys), binary content, text with a byte order mark (UTF-8/16/32), and
+    every absolute local path: any drive-letter path (also JSON-escaped
+    `C:\\...`), UNC shares (also escaped), `file:` URLs, and `/home`,
+    `/Users`, `/root`, `/mnt`, `/media`, `/Volumes`, `/var/folders`, `/tmp`,
+    `/private`, `/run/user` after any non-path character. System paths such as
+    `/usr/bin/env` are allowed. `error.findings` lists `danger:<rule>:<path>`
+    codes, never the matched text.
   - Any other `danger` finding, such as prompt injection or a
     `javascript:` URL, stores the proposal as `quarantined`. A quarantined
     proposal cannot be reviewed or activated.
@@ -302,12 +323,14 @@ verifies the result like any revision.
     the restriction is dropped;
   - `hooks` for a new or changed `hooks` value;
   - `script:<path>` for a changed declared script or executable;
-  - `executable:<path>` for a newly executable file;
-  - `binary:<path>` for a changed binary file.
+  - `executable:<path>` for a newly executable file.
 
-  A required permission that is not declared fails with 422
-  `proposal.undeclared_permission`, and `error.required` and `error.missing`
-  list them. At most 64 permissions can be declared.
+  The declared permissions must equal the required ones. A missing one fails
+  with 422 `proposal.undeclared_permission` (`error.required`,
+  `error.missing`), an unneeded one with 422 `proposal.excess_permission`
+  (`error.required`, `error.extra`). At most 64 permissions can be declared.
+- **Nesting**: a request body nested deeper than 32 levels is 400
+  `invalid_request`.
 
 ## Hard invariants
 
@@ -349,17 +372,21 @@ Migration `0016_personal_kit_proposals` is also strictly additive. It creates
 - the optional evidence;
 - the scan finding codes and changed paths.
 
-It also adds an index on `kit_id` and two triggers that make the rows
-immutable and undeletable. It never holds transcripts, prompts, environment
+It also adds an index on `kit_id`, two triggers that make the rows immutable
+and undeletable, and two guard triggers on `personal_kit_revisions`:
+`rejected` and `quarantined` are final (a rejected revision may still be
+quarantined), `reviewed` moves only to `quarantined`, nothing returns to
+`draft` or `proposed`, and a session-derived revision becomes `reviewed` only
+with the owner's consent proof in `approval_json`, which is never cleared. It never holds transcripts, prompts, environment
 or file content. Its rollback SQL is in its header.
 
 ## Error codes
 
 | Code | Status |
 |---|---|
-| `kit.generation_conflict`, `kit.idempotency_conflict`, `kit.revision_exists`, `kit.composition_digest_mismatch`, `overlay.conflict`, `kit.approval_required`, `kit.review_required`, `kit.revision_unusable`, `kit.revision_effective`, `kit.discard_unconfirmed`, `kit.conflict_closed`, `kit.locked_incompatible`, `kit.not_a_proposal` | 409 |
-| `proposal.invalid`, `proposal.forbidden_field`, `proposal.private_only`, `proposal.evidence_too_large`, `proposal.unknown_skill`, `proposal.base_mismatch`, `proposal.content_refused` (`findings`), `proposal.undeclared_permission` (`required`, `missing`) | 422 |
-| `kit.admin_only` | 403 |
+| `kit.generation_conflict`, `kit.idempotency_conflict`, `kit.revision_exists`, `kit.composition_digest_mismatch`, `overlay.conflict`, `kit.approval_required`, `kit.review_required`, `kit.revision_unusable`, `kit.revision_effective`, `kit.discard_unconfirmed`, `kit.conflict_closed`, `kit.locked_incompatible`, `kit.not_a_proposal`, `proposal.private_kit_required` | 409 |
+| `proposal.invalid`, `proposal.forbidden_field`, `proposal.private_only`, `proposal.evidence_too_large`, `proposal.unknown_skill`, `proposal.base_mismatch`, `proposal.content_refused` (`findings`), `proposal.undeclared_permission` (`required`, `missing`), `proposal.excess_permission` (`required`, `extra`) | 422 |
+| `kit.admin_only`, `kit.interactive_approval_required` | 403 |
 | `kit.invalid`, `overlay.invalid`, `schema.unsupported_version`, `kit.duplicate_identity`, `kit.mode_violation`, `kit.alias_collision`, `overlay.shared_alias`, `identity.reserved_alias`, `kit.request_too_large`, `kit.cycle`, `kit.multi_parent`, `kit.public_derivative_forbidden`, `kit.base_unavailable` (409 when resolving a conflict) | 422 |
 | `kit.publisher_not_owned` | 403 |
 | `invalid_request` (malformed body, ids or updates) | 400 |

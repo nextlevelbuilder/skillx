@@ -13,7 +13,7 @@
 import { validateOverlay } from "@skillx/contracts";
 import type { KitSkillEntry, SkillOverlay } from "@skillx/contracts";
 import { releaseError } from "~/lib/releases/release-http";
-import { requireId } from "./kit-http";
+import { MAX_JSON_DEPTH, requireId } from "./kit-http";
 
 export const PROPOSAL_SCHEMA = "skillx.kit-proposal/v1";
 export const PROPOSAL_LIMITS = { maxPermissions: 64, maxSummaryBytes: 2048, maxSignals: 16 } as const;
@@ -36,8 +36,9 @@ export const proposalError = (code: string, message: string) => releaseError(422
 const invalid = (message: string) => proposalError("proposal.invalid", message);
 
 /** Refuses raw session data by key name at any depth; reports the key path only. */
-export function assertNoForbiddenKeys(value: unknown, at = "proposal"): void {
-  if (Array.isArray(value)) return value.forEach((v, i) => assertNoForbiddenKeys(v, `${at}[${i}]`));
+export function assertNoForbiddenKeys(value: unknown, at = "proposal", depth = 0): void {
+  if (typeof value === "object" && value !== null && depth >= MAX_JSON_DEPTH) throw invalid(`${at} nests deeper than ${MAX_JSON_DEPTH} levels`);
+  if (Array.isArray(value)) return value.forEach((v, i) => assertNoForbiddenKeys(v, `${at}[${i}]`, depth + 1));
   if (!isRecord(value)) return;
   for (const [key, child] of Object.entries(value)) {
     const path = `${at}.${key}`;
@@ -45,7 +46,7 @@ export function assertNoForbiddenKeys(value: unknown, at = "proposal"): void {
     if (typeof child !== "number" && FORBIDDEN_KEYS.has(key.toLowerCase().replace(/[-_]/g, ""))) {
       throw proposalError("proposal.forbidden_field", `${path} is not accepted: proposals carry reviewed overlays only, never raw session data`);
     }
-    assertNoForbiddenKeys(child, path);
+    assertNoForbiddenKeys(child, path, depth + 1);
   }
 }
 
@@ -56,11 +57,11 @@ function only(raw: Record<string, unknown>, at: string, fields: string[]): void 
 const TOOL = /^[A-Za-z0-9_.:()*-]{1,128}$/;
 const PERMISSION_PATH = /^(?!\/)(?!.*(?:^|\/)\.\.(?:\/|$))[^\s\\]{1,512}$/;
 
-/** `allowed-tools:<tool>`, `allowed-tools:*`, `hooks`, `script:<path>`, `executable:<path>`, `binary:<path>`. */
+/** `allowed-tools:<tool>`, `allowed-tools:*`, `hooks`, `script:<path>`, `executable:<path>` (binary content is refused, so it needs no permission). */
 export function isPermission(value: string): boolean {
   if (value === "hooks") return true;
   if (value.startsWith("allowed-tools:")) return TOOL.test(value.slice("allowed-tools:".length));
-  const match = /^(script|executable|binary):(.*)$/.exec(value);
+  const match = /^(script|executable):(.*)$/.exec(value);
   return match !== null && PERMISSION_PATH.test(match[2]!);
 }
 

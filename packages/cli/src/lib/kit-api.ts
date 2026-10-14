@@ -68,20 +68,7 @@ export const kitApi = {
     ),
   submitProposal: (kit: string, proposal: unknown, expectedGeneration: number, idempotencyKey: string) =>
     post<StoredRevision>(kit, 'proposals', { expectedGeneration, idempotencyKey, proposal }),
-  /** The owner's review; approving names the exact digest and declared permissions and gives consent. */
-  reviewProposal: (
-    kit: string,
-    revision: Pick<RevisionView, 'id' | 'digest'>,
-    expectedGeneration: number,
-    decision: { approve: true; permissions: string[] } | { approve: false },
-  ) =>
-    post<{ revisionId: string; state: 'reviewed' | 'rejected'; generation: number }>(
-      kit,
-      `revisions/${encodeURIComponent(revision.id)}/review`,
-      decision.approve
-        ? { expectedGeneration, decision: 'approve', approval: { revisionDigest: revision.digest, permissions: decision.permissions, visibility: 'private', consent: true } }
-        : { expectedGeneration, decision: 'reject' },
-    ),
+  // Review and activation of a proposal need the owner's web session; an API key cannot approve.
   lock: (kit: string, revisionId?: string) =>
     apiRequest<{ lock: unknown; documents: unknown[]; warnings: string[] }>(kitPath(kit, revisionId ? `lock?revision=${encodeURIComponent(revisionId)}` : 'lock')),
 };

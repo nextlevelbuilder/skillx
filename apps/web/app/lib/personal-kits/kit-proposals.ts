@@ -5,16 +5,18 @@
  * `quarantined` when the scan finds danger) and never activates: the owner
  * reviews it (`revisions/:id/review`) and then activates it as usual.
  *
- * Refused with nothing stored: raw session fields, a public visibility, a
- * secret or absolute local path in changed content or evidence, and a change
- * needing permissions the proposal does not declare. `validate` runs every
- * check, including the server-side composition, and writes nothing.
+ * Refused with nothing stored: a public kit (fork it to a private kit), a
+ * from-revision that is itself an unreviewed proposal, raw session fields, a
+ * public visibility, a secret, absolute local path, binary or BOM content in
+ * what the change introduces or in the evidence, and declared permissions
+ * that differ from those the change requires. `validate` runs every check,
+ * including the server-side composition, and writes nothing.
  */
 import { canonicalJson, revisionDigest, validateKitDocument } from "@skillx/contracts";
 import type { PersonalKitDocument } from "@skillx/contracts";
 import { DetailedKitError, conflict, json, requireGeneration, requireIdempotencyKey } from "./kit-http";
 import type { KitCaller } from "./kit-http";
-import { documentOf, getRevision, ownedKit } from "./kit-store";
+import { documentOf, getRevision, writableKit } from "./kit-store";
 import type { KitRow, RevisionRow } from "./kit-store";
 import { storeRevision, storedResponse } from "./kit-revisions";
 import { verifyDocument } from "./kit-verify";
@@ -34,10 +36,17 @@ interface Prepared {
 
 /** Resolves the proposal against its from-revision and builds the new private document. */
 async function prepare(caller: KitCaller, kitName: string, raw: unknown): Promise<Prepared> {
-  const kit = await ownedKit(caller.env.DB, kitName, caller.userId);
+  const kit = await writableKit(caller.env.DB, kitName, caller.userId);
+  if (kit.visibility !== "private") {
+    throw conflict("proposal.private_kit_required", "session-derived proposals apply to private kits only; fork this kit to a private kit first");
+  }
   const proposal = readProposal(raw);
   const from = await getRevision(caller.env.DB, kit.id, proposal.fromRevisionId);
   if (from.state === "rejected" || from.state === "quarantined") throw conflict("kit.revision_unusable", `the from revision is ${from.state}`);
+  // Chaining on an unreviewed proposal would carry its content and permissions past review.
+  if (from.state === "proposed" || (from.origin === "session-derived" && from.state !== "reviewed")) {
+    throw conflict("kit.review_required", "the from revision is an unreviewed proposal; review it first");
+  }
   const fromDoc = documentOf(from);
   const index = fromDoc.skills.findIndex((s) => s.identity === proposal.skill.identity);
   if (index < 0) throw proposalError("proposal.unknown_skill", `${proposal.skill.identity} is not in the from revision`);
@@ -58,9 +67,15 @@ async function assess(p: Prepared, verified: VerifiedDocument): Promise<Proposal
   if (scan.refusing.length > 0) {
     throw new DetailedKitError(422, "proposal.content_refused", "the proposal contains a secret or an absolute local path; redact it and retry", { findings: scan.refusing });
   }
-  const missing = scan.required.filter((r) => !p.proposal.declaredPermissions.includes(r));
+  const declared = p.proposal.declaredPermissions;
+  const missing = scan.required.filter((r) => !declared.includes(r));
   if (missing.length > 0) {
     throw new DetailedKitError(422, "proposal.undeclared_permission", "the change needs permissions the proposal does not declare", { required: scan.required, missing });
+  }
+  // The owner approves exactly what the change needs, never a broader grant.
+  const extra = declared.filter((d) => !scan.required.includes(d));
+  if (extra.length > 0) {
+    throw new DetailedKitError(422, "proposal.excess_permission", "the proposal declares permissions the change does not need", { required: scan.required, extra });
   }
   return scan;
 }

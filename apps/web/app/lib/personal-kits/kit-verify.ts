@@ -33,7 +33,7 @@ export interface VerifiedDocument {
   warnings: string[];
 }
 
-const UNUSABLE_PARENT_STATES = new Set(["rejected", "quarantined"]);
+const UNUSABLE_PARENT_STATES = new Set(["proposed", "rejected", "quarantined"]);
 
 /**
  * Skill identities that may not be overlaid in place: those owned by AgentKit
@@ -55,8 +55,13 @@ export interface LoadedChain {
   foreign: Set<number>;
 }
 
-/** Child-first lineage of `doc`: parents are found by kit name and revision digest. */
-export async function loadChain(caller: KitCaller, doc: PersonalKitDocument): Promise<LoadedChain> {
+/**
+ * Child-first lineage of `doc`: parents are found by kit name and revision
+ * digest. An unreviewed proposal is never a parent. With `quarantined`, a
+ * parent quarantined after it was used is kept and reported there (the lock
+ * fails with `kit.locked_incompatible`); without it, it is unavailable.
+ */
+export async function loadChain(caller: KitCaller, doc: PersonalKitDocument, quarantined?: string[]): Promise<LoadedChain> {
   const { env, userId } = caller;
   const chain = [doc];
   const foreign = new Set<number>();
@@ -69,8 +74,10 @@ export async function loadChain(caller: KitCaller, doc: PersonalKitDocument): Pr
     const owned = kit !== null && kit.owner_user_id === userId;
     const readable = owned || (kit !== null && kit.visibility === "public");
     const row = readable ? await revisionByDigest(env.DB, kit!.id, cur.parent.revisionDigest) : null;
+    const held = row !== null && row.state === "quarantined" && quarantined !== undefined && (owned || (row.activated_at !== null && documentOf(row).visibility === "public"));
     const usable = row !== null && !UNUSABLE_PARENT_STATES.has(row.state) && (owned || usableForeignParent(row));
-    if (!usable) {
+    if (held) quarantined.push(`parent ${cur.parent.kit} revision ${cur.parent.revisionDigest} is quarantined`);
+    else if (!usable) {
       throw kitError(KIT_CODES.baseUnavailable, "parent", `parent revision ${cur.parent.revisionDigest} of ${cur.parent.kit} is not available`);
     }
     if (kit!.visibility !== "public") parentPublic = false;

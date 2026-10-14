@@ -30,6 +30,13 @@ export const kitNotFound = () => releaseError(404, "not_found", "Not found");
 export const badRequest = (message: string) => releaseError(400, "invalid_request", message);
 export const conflict = (code: string, message: string) => releaseError(409, code, message);
 
+/** Review and activation of a session-derived revision: a human in a web session, never an API key. */
+export function requireInteractive(caller: { interactive: boolean }): void {
+  if (!caller.interactive) {
+    throw releaseError(403, "kit.interactive_approval_required", "approve session-derived revisions signed in on the web, not with an API key");
+  }
+}
+
 /** `@handle/name` of the route; malformed is 400. */
 export function parseKitName(scope: string | undefined, name: string | undefined): string {
   const kit = `${scope ?? ""}/${name ?? ""}`;
@@ -53,8 +60,24 @@ export function contractError(error: PersonalKitError): ReleaseHttpError {
 export const json = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
   Response.json(body, { status, headers: { ...headers, ...NO_STORE } });
 
+/** Deepest JSON nesting a kit request may carry (documents and overlays need far less). */
+export const MAX_JSON_DEPTH = 32;
+
+/** 400 when `value` nests deeper than `max` (iterative, so hostile depth cannot exhaust the stack). */
+export function assertJsonDepth(value: unknown, max = MAX_JSON_DEPTH): void {
+  const stack: Array<[unknown, number]> = [[value, 1]];
+  while (stack.length > 0) {
+    const [v, depth] = stack.pop()!;
+    if (typeof v !== "object" || v === null) continue;
+    if (depth > max) throw badRequest(`body nests deeper than ${max} levels`);
+    for (const child of Array.isArray(v) ? v : Object.values(v)) stack.push([child, depth + 1]);
+  }
+}
+
 export async function readKitBody(request: Request, fields: readonly string[]): Promise<Record<string, unknown>> {
-  return readJsonObject(request, new Set(fields), MAX_KIT_BODY_BYTES);
+  const body = await readJsonObject(request, new Set(fields), MAX_KIT_BODY_BYTES);
+  assertJsonDepth(body);
+  return body;
 }
 
 export function requireGeneration(raw: unknown): number {
@@ -87,6 +110,8 @@ export interface KitCaller {
   /** The owner acting; `"admin"` for an operator call (admin routes only). */
   userId: string;
   admin: boolean;
+  /** A signed-in web session (no API key, no admin secret): a human at the browser. */
+  interactive: boolean;
   env: KitEnv;
   request: Request;
   now: Date;
@@ -127,7 +152,9 @@ export async function serveKit(
       if (access === "write" && actor.kind !== "user") throw kitNotFound();
       userId = actor.id;
     }
-    return await handler({ userId, admin: access === "admin", env, request, now: now(), bases: newBaseCache() });
+    // resolveViewer authenticates the API key whenever Authorization is present, the session otherwise.
+    const interactive = access !== "admin" && !request.headers.has("Authorization") && !request.headers.has("X-Admin-Secret");
+    return await handler({ userId, admin: access === "admin", interactive, env, request, now: now(), bases: newBaseCache() });
   } catch (error) {
     if (error instanceof PersonalKitError) return errorResponse(contractError(error));
     if (error instanceof DetailedKitError) {

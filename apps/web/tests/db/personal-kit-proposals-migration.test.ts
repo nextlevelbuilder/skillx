@@ -68,7 +68,7 @@ describe("migration 0016_personal_kit_proposals", () => {
     const rowsBefore = rows(raw);
     apply(raw, [MIGRATION]);
     const added = schema(raw).filter((o) => !before.some((b) => b.name === o.name));
-    expect(added.length).toBe(4);
+    expect(added.length).toBe(6);
     for (const o of added) expect(o.name).toMatch(OWNED);
     expect(schema(raw).filter((o) => !OWNED.test(o.name))).toEqual(before);
     expect(rows(raw)).toEqual(rowsBefore);
@@ -80,7 +80,7 @@ describe("migration 0016_personal_kit_proposals", () => {
     apply(raw, [MIGRATION]);
     raw.prepare("INSERT INTO d1_migrations (name) VALUES (?)").run(MIGRATION);
     const rollback = rollbackSql();
-    expect(rollback.length).toBe(4);
+    expect(rollback.length).toBe(6);
     for (const statement of rollback) raw.exec(statement);
     expect(schema(raw)).toEqual(before);
     expect((raw.prepare("SELECT name FROM d1_migrations ORDER BY id").all() as Array<{ name: string }>).map((r) => r.name)).toEqual(BEFORE);

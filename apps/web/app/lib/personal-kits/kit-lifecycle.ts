@@ -3,14 +3,17 @@
  * re-activates an earlier revision) needs the user's approval naming the
  * exact `revisionDigest`, re-checks every base of the effective lineage and
  * moves `effective_revision_id` under the generation guard; nothing becomes
- * effective implicitly. A proposal (`proposed`) must be reviewed first.
+ * effective implicitly. A proposal (`proposed`) must be reviewed first, and
+ * a session-derived revision activates only on a private kit and only from
+ * an interactive web session. A quarantined revision anywhere in the chain
+ * fails the lock with `kit.locked_incompatible`.
  * Rejection is final for that revision. The lock is derived on read from the
  * immutable documents, so equal revisions always give equal lock bytes;
  * ancestors owned by someone else are returned as digest references only.
  */
 import { buildKitLock, resolveLineage } from "@skillx/contracts";
 import { baseFailure, loadPinnedBase } from "./base-loader";
-import { badRequest, conflict, json, kitNotFound, requireId } from "./kit-http";
+import { badRequest, conflict, json, kitNotFound, requireId, requireInteractive } from "./kit-http";
 import type { KitCaller } from "./kit-http";
 import { commitKitMutation, documentOf, getRevision, ownedKit, writableKit } from "./kit-store";
 import type { KitRow, RevisionRow } from "./kit-store";
@@ -28,9 +31,9 @@ interface LockCheck {
 
 /** Builds the lock of `rev` and re-checks each pinned base for the owner. */
 export async function checkLock(caller: KitCaller, rev: RevisionRow): Promise<LockCheck> {
-  const loaded = await loadChain(caller, documentOf(rev));
-  const { chain } = loaded;
   const reasons: string[] = rev.state === "quarantined" ? ["the revision is quarantined"] : [];
+  const loaded = await loadChain(caller, documentOf(rev), reasons);
+  const { chain } = loaded;
   const warnings: string[] = [];
   for (const { entry } of resolveLineage(chain)) {
     try {
@@ -63,7 +66,13 @@ export async function activateRevision(caller: KitCaller, kitName: string, body:
   requireApproval(body.approval, rev);
   if (rev.state === "proposed") throw conflict("kit.review_required", "a proposed revision must be reviewed before activation");
   if (!ACTIVATABLE.has(rev.state)) throw conflict("kit.revision_unusable", `the revision is ${rev.state}`);
-  if (rev.origin === "session-derived" && rev.state !== "reviewed") throw conflict("kit.review_required", "a session-derived revision must be reviewed");
+  const sessionDerived = rev.origin === "session-derived";
+  if (sessionDerived) {
+    if (rev.state !== "reviewed") throw conflict("kit.review_required", "a session-derived revision must be reviewed");
+    requireInteractive(caller);
+    // Activation would make the kit private; a public kit is forked to a private one instead.
+    if (kit.visibility !== "private") throw conflict("proposal.private_kit_required", "a session-derived revision activates on a private kit only; fork this kit to a private kit");
+  }
   if (rollback && (rev.activated_at === null || rev.id === kit.effective_revision_id)) throw badRequest("rollback targets an earlier effective revision");
   if (!rollback && rev.id === kit.effective_revision_id) throw badRequest("the revision is already effective");
   const check = await checkLock(caller, rev);
@@ -71,10 +80,11 @@ export async function activateRevision(caller: KitCaller, kitName: string, body:
   const doc = documentOf(rev);
   const at = caller.now.getTime();
   // A reviewed proposal keeps its review proof next to the activation approval.
-  const review = rev.origin === "session-derived" && rev.approval_json !== null ? (JSON.parse(rev.approval_json) as { review?: unknown }) : null;
+  const review = sessionDerived && rev.approval_json !== null ? (JSON.parse(rev.approval_json) as { review?: unknown }) : null;
   const approval = JSON.stringify({
     approvedBy: "user",
     userId: caller.userId,
+    credential: caller.interactive ? "web-session" : "api-key",
     revisionDigest: rev.revision_digest,
     at: new Date(at).toISOString(),
     action: rollback ? "rollback" : "activate",

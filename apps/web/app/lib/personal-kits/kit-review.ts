@@ -5,16 +5,18 @@
  * revision: `reject` is final; `approve` needs an approval naming the exact
  * `revisionDigest`, exactly the declared permissions, `visibility:
  * "private"` and `consent: true`, and moves the revision to `reviewed` with
- * that proof in `approval_json`. Approval never activates.
+ * that proof in `approval_json`. Approval never activates. Review needs an
+ * interactive web session: the API key that submits a proposal can never
+ * approve it.
  *
  * `POST .../revisions/:id/quarantine` is operator-only (admin secret): any
  * revision can be quarantined; a quarantined effective revision makes the
  * lock read fail with `kit.locked_incompatible` until the owner activates or
  * rolls back to another revision.
  */
-import { badRequest, conflict, json, kitNotFound } from "./kit-http";
+import { badRequest, conflict, json, kitNotFound, requireInteractive } from "./kit-http";
 import type { KitCaller } from "./kit-http";
-import { commitKitMutation, findKit, getRevision, ownedKit } from "./kit-store";
+import { commitKitMutation, findKit, getRevision, ownedKit, writableKit } from "./kit-store";
 import type { RevisionRow } from "./kit-store";
 import { generationConflict } from "./kit-revisions";
 
@@ -58,7 +60,8 @@ const sameSet = (a: unknown, b: string[]) => Array.isArray(a) && a.length === b.
 
 /** `POST .../revisions/:id/review` with `{expectedGeneration, decision, approval?}`. */
 export async function reviewProposal(caller: KitCaller, kitName: string, id: string, body: Record<string, unknown>, generation: number): Promise<Response> {
-  const kit = await ownedKit(caller.env.DB, kitName, caller.userId);
+  const kit = await writableKit(caller.env.DB, kitName, caller.userId);
+  requireInteractive(caller);
   if (Number(kit.generation) !== generation) throw generationConflict();
   const rev = await getRevision(caller.env.DB, kit.id, id);
   const row = await proposalOf(caller.env.DB, rev);
@@ -76,7 +79,7 @@ export async function reviewProposal(caller: KitCaller, kitName: string, id: str
     if (a.revisionDigest !== rev.revision_digest || !sameSet(a.permissions, declared) || a.visibility !== "private" || a.consent !== true) {
       throw conflict("kit.approval_required", "approval must name the exact revisionDigest, exactly the declared permissions, visibility \"private\" and consent: true");
     }
-    const proof = JSON.stringify({ approvedBy: "user", userId: caller.userId, revisionDigest: rev.revision_digest, permissions: [...declared].sort(), visibility: "private", consent: true, at: new Date(at).toISOString(), action: "review" });
+    const proof = JSON.stringify({ approvedBy: "user", userId: caller.userId, credential: "web-session", revisionDigest: rev.revision_digest, permissions: [...declared].sort(), visibility: "private", consent: true, at: new Date(at).toISOString(), action: "review" });
     sql = "UPDATE personal_kit_revisions SET state = 'reviewed', reviewed_at = ?, approval_json = ? WHERE id = ? AND state = 'proposed' AND {guard}";
     binds = [at, proof, rev.id];
   } else {

@@ -11,6 +11,7 @@ let k: KitHarness;
 let r1: { id: string; digest: string };
 const MINE = { "SKILL.md": skillText(BODY.replace("two\n", "two (mine)\n")), "notes.md": "my notes\n" };
 const BETTER = { ...MINE, "notes.md": "my notes\nprefer small steps\n" };
+const WEB = { key: null };
 const ADMIN = { key: null, headers: { "X-Admin-Secret": "test-admin-secret-0123456789" } };
 // Built at runtime so no credential-shaped literal sits in the source.
 const FAKE_TOKEN = ["gh", "p_", "A".repeat(36)].join("");
@@ -61,15 +62,16 @@ describe("session-derived proposals", () => {
 
     const early = await k.call("activate", { expectedGeneration: 2, revisionId: rev.id, approval: { revisionDigest: rev.digest } });
     expect(early.body.error.code).toBe("kit.review_required");
+    session.user = { id: "user-a" };
     const view = await k.call(`revisions/${rev.id}/proposal`);
     expect(view.body).toMatchObject({ state: "proposed", identity: "@alpha/demo", declaredPermissions: [], requiredPermissions: [], evidence: { signals: { sessions: 3 } } });
 
     const approval = { revisionDigest: rev.digest, permissions: ["hooks"], visibility: "private", consent: true };
-    const wrong = await k.call(`revisions/${rev.id}/review`, { expectedGeneration: 2, decision: "approve", approval });
+    const wrong = await k.call(`revisions/${rev.id}/review`, { expectedGeneration: 2, decision: "approve", approval }, WEB);
     expect(wrong.body.error.code).toBe("kit.approval_required");
-    const ok = await k.call(`revisions/${rev.id}/review`, { expectedGeneration: 2, decision: "approve", approval: { ...approval, permissions: [] } });
+    const ok = await k.call(`revisions/${rev.id}/review`, { expectedGeneration: 2, decision: "approve", approval: { ...approval, permissions: [] } }, WEB);
     expect(ok.body).toMatchObject({ state: "reviewed", generation: 3 });
-    const act = await k.call("activate", { expectedGeneration: 3, revisionId: rev.id, approval: { revisionDigest: rev.digest } });
+    const act = await k.call("activate", { expectedGeneration: 3, revisionId: rev.id, approval: { revisionDigest: rev.digest } }, WEB);
     expect(act.status).toBe(200);
     const stored = k.h.d1.raw.prepare("SELECT approval_json FROM personal_kit_revisions WHERE id = ?").get(rev.id) as { approval_json: string };
     expect(JSON.parse(stored.approval_json)).toMatchObject({ action: "activate", review: { action: "review", consent: true, permissions: [] } });
@@ -117,7 +119,8 @@ describe("session-derived proposals", () => {
     expect(res.body.revision.state).toBe("quarantined");
     const view = await k.call(`revisions/${res.body.revision.id}/proposal`);
     expect(view.body.findings).toEqual(["danger:js-protocol:notes.md"]);
-    const review = await k.call(`revisions/${res.body.revision.id}/review`, { expectedGeneration: 2, decision: "reject" });
+    session.user = { id: "user-a" };
+    const review = await k.call(`revisions/${res.body.revision.id}/review`, { expectedGeneration: 2, decision: "reject" }, WEB);
     expect(review.body.error.code).toBe("kit.revision_unusable");
   });
 
@@ -135,9 +138,10 @@ describe("session-derived proposals", () => {
 
     const rev = (await submit(p)).body.revision;
     expect((await k.call(`revisions/${rev.id}/review`, { expectedGeneration: 2, decision: "reject" }, { key: k.otherKey })).status).toBe(404);
-    expect((await k.call(`revisions/${rev.id}/review`, { expectedGeneration: 1, decision: "reject" })).body.error.code).toBe("kit.generation_conflict");
-    expect((await k.call(`revisions/${r1.id}/review`, { expectedGeneration: 2, decision: "reject" })).body.error.code).toBe("kit.not_a_proposal");
-    const rejected = await k.call(`revisions/${rev.id}/review`, { expectedGeneration: 2, decision: "reject" });
+    session.user = { id: "user-a" };
+    expect((await k.call(`revisions/${rev.id}/review`, { expectedGeneration: 1, decision: "reject" }, WEB)).body.error.code).toBe("kit.generation_conflict");
+    expect((await k.call(`revisions/${r1.id}/review`, { expectedGeneration: 2, decision: "reject" }, WEB)).body.error.code).toBe("kit.not_a_proposal");
+    const rejected = await k.call(`revisions/${rev.id}/review`, { expectedGeneration: 2, decision: "reject" }, WEB);
     expect(rejected.body).toMatchObject({ state: "rejected", generation: 3 });
     const act = await k.call("activate", { expectedGeneration: 3, revisionId: rev.id, approval: { revisionDigest: rev.digest } });
     expect(act.body.error.code).toBe("kit.revision_unusable");

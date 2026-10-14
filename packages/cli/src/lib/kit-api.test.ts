@@ -41,13 +41,12 @@ describe('kit API client', () => {
     expect(calls[1]).toMatchObject({ url: 'https://skillx.test/api/v1/kits/@alpha/my-kit/rollback', body: { revisionId: 'pkr_2', approval: { revisionDigest: 'sha256:ab' } } });
   });
 
-  it('submits proposals and reviews them with explicit private consent', async () => {
+  it('validates and submits proposals, and offers no API-key review', async () => {
     await kitApi.validateProposal('@alpha/my-kit', { schema: 'skillx.kit-proposal/v1' });
     await kitApi.submitProposal('@alpha/my-kit', { schema: 'skillx.kit-proposal/v1' }, 2, 'idem-key-0004');
-    await kitApi.reviewProposal('@alpha/my-kit', { id: 'pkr_3', digest: 'sha256:cd' }, 3, { approve: true, permissions: ['hooks'] });
-    expect(calls.map((c) => c.url.replace('https://skillx.test/api/v1/kits/@alpha/my-kit/', ''))).toEqual(['proposals/validate', 'proposals', 'revisions/pkr_3/review']);
+    expect(calls.map((c) => c.url.replace('https://skillx.test/api/v1/kits/@alpha/my-kit/', ''))).toEqual(['proposals/validate', 'proposals']);
     expect(calls[0]!.body).toEqual({ proposal: { schema: 'skillx.kit-proposal/v1' } });
-    expect(calls[2]!.body).toEqual({ expectedGeneration: 3, decision: 'approve', approval: { revisionDigest: 'sha256:cd', permissions: ['hooks'], visibility: 'private', consent: true } });
+    expect('reviewProposal' in kitApi).toBe(false);
   });
 
   it('refuses malformed kit names before any request and surfaces API errors', async () => {
