@@ -2244,6 +2244,13 @@
           "autoincrement": false,
           "default": 0
         },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "integer",
@@ -2260,6 +2267,14 @@
         }
       },
       "indexes": {
+        "idx_personal_kit_conflicts_idempotency": {
+          "name": "idx_personal_kit_conflicts_idempotency",
+          "columns": [
+            "kit_id",
+            "idempotency_key"
+          ],
+          "isUnique": true
+        },
         "idx_personal_kit_conflicts_kit": {
           "name": "idx_personal_kit_conflicts_kit",
           "columns": [
@@ -2280,7 +2295,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
@@ -2428,7 +2443,7 @@
             "kit_id",
             "revision_digest"
           ],
-          "isUnique": true
+          "isUnique": false
         }
       },
       "foreignKeys": {
@@ -2442,7 +2457,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },
@@ -2561,7 +2576,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "cascade",
+          "onDelete": "restrict",
           "onUpdate": "no action"
         }
       },

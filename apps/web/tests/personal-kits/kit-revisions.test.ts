@@ -104,8 +104,10 @@ describe("personal kit revisions", () => {
 
     const mine = await k.entry("@alpha/demo", "1.0.0", MINE);
     const official = k.doc([{ ...mine, identity: "@agentkit/plan", base: { ...mine.base, package: "@agentkit/plan" } }]);
-    const res = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: official });
-    expect(res.body.error.code).toBe("kit.shared_alias_overlay");
+    const shared = { env: { SKILLX_SHARED_SKILL_ALIASES: "@agentkit/plan, @agentkit/cook" } };
+    const res = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: official }, shared);
+    expect(res.status).toBe(422);
+    expect(res.body.error.code).toBe("overlay.shared_alias");
   });
 
   it("resolves a pin by package, not by a tree another package also ships", async () => {

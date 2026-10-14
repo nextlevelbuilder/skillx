@@ -116,6 +116,38 @@ describe("rebaseOverlay", () => {
     expect(result.findings.some((f) => f.category === "conflict.dependency_missing" && f.path === "ref.md")).toBe(true);
   });
 
+  it("classifies identical changes, delete-vs-modify and both-deleted like AgentKit", async () => {
+    const b0 = await tree({ "SKILL.md": skill(B0_BODY), "ref.md": "r\n", "old.md": "o\n" });
+    const user = await tree({ "SKILL.md": skill(userBody), "old.md": "o\n" });
+    const u0 = await overlayBetween(b0, user); // patch SKILL.md, delete ref.md
+    const both = await rebaseOverlay(b0, await tree({ "SKILL.md": skill(userBody), "old.md": "o\n" }), u0);
+    expect(both.findings.map((f) => `${f.path}:${f.category}`)).toEqual(["SKILL.md:clean.identical", "ref.md:clean.identical"]);
+    expect(both.status).toBe("clean");
+    const changed = await rebaseOverlay(b0, await tree({ "SKILL.md": skill(B0_BODY), "ref.md": "r (up)\n", "old.md": "o\n" }), u0);
+    expect(changed.findings.find((f) => f.path === "ref.md")?.category).toBe("conflict.renamed_or_deleted");
+  });
+
+  it("runs the semantic checks on an empty overlay and blocks an upstream escalation", async () => {
+    const b0 = await tree({ "SKILL.md": skill(B0_BODY) });
+    const dropped = await rebaseOverlay(b0, await tree({ "SKILL.md": skill(B0_BODY, "name: demo") }), emptyOverlay(b0.digest));
+    expect(dropped).toMatchObject({ status: "needs-review", findings: [{ category: "conflict.capability_escalation", detail: "allowed-tools restriction removed" }] });
+    const exec = await memoryTree([{ path: "SKILL.md", text: skill(B0_BODY) }, { path: "run.sh", text: "echo\n", mode: "100755" }]);
+    const added = await rebaseOverlay(b0, exec, emptyOverlay(b0.digest));
+    expect(added.status).toBe("needs-review");
+    expect(added.findings.some((f) => f.category === "conflict.mode_changed" && f.path === "run.sh")).toBe(true);
+  });
+
+  it("records a diff past the 1000-edit bound as a same_hunk diff_limit conflict", async () => {
+    const lines = (tag: string) => Array.from({ length: 1200 }, (_, i) => `${tag} ${i}\n`).join("");
+    const b0 = await tree({ "SKILL.md": skill(B0_BODY), "big.md": lines("old") });
+    const u0 = await overlayBetween(b0, await tree({ "SKILL.md": skill(B0_BODY), "big.md": lines("old").replace("old 0\n", "mine 0\n") }));
+    const result = await rebaseOverlay(b0, await tree({ "SKILL.md": skill(B0_BODY), "big.md": lines("new") }), u0);
+    expect(result).toMatchObject({ status: "needs-review", findings: [{ path: "big.md", category: "conflict.same_hunk", detail: "diff_limit" }] });
+    // Building an overlay past the bound falls back to a whole-file replace.
+    const replace = await overlayBetween(b0, await tree({ "SKILL.md": skill(B0_BODY), "big.md": lines("new") }));
+    expect(replace.ops.map((o) => o.op)).toEqual(["replace"]);
+  });
+
   it("formats patches against the new base", async () => {
     expect(formatPatch("a\n", "b\n")).toBe("@@ -1,1 +1,1 @@\n-a\n+b\n");
   });

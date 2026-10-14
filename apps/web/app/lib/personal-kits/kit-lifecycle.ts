@@ -5,15 +5,16 @@
  * moves `effective_revision_id` under the generation guard; nothing becomes
  * effective implicitly. A proposal (`proposed`) must be reviewed first.
  * Rejection is final for that revision. The lock is derived on read from the
- * immutable documents, so equal revisions always give equal lock bytes.
+ * immutable documents, so equal revisions always give equal lock bytes;
+ * ancestors owned by someone else are returned as digest references only.
  */
 import { buildKitLock, resolveLineage } from "@skillx/contracts";
 import { baseFailure, loadPinnedBase } from "./base-loader";
 import { badRequest, conflict, json, kitNotFound, requireId } from "./kit-http";
 import type { KitCaller } from "./kit-http";
-import { commitKitMutation, documentOf, getRevision, ownedKit } from "./kit-store";
+import { commitKitMutation, documentOf, getRevision, ownedKit, writableKit } from "./kit-store";
 import type { KitRow, RevisionRow } from "./kit-store";
-import { loadChain } from "./kit-verify";
+import { chainView, loadChain } from "./kit-verify";
 import { generationConflict } from "./kit-revisions";
 
 const ACTIVATABLE = new Set(["draft", "reviewed"]);
@@ -27,12 +28,13 @@ interface LockCheck {
 
 /** Builds the lock of `rev` and re-checks each pinned base for the owner. */
 export async function checkLock(caller: KitCaller, rev: RevisionRow): Promise<LockCheck> {
-  const { chain } = await loadChain(caller.env, caller.userId, documentOf(rev));
+  const loaded = await loadChain(caller, documentOf(rev));
+  const { chain } = loaded;
   const reasons: string[] = [];
   const warnings: string[] = [];
   for (const { entry } of resolveLineage(chain)) {
     try {
-      const base = await loadPinnedBase(caller.env, caller.userId, entry.base);
+      const base = await loadPinnedBase(caller.env, caller.userId, entry.base, caller.bases);
       if (base.release.state === "yanked") warnings.push(`${entry.base.package}@${entry.base.version} is yanked`);
     } catch (error) {
       const failure = baseFailure(error);
@@ -41,7 +43,7 @@ export async function checkLock(caller: KitCaller, rev: RevisionRow): Promise<Lo
     }
   }
   const lock = await buildKitLock(chain, { id: rev.id, number: Number(rev.revision_number), digest: rev.revision_digest });
-  return { lock, documents: chain, reasons, warnings };
+  return { lock, documents: chainView(loaded), reasons, warnings };
 }
 
 /** 409 with the failing pins listed in `error.reasons`. */
@@ -55,7 +57,7 @@ function requireApproval(raw: unknown, rev: RevisionRow): void {
 
 /** `POST .../activate` and `POST .../rollback` (rollback: a revision that was effective before). */
 export async function activateRevision(caller: KitCaller, kitName: string, body: Record<string, unknown>, generation: number, rollback: boolean): Promise<Response> {
-  const kit = await ownedKit(caller.env.DB, kitName, caller.userId);
+  const kit = await writableKit(caller.env.DB, kitName, caller.userId);
   if (Number(kit.generation) !== generation) throw generationConflict();
   const rev = await getRevision(caller.env.DB, kit.id, requireId(body.revisionId, "revisionId"));
   requireApproval(body.approval, rev);
@@ -89,7 +91,7 @@ export async function activateRevision(caller: KitCaller, kitName: string, body:
 
 /** `POST .../revisions/:id/reject` */
 export async function rejectRevision(caller: KitCaller, kitName: string, id: string, generation: number): Promise<Response> {
-  const kit: KitRow = await ownedKit(caller.env.DB, kitName, caller.userId);
+  const kit: KitRow = await writableKit(caller.env.DB, kitName, caller.userId);
   if (Number(kit.generation) !== generation) throw generationConflict();
   const rev = await getRevision(caller.env.DB, kit.id, id);
   if (rev.id === kit.effective_revision_id) throw conflict("kit.revision_effective", "the effective revision cannot be rejected; activate another one first");

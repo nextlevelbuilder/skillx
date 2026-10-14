@@ -4,8 +4,10 @@
  * side. Each op is classified with an AgentKit rebase category; any
  * non-`clean.*` finding makes the result `needs-review` with no candidate.
  * A clean result carries the candidate overlay (ops re-anchored on `B1`) and
- * its `compositionDigest`. An empty overlay is always clean and follows
- * upstream (composition == `B1`).
+ * its `compositionDigest`. An empty overlay follows upstream (composition ==
+ * `B1`) but still runs the semantic checks, so an upstream script, hook or
+ * capability change is never adopted silently. A diff past the pinned edit
+ * bound is recorded as `conflict.same_hunk` detail `diff_limit` (fail closed).
  */
 import { KIT_CODES, PersonalKitError, isCleanCategory, kitError } from "./codes";
 import { decodeBase64, encodeBase64, sha256Hex, textOf } from "./bytes";
@@ -30,7 +32,7 @@ interface OpOutcome {
 }
 
 const keep = (op: OverlayOp, category: RebaseFinding["category"], detail: string): OpOutcome => ({ op, finding: { category, path: op.path, detail } });
-const drop = (path: string, detail: string): OpOutcome => ({ op: null, finding: { category: "clean.disjoint", path, detail } });
+const drop = (path: string, detail: string): OpOutcome => ({ op: null, finding: { category: "clean.identical", path, detail } });
 const stop = (path: string, category: RebaseFinding["category"], detail: string): OpOutcome => ({ op: null, finding: { category, path, detail } });
 
 async function rebasePatch(op: OverlayOp, b0: KitTree, b1: KitTree, f1: KitTreeFile): Promise<OpOutcome> {
@@ -51,9 +53,9 @@ async function rebaseOp(op: OverlayOp, b0: KitTree, b1: KitTree, f0: KitTreeFile
     if (sha === f1.sha256 && (op.mode ?? "100644") === f1.mode) return drop(op.path, "upstream added the same file");
     return stop(op.path, "conflict.added_both", "upstream added a different file at this path");
   }
-  if (f1 === undefined) return stop(op.path, "conflict.renamed_or_deleted", "upstream removed or renamed this file");
+  if (f1 === undefined) return op.op === "delete" ? drop(op.path, "upstream deleted the file too") : stop(op.path, "conflict.renamed_or_deleted", "upstream removed or renamed this file");
   if (f0!.sha256 === f1.sha256) return keep(op, "clean.untouched", "upstream left this file unchanged");
-  if (op.op === "delete") return stop(op.path, "conflict.same_hunk", "deleted here, modified upstream");
+  if (op.op === "delete") return stop(op.path, "conflict.renamed_or_deleted", "deleted here, modified upstream");
   if (op.op === "replace") {
     const sha = await sha256Hex(decodeBase64(op.contentBase64!)!);
     if (sha === f1.sha256 && (op.mode === undefined || op.mode === f1.mode)) return drop(op.path, "upstream now has the replacement");
@@ -62,16 +64,29 @@ async function rebaseOp(op: OverlayOp, b0: KitTree, b1: KitTree, f0: KitTreeFile
   return rebasePatch(op, b0, b1, f1);
 }
 
+export const isDiffLimit = (error: unknown): boolean => error instanceof PersonalKitError && error.detail.startsWith("diff_limit");
+
+async function classify(op: OverlayOp, b0: KitTree, b1: KitTree, f0: KitTreeFile | undefined, f1: KitTreeFile | undefined): Promise<OpOutcome> {
+  try {
+    return await rebaseOp(op, b0, b1, f0, f1);
+  } catch (error) {
+    if (isDiffLimit(error)) return stop(op.path, "conflict.same_hunk", "diff_limit");
+    throw error;
+  }
+}
+
 /** Rebases `u0` (anchored on `b0`) onto `b1`. */
 export async function rebaseOverlay(b0: KitTree, b1: KitTree, u0: SkillOverlay): Promise<RebaseResult> {
   if (u0.baseTreeDigest !== b0.digest) throw kitError(KIT_CODES.overlayConflict, "", "base_mismatch: the overlay is not anchored on the old base");
   if (u0.ops.length === 0) {
+    const semantic = sortFindings(await semanticFindings(b0, b1));
+    if (semantic.length > 0) return { status: "needs-review", findings: semantic };
     return { status: "clean", findings: [], overlay: emptyOverlay(b1.digest), compositionDigest: b1.digest, tree: b1 };
   }
   const old = new Map(b0.files.map((f) => [f.path, f]));
   const next = new Map(b1.files.map((f) => [f.path, f]));
   const outcomes: OpOutcome[] = [];
-  for (const op of u0.ops) outcomes.push(await rebaseOp(op, b0, b1, old.get(op.path), next.get(op.path)));
+  for (const op of u0.ops) outcomes.push(await classify(op, b0, b1, old.get(op.path), next.get(op.path)));
   const findings = outcomes.map((o) => o.finding);
   if (findings.some((f) => !isCleanCategory(f.category))) return { status: "needs-review", findings: sortFindings(findings) };
 
@@ -89,6 +104,16 @@ export async function rebaseOverlay(b0: KitTree, b1: KitTree, u0: SkillOverlay):
   return { status: "clean", findings: all, overlay, compositionDigest: tree.digest, tree };
 }
 
+/** A patch, or null when the diff is past the edit bound (the caller replaces the file). */
+function patchOrNull(before: string, after: string): string | null {
+  try {
+    return formatPatch(before, after);
+  } catch (error) {
+    if (isDiffLimit(error)) return null;
+    throw error;
+  }
+}
+
 /** Builds an overlay that turns `base` into exactly `target` (text files as patches, others replaced). */
 export async function overlayBetween(base: KitTree, target: KitTree): Promise<SkillOverlay> {
   const old = new Map(base.files.map((f) => [f.path, f]));
@@ -104,7 +129,7 @@ export async function overlayBetween(base: KitTree, target: KitTree): Promise<Sk
     }
     const before = textOf(await base.read(f.path));
     const after = textOf(bytes);
-    const patch = before !== null && after !== null && o.mode === f.mode ? formatPatch(before, after) : null;
+    const patch = before !== null && after !== null && o.mode === f.mode ? patchOrNull(before, after) : null;
     if (patch !== null) ops.push({ op: "patch", path: f.path, expectSha256: o.sha256, patch });
     else ops.push({ op: "replace", path: f.path, expectSha256: o.sha256, contentBase64: encodeBase64(bytes), ...(f.mode !== o.mode ? { mode: f.mode } : {}) });
   }

@@ -6,11 +6,12 @@
  *
  * Mode rules: `extend` adds files only and keeps the base identity;
  * `override` may change anything but keeps the base identity; `fork` takes
- * a new identity under the kit handle with its own directory alias. An
- * official (`@agentkit/*`) skill is shared by many kits, so it may only be
- * forked, never overlaid in place.
+ * a new identity under the kit handle with its own directory alias. A
+ * shared skill (owned by AgentKit `kits/core` or shipped by more than one
+ * official kit) may only be forked, never overlaid in place; the server
+ * supplies that set to `sharedAliasViolation` (AgentKit `overlay.shared_alias`).
  */
-import { IDENTITY_PATTERN, RESERVED_PUBLISHER, checkDirectoryAlias, compareUtf8, directoryAliasKey } from "@skillx/skill-tree/rules";
+import { ERROR_CODES, checkDirectoryAlias, compareUtf8, directoryAliasKey, isSkillTreeError, validateIdentity } from "@skillx/skill-tree/rules";
 import type { Exposure } from "@skillx/skill-tree/rules";
 import { canonicalJsonBytes } from "../canonical-json";
 import { RELEASE_VERSION_PATTERN } from "../release-manifest";
@@ -59,7 +60,12 @@ function only(raw: Record<string, unknown>, at: string, fields: string[]): void 
 }
 
 function identity(value: unknown, at: string): string {
-  if (typeof value !== "string" || !IDENTITY_PATTERN.test(value)) throw invalid(at, "must be @publisher/name");
+  if (typeof value !== "string") throw invalid(at, "must be @publisher/name");
+  try {
+    validateIdentity(value);
+  } catch (error) {
+    throw invalid(at, `must be @publisher/name (${error instanceof Error ? error.message : String(error)})`);
+  }
   return value;
 }
 
@@ -89,9 +95,6 @@ function checkEntry(raw: unknown, at: string, kitHandle: string): KitSkillEntry 
     if (typeof raw.alias !== "string") throw mv("a fork needs a directory alias");
   } else {
     if (id !== pkg) throw mv(`${mode} keeps the base identity`);
-    if (handleOf(pkg) === RESERVED_PUBLISHER && overlay.ops.length > 0) {
-      throw kitError(KIT_CODES.sharedAliasOverlay, at, "an official shared skill cannot be overlaid; fork it under a new alias");
-    }
     if (mode === "extend" && overlay.ops.some((op) => op.op !== "add")) throw mv("extend may only add files");
   }
   if (raw.alias !== undefined) {
@@ -99,7 +102,8 @@ function checkEntry(raw: unknown, at: string, kitHandle: string): KitSkillEntry 
     try {
       checkDirectoryAlias(id, raw.alias);
     } catch (error) {
-      throw kitError(KIT_CODES.aliasCollision, `${at}.alias`, error instanceof Error ? error.message : String(error));
+      const reserved = isSkillTreeError(error) && error.code === ERROR_CODES.identityReservedAlias;
+      throw kitError(reserved ? KIT_CODES.reservedAlias : KIT_CODES.aliasCollision, `${at}.alias`, error instanceof Error ? error.message : String(error));
     }
   }
   return entry;
@@ -168,6 +172,17 @@ export function validateKitDocument(input: unknown): PersonalKitDocument {
 /** `sha256:<hex>` of the canonical JSON of a validated document. */
 export async function revisionDigest(doc: PersonalKitDocument): Promise<string> {
   return `sha256:${await sha256Hex(canonicalJsonBytes(doc))}`;
+}
+
+/**
+ * The first in-place overlay (non-fork entry with ops) of a shared skill, as
+ * `overlay.shared_alias`; null when there is none. `isShared` names the
+ * shared identities (AgentKit `kits/core` or more than one official kit).
+ */
+export function sharedAliasViolation(doc: PersonalKitDocument, isShared: (identity: string) => boolean): PersonalKitError | null {
+  const i = doc.skills.findIndex((s) => s.mode !== "fork" && s.overlay.ops.length > 0 && isShared(s.identity));
+  if (i < 0) return null;
+  return kitError(KIT_CODES.sharedAlias, `skills[${i}]`, "the overlaid alias has more than one foundation owner; fork it under a new alias");
 }
 
 /** Parses a document and returns a classified error instead of throwing. */

@@ -8,13 +8,15 @@
  * Every answer is `no-store`; failures are `{error:{code,message}}`.
  */
 import { PersonalKitError } from "@skillx/contracts";
-import { IDENTITY_PATTERN } from "@skillx/skill-tree";
+import { IDENTITY_PATTERN, validateIdentity } from "@skillx/skill-tree";
 import { ReleaseHttpError, errorResponse, notFoundResponse, releaseError } from "~/lib/releases/release-http";
 import { checkReleaseRateLimit, rateLimitCaller } from "~/lib/releases/release-rate-limit";
 import { resolveViewer } from "~/lib/releases/release-read";
 import { NO_STORE, failureHeaders, readJsonObject, resolveLimitedActor } from "~/lib/releases/release-state-http";
+import { newBaseCache } from "./base-loader";
+import type { BaseCache } from "./base-loader";
 
-export type KitEnv = Env & { SKILLX_PERSONAL_KITS_API?: string };
+export type KitEnv = Env & { SKILLX_PERSONAL_KITS_API?: string; SKILLX_SHARED_SKILL_ALIASES?: string };
 
 /** Largest request body: a 1 MiB document plus the request envelope. */
 export const MAX_KIT_BODY_BYTES = 1024 * 1024 + 64 * 1024;
@@ -32,6 +34,11 @@ export const conflict = (code: string, message: string) => releaseError(409, cod
 export function parseKitName(scope: string | undefined, name: string | undefined): string {
   const kit = `${scope ?? ""}/${name ?? ""}`;
   if (!IDENTITY_PATTERN.test(kit)) throw releaseError(400, "identity.invalid", "kit must be @handle/name in lowercase");
+  try {
+    validateIdentity(kit);
+  } catch (error) {
+    throw releaseError(400, "identity.invalid", error instanceof Error ? error.message : "kit is not a valid identity");
+  }
   return kit;
 }
 
@@ -71,6 +78,8 @@ export interface KitCaller {
   env: KitEnv;
   request: Request;
   now: Date;
+  /** Release, manifest and blob reads shared by every phase of this request, with its budget. */
+  bases: BaseCache;
 }
 
 async function readCaller(request: Request, env: KitEnv): Promise<string> {
@@ -102,7 +111,7 @@ export async function serveKit(
     } else {
       userId = await readCaller(request, env);
     }
-    return await handler({ userId, env, request, now: now() });
+    return await handler({ userId, env, request, now: now(), bases: newBaseCache() });
   } catch (error) {
     if (error instanceof PersonalKitError) return errorResponse(contractError(error));
     if (error instanceof ReleaseHttpError) {

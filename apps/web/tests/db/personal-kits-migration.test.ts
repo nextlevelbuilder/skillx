@@ -65,7 +65,7 @@ describe("migration 0015_personal_kits", () => {
     const rowsBefore = rows(raw);
     apply(raw, [MIGRATION]);
     const added = schema(raw).filter((o) => !before.some((b) => b.name === o.name));
-    expect(added.length).toBe(15);
+    expect(added.length).toBe(16);
     for (const o of added) expect(o.name).toMatch(OWNED);
     expect(schema(raw).filter((o) => !OWNED.test(o.name))).toEqual(before);
     expect(rows(raw)).toEqual(rowsBefore);

@@ -10,7 +10,19 @@ import type { PersonalKitDocument } from "@skillx/contracts";
 import { releaseError } from "~/lib/releases/release-http";
 import { conflict, handleOfKit, json } from "./kit-http";
 import type { KitCaller } from "./kit-http";
-import { commitKitMutation, findKit, getRevision, listRevisions, newId, ownedKit, ownedPublisher, revisionByDigest, revisionByIdempotency, revisionView } from "./kit-store";
+import {
+  commitKitMutation,
+  findKit,
+  getRevision,
+  listRevisions,
+  newId,
+  ownedKit,
+  ownedPublisher,
+  requireActivePublisher,
+  revisionByDigest,
+  revisionByIdempotency,
+  revisionView,
+} from "./kit-store";
 import type { GuardedStatement, KitRow, RevisionRow } from "./kit-store";
 import { verifyDocument } from "./kit-verify";
 
@@ -81,9 +93,10 @@ export async function storeRevision(caller: KitCaller, req: StoreRequest): Promi
     }
   }
   if ((existing?.generation ?? 0) !== req.expectedGeneration) throw generationConflict();
+  if (existing !== null) await requireActivePublisher(db, existing, caller.userId);
   const publisherId = existing?.publisher_id ?? (await ownedPublisher(db, handleOfKit(req.kitName), caller.userId));
   if (publisherId === null) throw releaseError(403, "kit.publisher_not_owned", `you do not own an active publisher @${handleOfKit(req.kitName)}`);
-  const { warnings } = await verifyDocument(caller.env, caller.userId, req.kitName, doc);
+  const { warnings } = await verifyDocument(caller, req.kitName, doc);
   if (existing !== null && (await revisionByDigest(db, existing.id, digest)) !== null) throw conflict("kit.revision_exists", "an identical revision already exists");
   await req.check?.(doc, existing);
 

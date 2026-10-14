@@ -6,6 +6,7 @@
  * concurrent writers of one generation cannot both succeed.
  */
 import type { PersonalKitDocument } from "@skillx/contracts";
+import { releaseError } from "~/lib/releases/release-http";
 import { kitNotFound } from "./kit-http";
 
 export interface KitRow {
@@ -63,14 +64,37 @@ export async function ownedPublisher(db: D1Database, handle: string, userId: str
   return row?.id ?? null;
 }
 
+/**
+ * The owner's kit for a write: its publisher must still be active and owned
+ * by the caller (checked on every write, not only on create). Transferring a
+ * kit to another owner is not supported.
+ */
+export async function writableKit(db: D1Database, name: string, userId: string): Promise<KitRow> {
+  const kit = await ownedKit(db, name, userId);
+  await requireActivePublisher(db, kit, userId);
+  return kit;
+}
+
+export async function requireActivePublisher(db: D1Database, kit: KitRow, userId: string): Promise<void> {
+  const row = await db
+    .prepare("SELECT 1 AS ok FROM publishers WHERE id = ? AND owner_user_id = ? AND state = 'active'")
+    .bind(kit.publisher_id, userId)
+    .first<{ ok: number }>();
+  if (row === null) throw releaseError(403, "kit.publisher_not_owned", "the kit's publisher is not active or not owned by you");
+}
+
 export async function getRevision(db: D1Database, kitId: string, id: string): Promise<RevisionRow> {
   const row = await db.prepare("SELECT * FROM personal_kit_revisions WHERE kit_id = ? AND id = ?").bind(kitId, id).first<RevisionRow>();
   if (row === null) throw kitNotFound();
   return row;
 }
 
+/** The live (not rejected) revision of `digest`; a rejected document may be stored again as a new revision. */
 export async function revisionByDigest(db: D1Database, kitId: string, digest: string): Promise<RevisionRow | null> {
-  return db.prepare("SELECT * FROM personal_kit_revisions WHERE kit_id = ? AND revision_digest = ?").bind(kitId, digest).first<RevisionRow>();
+  return db
+    .prepare("SELECT * FROM personal_kit_revisions WHERE kit_id = ? AND revision_digest = ? AND state <> 'rejected' ORDER BY revision_number DESC LIMIT 1")
+    .bind(kitId, digest)
+    .first<RevisionRow>();
 }
 
 export async function revisionByIdempotency(db: D1Database, kitId: string, key: string): Promise<RevisionRow | null> {

@@ -16,7 +16,7 @@ import { RESOLUTION_SCHEMA, compareUtf8, emptyOverlay, revisionDigest, validateO
 import type { KitSkillEntry, PersonalKitDocument } from "@skillx/contracts";
 import { badRequest, conflict, json, kitNotFound } from "./kit-http";
 import type { KitCaller } from "./kit-http";
-import { commitKitMutation, documentOf, getRevision, ownedKit, revisionView } from "./kit-store";
+import { commitKitMutation, documentOf, getRevision, ownedKit, revisionView, writableKit } from "./kit-store";
 import { generationConflict, storeRevision, storedResponse } from "./kit-revisions";
 import type { RebaseReport } from "./kit-rebase";
 
@@ -104,7 +104,7 @@ const releaseUnconfirmed = (identity: string) =>
 /** `POST .../conflicts/:id/resolve` */
 export async function resolveConflict(caller: KitCaller, kitName: string, id: string, body: Record<string, unknown>, generation: number, idempotencyKey: string): Promise<Response> {
   if (body.approvedBy !== "user") throw conflict("kit.approval_required", "a conflict is resolved only by the user's decision (approvedBy: \"user\")");
-  const kit = await ownedKit(caller.env.DB, kitName, caller.userId);
+  const kit = await writableKit(caller.env.DB, kitName, caller.userId);
   const row = await loadConflict(caller, kit.id, id);
   if (row.status === "resolved" && row.resolved_revision_id !== null) {
     const done = await getRevision(caller.env.DB, kit.id, row.resolved_revision_id);

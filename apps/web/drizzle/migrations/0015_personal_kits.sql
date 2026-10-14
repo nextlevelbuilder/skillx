@@ -1,7 +1,8 @@
 -- Personal kits: immutable revisions, rebase conflicts and an append-only audit (issue #55)
 --
 -- Strictly additive: four new tables, their indexes and four triggers. No existing table or
--- row changes. `personal_kit_revisions` content columns are immutable (UPDATE OF them aborts)
+-- row changes. Foreign keys are ON DELETE RESTRICT: a publisher or kit with history cannot be
+-- deleted out from under its revisions. `personal_kit_revisions` content columns are immutable (UPDATE OF them aborts)
 -- and revisions are never deleted, so a kit's lineage cannot be rewritten; only `state`, the
 -- review timestamps and `approval_json` change. `personal_kit_audit` is append-only.
 --
@@ -40,12 +41,14 @@ CREATE TABLE `personal_kit_conflicts` (
 	`resolved_by` text,
 	`resolved_revision_id` text,
 	`reeval_required` integer DEFAULT 0 NOT NULL,
+	`idempotency_key` text,
 	`created_at` integer NOT NULL,
 	`resolved_at` integer,
-	FOREIGN KEY (`kit_id`) REFERENCES `personal_kits`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`kit_id`) REFERENCES `personal_kits`(`id`) ON UPDATE no action ON DELETE restrict
 );
 --> statement-breakpoint
 CREATE INDEX `idx_personal_kit_conflicts_kit` ON `personal_kit_conflicts` (`kit_id`,`status`);--> statement-breakpoint
+CREATE UNIQUE INDEX `idx_personal_kit_conflicts_idempotency` ON `personal_kit_conflicts` (`kit_id`,`idempotency_key`);--> statement-breakpoint
 CREATE TABLE `personal_kit_revisions` (
 	`id` text PRIMARY KEY NOT NULL,
 	`kit_id` text NOT NULL,
@@ -63,12 +66,12 @@ CREATE TABLE `personal_kit_revisions` (
 	`activated_at` integer,
 	`rejected_at` integer,
 	`quarantined_at` integer,
-	FOREIGN KEY (`kit_id`) REFERENCES `personal_kits`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`kit_id`) REFERENCES `personal_kits`(`id`) ON UPDATE no action ON DELETE restrict
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `idx_personal_kit_revisions_number` ON `personal_kit_revisions` (`kit_id`,`revision_number`);--> statement-breakpoint
 CREATE UNIQUE INDEX `idx_personal_kit_revisions_idempotency` ON `personal_kit_revisions` (`kit_id`,`idempotency_key`);--> statement-breakpoint
-CREATE UNIQUE INDEX `idx_personal_kit_revisions_digest` ON `personal_kit_revisions` (`kit_id`,`revision_digest`);--> statement-breakpoint
+CREATE INDEX `idx_personal_kit_revisions_digest` ON `personal_kit_revisions` (`kit_id`,`revision_digest`);--> statement-breakpoint
 CREATE TABLE `personal_kits` (
 	`id` text PRIMARY KEY NOT NULL,
 	`name` text NOT NULL,
@@ -81,7 +84,7 @@ CREATE TABLE `personal_kits` (
 	`latest_revision_number` integer DEFAULT 0 NOT NULL,
 	`created_at` integer NOT NULL,
 	`updated_at` integer NOT NULL,
-	FOREIGN KEY (`publisher_id`) REFERENCES `publishers`(`id`) ON UPDATE no action ON DELETE cascade
+	FOREIGN KEY (`publisher_id`) REFERENCES `publishers`(`id`) ON UPDATE no action ON DELETE restrict
 );
 --> statement-breakpoint
 CREATE UNIQUE INDEX `idx_personal_kits_name` ON `personal_kits` (`name`);--> statement-breakpoint

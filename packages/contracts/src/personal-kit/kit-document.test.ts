@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { canonicalJson } from "../canonical-json";
 import { PersonalKitError } from "./codes";
 import { encodeBase64, utf8 } from "./bytes";
-import { revisionDigest, validateKitDocument } from "./kit-document";
+import { revisionDigest, sharedAliasViolation, validateKitDocument } from "./kit-document";
 import type { PersonalKitDocument } from "./kit-document";
 import { buildKitLock, publicDerivativeViolation, resolveLineage } from "./kit-lock";
 import { emptyOverlay } from "./overlay-envelope";
@@ -66,14 +66,24 @@ describe("validateKitDocument", () => {
     const fork = { mode: "fork", base: { package: "@agentkit/plan", version: "1.0.0", releaseDigest: D("2") }, alias: "my-plan" };
     expect(code(doc({ skills: [entry("@alpha/plan", fork)] }))).toBe("ok");
     expect(code(doc({ skills: [entry("@beta/plan", fork)] }))).toBe("kit.mode_violation");
-    expect(code(doc({ skills: [entry("@alpha/plan", { ...fork, alias: "ak-plan" })] }))).toBe("kit.alias_collision");
+    expect(code(doc({ skills: [entry("@alpha/plan", { ...fork, alias: "ak-plan" })] }))).toBe("identity.reserved_alias");
     expect(code(doc({ skills: [entry("@alpha/plan", { ...fork, alias: undefined })] }))).toBe("kit.mode_violation");
   });
 
-  it("refuses overlays on shared official skills", () => {
-    const official = entry("@agentkit/plan", { overlay: { ...emptyOverlay(D("2")), ops: [addOp] } });
-    expect(code(doc({ skills: [official] }))).toBe("kit.shared_alias_overlay");
-    expect(code(doc({ skills: [entry("@agentkit/plan")] }))).toBe("ok");
+  it("refuses overlays only on shared skills (AgentKit overlay.shared_alias)", () => {
+    const overlaid = entry("@agentkit/plan", { overlay: { ...emptyOverlay(D("2")), ops: [addOp] } });
+    const shared = (id: string) => id === "@agentkit/plan";
+    // An official skill that is not shared may be overlaid in place.
+    expect(code(doc({ skills: [overlaid] }))).toBe("ok");
+    expect(sharedAliasViolation(validateKitDocument(doc({ skills: [overlaid] })), () => false)).toBeNull();
+    expect(sharedAliasViolation(validateKitDocument(doc({ skills: [overlaid] })), shared)?.code).toBe("overlay.shared_alias");
+    expect(sharedAliasViolation(validateKitDocument(doc({ skills: [entry("@agentkit/plan")] })), shared)).toBeNull();
+  });
+
+  it("validates every identity segment, not only the pattern", () => {
+    const long = "a".repeat(65);
+    expect(code(doc({ kit: `@alpha/${long}`, localId: `local/${long}` }))).toBe("kit.invalid");
+    expect(code(doc({ kit: `@alpha/${"a".repeat(64)}`, localId: `local/${"a".repeat(64)}` }))).toBe("ok");
   });
 });
 

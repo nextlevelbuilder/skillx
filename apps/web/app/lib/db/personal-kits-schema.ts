@@ -11,7 +11,7 @@ export const personalKits = sqliteTable(
     name: text("name").notNull(),
     publisher_id: text("publisher_id")
       .notNull()
-      .references(() => publishers.id, { onDelete: "cascade" }),
+      .references(() => publishers.id, { onDelete: "restrict" }),
     owner_user_id: text("owner_user_id").notNull(),
     local_id: text("local_id"), // 'local/<name>' of the AgentKit-side kit, when known
     visibility: text("visibility").notNull().default("private"), // private | public
@@ -32,7 +32,7 @@ export const personalKitRevisions = sqliteTable(
     id: text("id").primaryKey(),
     kit_id: text("kit_id")
       .notNull()
-      .references(() => personalKits.id, { onDelete: "cascade" }),
+      .references(() => personalKits.id, { onDelete: "restrict" }),
     revision_number: integer("revision_number").notNull(),
     parent_revision_id: text("parent_revision_id"), // the revision this one was derived from
     revision_digest: text("revision_digest").notNull(), // sha256 of the canonical skillx.personal-kit/v1 JSON
@@ -51,7 +51,8 @@ export const personalKitRevisions = sqliteTable(
   (table) => [
     uniqueIndex("idx_personal_kit_revisions_number").on(table.kit_id, table.revision_number),
     uniqueIndex("idx_personal_kit_revisions_idempotency").on(table.kit_id, table.idempotency_key),
-    uniqueIndex("idx_personal_kit_revisions_digest").on(table.kit_id, table.revision_digest),
+    // Not unique: a rejected revision may be stored again; code refuses a duplicate of a live one.
+    index("idx_personal_kit_revisions_digest").on(table.kit_id, table.revision_digest),
   ]
 );
 
@@ -62,7 +63,7 @@ export const personalKitConflicts = sqliteTable(
     id: text("id").primaryKey(),
     kit_id: text("kit_id")
       .notNull()
-      .references(() => personalKits.id, { onDelete: "cascade" }),
+      .references(() => personalKits.id, { onDelete: "restrict" }),
     from_revision_id: text("from_revision_id").notNull(),
     report_json: text("report_json").notNull(),
     status: text("status").notNull().default("open"), // open | resolved | superseded
@@ -70,10 +71,14 @@ export const personalKitConflicts = sqliteTable(
     resolved_by: text("resolved_by"),
     resolved_revision_id: text("resolved_revision_id"),
     reeval_required: integer("reeval_required").notNull().default(0),
+    idempotency_key: text("idempotency_key"), // the rebase request that recorded the conflict
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     resolved_at: integer("resolved_at", { mode: "timestamp_ms" }),
   },
-  (table) => [index("idx_personal_kit_conflicts_kit").on(table.kit_id, table.status)]
+  (table) => [
+    index("idx_personal_kit_conflicts_kit").on(table.kit_id, table.status),
+    uniqueIndex("idx_personal_kit_conflicts_idempotency").on(table.kit_id, table.idempotency_key),
+  ]
 );
 
 // Append-only audit of every personal-kit mutation (migration 0015 triggers abort UPDATE and DELETE).

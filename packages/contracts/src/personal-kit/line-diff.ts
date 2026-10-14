@@ -22,7 +22,8 @@ export interface DiffHunk {
   newEnd: number;
 }
 
-export const MAX_EDIT_DISTANCE = 2_000;
+/** AgentKit `MaxEditDistance`; changing it changes merge results (a contract change). */
+export const MAX_EDIT_DISTANCE = 1_000;
 
 /** Splits text into lines that keep their `\n` ending; the last line may have none. */
 export function splitLines(text: string): string[] {
@@ -39,7 +40,7 @@ function myers(a: readonly string[], b: readonly string[]): Edit[] {
   const v = new Int32Array(2 * max + 3);
   const trace: Int32Array[] = [];
   for (let d = 0; d <= max; d++) {
-    if (d > MAX_EDIT_DISTANCE) throw kitError(KIT_CODES.overlayConflict, "", `diff needs more than ${MAX_EDIT_DISTANCE} line edits`);
+    if (d > MAX_EDIT_DISTANCE) throw kitError(KIT_CODES.overlayConflict, "", `diff_limit: the diff needs more than ${MAX_EDIT_DISTANCE} line edits`);
     trace.push(v.slice(offset - d - 1, offset + d + 2));
     for (let k = -d; k <= d; k += 2) {
       const down = k === -d || (k !== d && v[offset + k - 1]! < v[offset + k + 1]!);

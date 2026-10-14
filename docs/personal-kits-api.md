@@ -24,8 +24,13 @@ without an explicit user approval.
   (404).
 - A kit is visible only to its owner. Every other caller gets the JSON 404,
   never 403, so a kit's existence is not revealed.
-- Creating `@handle/name` requires that the caller owns the publisher `@handle`.
-  Otherwise the call returns 403 `kit.publisher_not_owned`.
+- Every write (create, store, rebase, resolve, activate, reject) requires
+  that the caller still owns the kit's publisher `@handle` and that it is
+  active. Otherwise the call returns 403 `kit.publisher_not_owned`.
+- Transferring a kit to another owner is not supported.
+- One request may spend at most 800 base reads (release lookups, manifest and
+  blob reads), cached and shared across all phases of the request. Past that
+  it fails with 422 `kit.request_too_large`; split the kit or the update.
 - Reads use the release read limiter. Writes use the write limiter, which
   fails closed.
 - Request bodies are capped at 1 MiB + 64 KiB. Documents are capped at 1 MiB
@@ -74,9 +79,20 @@ without an explicit user approval.
   - `extend` allows add ops only.
   - `override` keeps the base identity and can change anything.
   - `fork` requires a new identity under the kit handle and its own `alias`.
-- Skills whose identity starts with `@agentkit/` are shared official aliases.
-  They can be forked under a new alias (which must not start with `ak-`/`ak:`)
-  but never overlaid; an overlay is refused with `kit.shared_alias_overlay`.
+- Shared skills, those owned by AgentKit `kits/core` or shipped by more than
+  one official kit, are listed by the deployment in
+  `SKILLX_SHARED_SKILL_ALIASES` (comma or whitespace separated identities).
+  They can be forked but never overlaid; an overlay is refused with 422
+  `overlay.shared_alias` (AgentKit code). Other `@agentkit/*` skills may be
+  overlaid.
+- A fork alias that starts with `ak-` or `ak:` is refused with 422
+  `identity.reserved_alias` (AgentKit code).
+- Kit names, identities and fork identities pass the full identity rules
+  (pattern, 64-byte segments, portable segment rules).
+- A parent kit owned by someone else is usable only through a revision that
+  was authored `public` and activated by its owner. Drafts, proposals,
+  rejected or quarantined revisions, and revisions authored while that kit
+  was private are refused with `kit.base_unavailable`.
 - `compositionDigest` is the tree digest of the base with the overlay applied.
   The server recomputes it from the pinned release bytes and refuses a
   mismatch with 409 `kit.composition_digest_mismatch`.
@@ -95,7 +111,11 @@ always yield equal lock bytes. It contains:
   `package`, `version`, `releaseDigest`, `overlayDigests` (one per lineage
   layer), `compositionDigest`, and `owner: "personal:@h/k"`.
 
-The lock never contains machine paths or secrets.
+The lock owner key stays `personal:@<handle>/<name>` on SkillX. AgentKit keys
+its local kits `personal:<name>` (`local/<name>`) and maps that to the SkillX
+key when it publishes. The lock never contains machine paths or secrets.
+`GET /lock` returns full documents only for kits the caller owns; a foreign
+ancestor appears as `{kit, revisionDigest, foreign: true}`.
 
 ## Concurrency and idempotency
 
@@ -111,8 +131,12 @@ Every kit has a `generation`. `GET` returns it, with an `ETag` of `"g<n>"`.
     with 200 and `replayed: true`.
   - Reusing the key with a different document fails with 409
     `kit.idempotency_conflict`.
-- Storing a document equal to an existing revision fails with 409
-  `kit.revision_exists`.
+  - The key is looked up before the generation, so a retry after a lost answer
+    replays (200, `replayed: true`) instead of failing as stale. A rebase key
+    replays its stored revision or its recorded conflict.
+- Storing a document equal to a live revision fails with 409
+  `kit.revision_exists`. A rejected document may be stored again as a new
+  revision.
 
 ## Endpoints
 
@@ -149,7 +173,8 @@ The report (`skillx.kit-rebase-report/v1`) lists, per entry, `from`, `to`,
 Each finding is a `{category, path, detail}` record using the AgentKit
 category strings:
 
-- `clean.untouched`, `clean.disjoint`
+- `clean.untouched`, `clean.disjoint`, `clean.identical` (both sides made the
+  same change)
 - `conflict.same_hunk`, `conflict.renamed_or_deleted`, `conflict.added_both`
 - `conflict.dependency_removed`, `conflict.dependency_missing`
 - `conflict.script_changed`, `conflict.mode_changed`
@@ -157,7 +182,13 @@ category strings:
 - `conflict.exposure_changed`, `conflict.license_changed`
 - `conflict.entitlement`, `conflict.ambiguous_provider`, `conflict.revoked_base`
 
-The server adds the last three itself. Any `conflict.*` finding fails closed:
+The server adds the last three itself. Deleting a path that upstream changed
+is `conflict.renamed_or_deleted`. The line diff is bounded at 1,000 edits
+(AgentKit `MaxEditDistance`); a larger diff is recorded as
+`conflict.same_hunk` with detail `diff_limit`. An entry with no overlay still
+runs the semantic checks against upstream, so an added script, a dropped
+`allowed-tools` restriction or another capability change blocks for review.
+Any `conflict.*` finding fails closed:
 nothing becomes effective, and the old effective revision keeps working.
 
 Reports and conflict records hold categories, paths and digests, never file
@@ -231,7 +262,8 @@ The migration is strictly additive. It creates four tables:
 - `personal_kit_audit`
 
 Their indexes enforce uniqueness of the kit name and, per kit, of the revision
-number, idempotency key and revision digest. Four triggers guard immutability
+number, the revision idempotency key and the rebase-conflict idempotency key.
+Foreign keys are `ON DELETE RESTRICT`. Four triggers guard immutability
 and the append-only audit. The rollback SQL is recorded in the migration
 header.
 
@@ -240,7 +272,7 @@ header.
 | Code | Status |
 |---|---|
 | `kit.generation_conflict`, `kit.idempotency_conflict`, `kit.revision_exists`, `kit.composition_digest_mismatch`, `overlay.conflict`, `kit.approval_required`, `kit.review_required`, `kit.revision_unusable`, `kit.revision_effective`, `kit.discard_unconfirmed`, `kit.conflict_closed`, `kit.locked_incompatible` | 409 |
-| `kit.invalid`, `overlay.invalid`, `schema.unsupported_version`, `kit.duplicate_identity`, `kit.mode_violation`, `kit.alias_collision`, `kit.shared_alias_overlay`, `kit.cycle`, `kit.multi_parent`, `kit.public_derivative_forbidden`, `kit.base_unavailable` (409 when resolving a conflict) | 422 |
+| `kit.invalid`, `overlay.invalid`, `schema.unsupported_version`, `kit.duplicate_identity`, `kit.mode_violation`, `kit.alias_collision`, `overlay.shared_alias`, `identity.reserved_alias`, `kit.request_too_large`, `kit.cycle`, `kit.multi_parent`, `kit.public_derivative_forbidden`, `kit.base_unavailable` (409 when resolving a conflict) | 422 |
 | `kit.publisher_not_owned` | 403 |
 | `invalid_request` (malformed body, ids or updates) | 400 |
 | `not_found` (flag off, not the owner, unknown id) | 404 |
