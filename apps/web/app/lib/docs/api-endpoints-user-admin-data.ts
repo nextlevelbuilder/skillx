@@ -42,10 +42,12 @@ export const USER_ENDPOINTS: EndpointProps[] = [
       "name": "My CLI Key",
       "key_masked": "sx_a1b2c...",
       "last_used_at": 1707955200000,
-      "created_at": 1707868800000
+      "created_at": 1707868800000,
+      "scopes": null
     }
   ]
 }`,
+    notes: ["scopes is null for an account key, or the scopes a release publishing key holds (e.g. releases:publish:@acme)."],
     errors: [
       { status: 401, body: "Authentication required", cause: "Not logged in" },
     ],
@@ -58,16 +60,24 @@ export const USER_ENDPOINTS: EndpointProps[] = [
     description: "Generate a new API key. Plaintext returned once — not stored.",
     params: [
       { name: "name", type: "string", required: false, description: "Key label (max 100 chars)", default: '"Default"' },
+      { name: "scopes", type: "string[]", required: false, description: "1-8 releases:publish:@<handle> scopes for active publishers you own. Omit for an account key." },
     ],
-    requestExample: `{ "name": "My CLI Key" }`,
+    requestExample: `{ "name": "CI publishing", "scopes": ["releases:publish:@acme"] }`,
     responseExample: `{
   "success": true,
   "key": "sx_a1b2c3d4e5f6...",
+  "scopes": ["releases:publish:@acme"],
   "message": "Save this key securely. It will not be shown again."
 }`,
-    notes: ["The plaintext key is only returned in this response. Store it securely."],
+    notes: [
+      "The plaintext key is only returned in this response. Store it securely.",
+      "Without scopes the key is an account key: it works on the CLI endpoints but can never publish releases.",
+      "A scoped key can only publish releases for the named publishers and is rejected by every other endpoint.",
+    ],
     errors: [
+      { status: 400, body: "unsupported scope ...", cause: "Unknown or malformed scope, empty list, or more than 8 scopes" },
       { status: 401, body: "Authentication required", cause: "Not logged in" },
+      { status: 403, body: "You do not own an active publisher @<handle>", cause: "Scope names a publisher you do not own or that is not active" },
     ],
   },
   {

@@ -61,7 +61,7 @@ skillx/
 | `leaderboard.tsx` | Page | 78 | Sortable skills table with tier badges |
 | `search.tsx` | Page | 110 | Search results page (uses API) |
 | `profile.tsx` | Page | 115 | User profile + favorite skills |
-| `settings.tsx` | Page | 248 | API key CRUD + usage stats |
+| `settings.tsx` | Page | 116 | API keys: create (account or `releases:publish:@<handle>` scoped), list with scopes, revoke (UI in `components/settings/`) |
 | `auth-catchall.tsx` | Handler | 12 | Better Auth webhook handler |
 | `api.search.ts` | API | 240 | Hybrid search: query → vectorize → rank |
 | `api.skill-detail.ts` | API | 75 | Fetch single skill + ratings + references + scripts |
