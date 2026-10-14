@@ -50,6 +50,8 @@ export interface PersonalKitDocument {
 export const KIT_DOCUMENT_LIMITS = { maxBytes: 1024 * 1024, maxSkills: 128, maxExclude: 256, maxRuntimes: 16 } as const;
 
 const PROFILE = /^[a-z0-9][a-z0-9-]{0,63}$/;
+/** AgentKit kit ID characters, the `<name>` of `local/<name>`. */
+const LOCAL_NAME = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 const RUNTIME = /^[a-z0-9][a-z0-9-]{0,31}$/;
 const EXPOSURES = ["INTERNAL", "EXPLICIT", "AUTO"];
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -149,7 +151,11 @@ export function validateKitDocument(input: unknown): PersonalKitDocument {
   if (input.schema !== PERSONAL_KIT_SCHEMA) throw invalid("schema", `must be ${PERSONAL_KIT_SCHEMA}`);
   only(input, "", ["schema", "kit", "localId", "visibility", "parent", "skills", "exclude", "profile", "runtimes"]);
   const kit = identity(input.kit, "kit");
-  if (input.localId !== undefined && input.localId !== `local/${nameOf(kit)}`) throw invalid("localId", `must be local/${nameOf(kit)}`);
+  if (input.localId !== undefined) {
+    if (input.localId !== `local/${nameOf(kit)}`) throw invalid("localId", `must be local/${nameOf(kit)}`);
+    // AgentKit maps it to `local/<name>`, whose name is a kit ID.
+    if (!LOCAL_NAME.test(nameOf(kit)) || nameOf(kit).length > 64) throw invalid("localId", "the kit name must be lowercase [a-z0-9] words joined by single hyphens, at most 64 bytes, to have a local id");
+  }
   if (input.visibility !== "private" && input.visibility !== "public") throw invalid("visibility", "must be private or public");
   if (Array.isArray(input.parent)) throw kitError(KIT_CODES.multiParent, "parent", "a personal kit has at most one parent");
   if (input.parent !== undefined) {
@@ -163,8 +169,10 @@ export function validateKitDocument(input: unknown): PersonalKitDocument {
   const exclude = input.exclude ?? [];
   if (!Array.isArray(exclude) || exclude.length > KIT_DOCUMENT_LIMITS.maxExclude) throw invalid("exclude", "must be an array of identities");
   exclude.forEach((e, i) => identity(e, `exclude[${i}]`));
+  // Sorted and unique, so equivalent documents have one digest.
+  const excluded = [...new Set(exclude as string[])].sort(compareUtf8);
   if (input.profile !== undefined && (typeof input.profile !== "string" || !PROFILE.test(input.profile))) throw invalid("profile", "must be lowercase [a-z0-9-], at most 64 characters");
-  const doc = { ...(input as unknown as PersonalKitDocument), skills, exclude: exclude as string[], runtimes: checkRuntimes(input.runtimes) };
+  const doc = { ...(input as unknown as PersonalKitDocument), skills, exclude: excluded, runtimes: checkRuntimes(input.runtimes) };
   if (canonicalJsonBytes(doc).length > KIT_DOCUMENT_LIMITS.maxBytes) throw invalid("", "document exceeds 1 MiB");
   return doc;
 }
@@ -177,10 +185,11 @@ export async function revisionDigest(doc: PersonalKitDocument): Promise<string> 
 /**
  * The first in-place overlay (non-fork entry with ops) of a shared skill, as
  * `overlay.shared_alias`; null when there is none. `isShared` names the
- * shared identities (AgentKit `kits/core` or more than one official kit).
+ * shared skills (AgentKit `kits/core` or more than one official kit) from
+ * the entry identity and its directory alias.
  */
-export function sharedAliasViolation(doc: PersonalKitDocument, isShared: (identity: string) => boolean): PersonalKitError | null {
-  const i = doc.skills.findIndex((s) => s.mode !== "fork" && s.overlay.ops.length > 0 && isShared(s.identity));
+export function sharedAliasViolation(doc: PersonalKitDocument, isShared: (identity: string, alias: string) => boolean): PersonalKitError | null {
+  const i = doc.skills.findIndex((s) => s.mode !== "fork" && s.overlay.ops.length > 0 && isShared(s.identity, entryAlias(s)));
   if (i < 0) return null;
   return kitError(KIT_CODES.sharedAlias, `skills[${i}]`, "the overlaid alias has more than one foundation owner; fork it under a new alias");
 }

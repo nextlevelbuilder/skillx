@@ -78,12 +78,29 @@ describe("validateKitDocument", () => {
     expect(sharedAliasViolation(validateKitDocument(doc({ skills: [overlaid] })), () => false)).toBeNull();
     expect(sharedAliasViolation(validateKitDocument(doc({ skills: [overlaid] })), shared)?.code).toBe("overlay.shared_alias");
     expect(sharedAliasViolation(validateKitDocument(doc({ skills: [entry("@agentkit/plan")] })), shared)).toBeNull();
+    // The predicate also sees the directory alias of the entry.
+    const aliases: string[] = [];
+    sharedAliasViolation(validateKitDocument(doc({ skills: [overlaid] })), (_id, alias) => (aliases.push(alias), false));
+    expect(aliases).toEqual(["plan"]);
   });
 
   it("validates every identity segment, not only the pattern", () => {
     const long = "a".repeat(65);
     expect(code(doc({ kit: `@alpha/${long}`, localId: `local/${long}` }))).toBe("kit.invalid");
     expect(code(doc({ kit: `@alpha/${"a".repeat(64)}`, localId: `local/${"a".repeat(64)}` }))).toBe("ok");
+  });
+
+  it("gives a local id only to a kit name that is an AgentKit kit ID", () => {
+    for (const name of ["my.kit", "my_kit", "my--kit", "my-kit-"]) {
+      expect(code(doc({ kit: `@alpha/${name}`, localId: undefined }))).toBe("ok");
+      expect(code(doc({ kit: `@alpha/${name}`, localId: `local/${name}` }))).toBe("kit.invalid");
+    }
+  });
+
+  it("sorts and de-duplicates exclude, so equivalent documents share one digest", async () => {
+    const messy = validateKitDocument(doc({ exclude: ["@gamma/three", "@alpha/zero", "@gamma/three"] }));
+    expect(messy.exclude).toEqual(["@alpha/zero", "@gamma/three"]);
+    expect(await revisionDigest(messy)).toBe(await revisionDigest(validateKitDocument(doc({ exclude: ["@alpha/zero", "@gamma/three"] }))));
   });
 });
 
