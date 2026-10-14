@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@skillx/skill-tree": "workspace:*"
+    "@skillx/skill-tree": "workspace:*",
+    "yaml": "^2.9.1"
   },
   "devDependencies": {
     "typescript": "^5.9.2"

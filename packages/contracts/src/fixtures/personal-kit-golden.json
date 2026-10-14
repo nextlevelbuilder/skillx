@@ -1,0 +1,134 @@
+{
+  "description": "Personal kit golden vector: base tree, overlay, composition, revision digest and lock. personal-kit-golden.test.ts re-derives every value.",
+  "baseFiles": [
+    {
+      "path": "SKILL.md",
+      "text": "---\nname: demo\ndescription: Demo\nallowed-tools: Read\n---\n# Demo\none\ntwo\nthree\n"
+    },
+    {
+      "path": "references/guide.md",
+      "text": "guide v1\n"
+    },
+    {
+      "path": "scripts/run.sh",
+      "text": "#!/bin/sh\necho hi\n",
+      "mode": "100755"
+    }
+  ],
+  "base": {
+    "treeDigest": "sha256:ae50cd6e75cafa22f9159941ca54df9e367f8b78120776af31eb32ca54d4891e",
+    "files": [
+      {
+        "path": "SKILL.md",
+        "mode": "100644",
+        "size": 78,
+        "sha256": "9217ecd6d4a97f5905dfdfc65f9adb76ede2edbf81b4e3d032dfb82924c88fb8"
+      },
+      {
+        "path": "references/guide.md",
+        "mode": "100644",
+        "size": 9,
+        "sha256": "03f7c4651afebc005736e55d23fd22574ed332a34e54f74a4ad8aeef384aeef5"
+      },
+      {
+        "path": "scripts/run.sh",
+        "mode": "100755",
+        "size": 18,
+        "sha256": "299001868fb8c02fd431c336c6d058f5558c5dff5b5af5e6fe04b870a6a9cbba"
+      }
+    ]
+  },
+  "document": {
+    "schema": "skillx.personal-kit/v1",
+    "kit": "@alpha/my-kit",
+    "localId": "local/my-kit",
+    "visibility": "private",
+    "skills": [
+      {
+        "identity": "@alpha/demo",
+        "mode": "override",
+        "base": {
+          "package": "@alpha/demo",
+          "version": "1.0.0",
+          "releaseDigest": "sha256:ae50cd6e75cafa22f9159941ca54df9e367f8b78120776af31eb32ca54d4891e"
+        },
+        "overlay": {
+          "schema": "agentkit.skill-overlay/v1",
+          "baseTreeDigest": "sha256:ae50cd6e75cafa22f9159941ca54df9e367f8b78120776af31eb32ca54d4891e",
+          "ops": [
+            {
+              "op": "patch",
+              "path": "SKILL.md",
+              "expectSha256": "9217ecd6d4a97f5905dfdfc65f9adb76ede2edbf81b4e3d032dfb82924c88fb8",
+              "patch": "@@ -5,5 +5,5 @@\n ---\n # Demo\n one\n-two\n+two (mine)\n three\n"
+            },
+            {
+              "op": "add",
+              "path": "notes.md",
+              "contentBase64": "bXkgbm90ZXMK"
+            },
+            {
+              "op": "delete",
+              "path": "references/guide.md",
+              "expectSha256": "03f7c4651afebc005736e55d23fd22574ed332a34e54f74a4ad8aeef384aeef5"
+            }
+          ]
+        },
+        "compositionDigest": "sha256:69d62891c257dee43830c4ea37e826d232e439dfe856473b3be55bc38537056b"
+      }
+    ],
+    "exclude": [],
+    "runtimes": {}
+  },
+  "expected": {
+    "compositionDigest": "sha256:69d62891c257dee43830c4ea37e826d232e439dfe856473b3be55bc38537056b",
+    "composedFiles": [
+      {
+        "path": "SKILL.md",
+        "mode": "100644",
+        "size": 85,
+        "sha256": "c12816b3a263285ad6b1ed34145ba2660b73481609a00519079a466a5a922349"
+      },
+      {
+        "path": "notes.md",
+        "mode": "100644",
+        "size": 9,
+        "sha256": "575f2cdff6dffb92f3ff1dd487a4fce747e7c38e1a7ea7f1bfc27c82cda2803f"
+      },
+      {
+        "path": "scripts/run.sh",
+        "mode": "100755",
+        "size": 18,
+        "sha256": "299001868fb8c02fd431c336c6d058f5558c5dff5b5af5e6fe04b870a6a9cbba"
+      }
+    ],
+    "revisionDigest": "sha256:c1411cc295cd403a18c46a238bd74706caccf50c445722bb7f65009bb30cfd1a",
+    "lock": {
+      "schema": "skillx.personal-kit-lock/v1",
+      "resolver": "skillx.kit-resolver/1",
+      "kit": "@alpha/my-kit",
+      "localId": "local/my-kit",
+      "revisionId": "pkr_00000000-0000-4000-8000-000000000001",
+      "revisionNumber": 1,
+      "revisionDigest": "sha256:c1411cc295cd403a18c46a238bd74706caccf50c445722bb7f65009bb30cfd1a",
+      "profile": null,
+      "runtimes": {},
+      "entries": [
+        {
+          "identity": "@alpha/demo",
+          "alias": "demo",
+          "mode": "override",
+          "exposure": null,
+          "package": "@alpha/demo",
+          "version": "1.0.0",
+          "releaseDigest": "sha256:ae50cd6e75cafa22f9159941ca54df9e367f8b78120776af31eb32ca54d4891e",
+          "overlayDigests": [
+            "sha256:11b48d17b9d81747b894b98e7cf80ed58fcad1094f9b0a7ba4950135fe404927"
+          ],
+          "compositionDigest": "sha256:69d62891c257dee43830c4ea37e826d232e439dfe856473b3be55bc38537056b",
+          "owner": "personal:@alpha/my-kit"
+        }
+      ]
+    }
+  }
+}

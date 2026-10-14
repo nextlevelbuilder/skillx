@@ -124,6 +124,9 @@ importers:
       '@skillx/skill-tree':
         specifier: workspace:*
         version: link:../skill-tree
+      yaml:
+        specifier: ^2.9.1
+        version: 2.9.1
     devDependencies:
       typescript:
         specifier: ^5.9.2

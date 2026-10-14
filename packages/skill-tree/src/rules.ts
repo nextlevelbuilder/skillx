@@ -9,10 +9,21 @@ export { ERROR_CODES, SkillTreeError, isSkillTreeError } from "./errors";
 export type { SkillTreeErrorCode } from "./errors";
 
 export { isNoisePath, validatePath } from "./path-rules";
-export { checkCollisions, foldKey } from "./collision";
+export { checkCollisions, checkFileDirs, foldKey } from "./collision";
 export { UNICODE_VERSION, isFormat } from "./unicode-15";
 
-export { IDENTITY_PATTERN, RESERVED_PUBLISHER, checkPublisher, validateIdentity } from "./identity";
+export {
+  IDENTITY_PATTERN,
+  RESERVED_PUBLISHER,
+  checkAlias,
+  checkDirectoryAlias,
+  checkPublisher,
+  directoryAliasKey,
+  kitIdentity,
+  validateIdentity,
+} from "./identity";
+export { frontmatterExposure, skillFileExposure } from "./exposure";
+export type { Exposure, ExposureResult } from "./exposure";
 
 export { MODE_EXECUTABLE, MODE_REGULAR, TREE_SCHEMA, compareUtf8, serializeTree, sortFiles } from "./tree-format";
 export type { FileMode, TreeFile } from "./tree-format";

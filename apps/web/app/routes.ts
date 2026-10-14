@@ -36,5 +36,7 @@ export default [
   route("api/v1/releases/:digest/files/*", "routes/api.v1.release-file.ts"),
   route("api/v1/releases/:digest/artifact", "routes/api.v1.release-artifact.ts"),
   route("api/v1/keys", "routes/api.v1.signing-keys.ts"),
+  route("api/v1/kits/:scope/:name", "routes/api.v1.kits.ts", { id: "personal-kit" }),
+  route("api/v1/kits/:scope/:name/*", "routes/api.v1.kits.ts", { id: "personal-kit-sub" }),
   route("*", "routes/$.tsx"),
 ] satisfies RouteConfig;

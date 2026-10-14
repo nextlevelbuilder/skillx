@@ -249,6 +249,7 @@ export function releaseFilePath(request: Request): string {
   return path;
 }
 
+/** The validated signed manifest of a readable release (also used by the personal kit base loader). */
 export async function readManifest(bucket: R2Bucket, release: ReadableRelease): Promise<SkillxReleaseManifest> {
   const object = await getManifestObject(bucket, release);
   let parsed: unknown;

@@ -10,3 +10,4 @@ export * from "./skill-references-schema";
 export * from "./registry-schema";
 export * from "./entitlements-schema";
 export * from "./collections-schema";
+export * from "./personal-kits-schema";

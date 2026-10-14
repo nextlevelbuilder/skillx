@@ -22,3 +22,4 @@ export * from "./ingestion";
 export * from "./dto";
 export * from "./payload-access";
 export * from "./fixtures";
+export * from "./personal-kit";

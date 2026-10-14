@@ -9,6 +9,7 @@ export default defineConfig({
     "./app/lib/db/registry-schema.ts",
     "./app/lib/db/entitlements-schema.ts",
     "./app/lib/db/collections-schema.ts",
+    "./app/lib/db/personal-kits-schema.ts",
   ],
   dialect: "sqlite",
 });

@@ -655,6 +655,28 @@ POST .../releases/:version/state, /publishers/@h/state ── compare-and-set + 
   Worker route modules over the in-process D1/R2 test fakes, not
   `wrangler dev`.
 
+## Personal Kits (Owner-Private Compositions)
+
+Flagged by `SKILLX_PERSONAL_KITS_API`; full contract in the
+[personal kits API](./personal-kits-api.md).
+
+```
+contracts (packages/contracts/src/personal-kit): overlay envelope, apply, 3-way rebase, document + lock
+POST /api/v1/kits/@h/n/revisions ── verify: pinned base bytes (release-access rules) ── recompute compositionDigest
+D1: personal_kits (generation CAS), personal_kit_revisions (immutable), personal_kit_conflicts, personal_kit_audit
+```
+
+- **Deterministic only**: the engine applies overlays and rebases (B0, U0,
+  B1); any `conflict.*` finding stores a conflict, never a merge. Only an
+  explicit user decision or activation (naming the revision digest) changes
+  what is effective; an agent suggestion is recorded, never applied.
+- **Concurrency**: every write is one D1 batch whose statements are all
+  guarded by the expected `generation`; the audit row decides success.
+- **Privacy/licensing**: kits are private by default; a public kit over a
+  private/paid base or parent is refused. Bases are read with the owner's
+  entitlement and re-checked on activation and lock reads
+  (`kit.locked_incompatible`).
+
 ## Deployment Architecture
 
 ```

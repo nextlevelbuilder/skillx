@@ -1277,6 +1277,10 @@ key is missing, and `503 release.status_contended` (retry).
 unscoped. Additive; the header rollback revokes every scoped key, drops the
 column and deletes the `0012_api_key_scopes.sql` row from `d1_migrations`.
 
+### Personal kits
+
+`/api/v1/kits/@{handle}/{name}[/...]` (flag `SKILLX_PERSONAL_KITS_API`): owner-private kit revisions, foundation rebase, conflict resolution, activation and locks. See [Personal Kits API](./personal-kits-api.md).
+
 ### Changing release and publisher state
 
 Behind the same flag (`404 not_found` unless `SKILLX_RELEASES_API` is `"1"`
@@ -1515,6 +1519,7 @@ No explicit rate limiting at the API layer, except the release read API (300 req
 | `apps/web/app/routes/api.v1.release-{manifest,file,artifact}.ts` | Pinned release reads (flagged) |
 | `apps/web/app/routes/api.v1.release-status.ts` | Signed release status document (flagged) |
 | `apps/web/app/routes/api.v1.signing-keys.ts` | Registry key IDs (flagged) |
+| `apps/web/app/routes/api.v1.kits.ts` | Personal kit API (flagged; `app/lib/personal-kits/`) |
 | `apps/web/app/routes/api.v1.release-state.ts` | Release and publisher state transitions (flagged) |
 | `apps/web/app/lib/releases/` | Release ingest, signing, scan, R2 and D1 writes; read access, rate limit and read handlers; state transitions (`release-transitions.ts`, `release-state-http.ts`) |
 | `apps/web/app/routes/api.admin.seed.ts` | Admin data seeding |
