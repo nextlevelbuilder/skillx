@@ -38,7 +38,7 @@ const TARGETS = {
   publisher: { table: "publishers", column: "state" },
 } as const;
 
-const AUDIT_COLUMNS = "id, subject_kind, subject_id, actor_kind, actor_id, from_state, to_state, outcome, reason, created_at";
+export const AUDIT_COLUMNS = "id, subject_kind, subject_id, actor_kind, actor_id, from_state, to_state, outcome, reason, created_at";
 const auditId = () => `rsa_${crypto.randomUUID()}`;
 
 /** Records an attempt that never reached the compare-and-set. */

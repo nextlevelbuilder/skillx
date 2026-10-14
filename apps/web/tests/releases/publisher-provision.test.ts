@@ -75,6 +75,13 @@ describe("publisher provisioning: access", () => {
     expect(audit()).toHaveLength(0);
   });
 
+  it("refuses a scoped publish key, so a leaked CI key cannot provision", async () => {
+    const key = await h.createKey("user-a", [releasePublishScope("alpha")]);
+    expectError(await provision(carol, { key }), 401, "invalid_api_key");
+    expect(publisherRows("carol")).toHaveLength(0);
+    expect(audit()).toHaveLength(0);
+  });
+
   it("answers 429 before reading the body, and counts the client IP before the admin", async () => {
     const exhausted = { env: { RELEASE_WRITE_LIMITER: new FakeRateLimiter(0) } };
     const limited = await provision(carol, { ...admin, rawBody: "{not json", ...exhausted });
@@ -125,6 +132,26 @@ describe("publisher provisioning: creation", () => {
     expect(audit()).toEqual([
       { subject_kind: "publisher", actor_kind: "admin", actor_id: "admin", from_state: "none", to_state: "active", outcome: "applied", reason: "smoke publisher" },
     ]);
+  });
+
+  it("points the audit row at the new publisher with a millisecond timestamp", async () => {
+    const before = Date.now();
+    expect((await provision(carol, admin)).status).toBe(200);
+    const after = Date.now();
+    const [publisher] = publisherRows("carol");
+    const row = h.d1.raw.prepare("SELECT subject_id, created_at FROM release_state_audit").get() as { subject_id: string; created_at: number };
+    expect(row.subject_id).toBe(publisher!.id);
+    expect(row.created_at).toBeGreaterThanOrEqual(before);
+    expect(row.created_at).toBeLessThanOrEqual(after);
+    const stored = h.d1.raw.prepare("SELECT created_at FROM publishers WHERE handle = 'carol'").get() as { created_at: number };
+    expect(stored.created_at).toBe(row.created_at);
+  });
+
+  it("writes nothing when the owner is deleted between the check and the insert", async () => {
+    holdBatches(1, () => h.d1.raw.prepare('DELETE FROM "user" WHERE id = ?').run("user-c"));
+    expectError(await provision(carol, admin), 404, "user.not_found");
+    expect(publisherRows("carol")).toHaveLength(0);
+    expect(audit()).toHaveLength(0);
   });
 
   it("treats an identical replay as created:false and writes nothing", async () => {

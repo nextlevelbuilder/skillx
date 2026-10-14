@@ -24,6 +24,7 @@
  */
 import { ReleaseHttpError, errorResponse, notFoundResponse, releaseError } from "./release-http";
 import { releasesApiEnabled } from "./release-limits";
+import { AUDIT_COLUMNS } from "./release-state-cas";
 import {
   BARE_PUBLISHER_HANDLE,
   NO_STORE,
@@ -75,7 +76,6 @@ export async function readProvisionRequest(request: Request): Promise<PublisherP
   return { handle: record.handle, ownerUserId: record.ownerUserId, verifiedBy: PROVISIONED_VERIFICATION, reason: parseReason(record.reason) };
 }
 
-const AUDIT_COLUMNS = "id, subject_kind, subject_id, actor_kind, actor_id, from_state, to_state, outcome, reason, created_at";
 
 type StoredPublisher = { id: string; owner_user_id: string | null; state: PublisherState };
 

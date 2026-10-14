@@ -308,7 +308,7 @@ Run this supervised, by a maintainer, in order. Stop at the first failure.
    Then, with the admin secret exported in your shell as `ADMIN_SECRET` (never
    paste it into a file or a ticket):
    ```bash
-   curl -sS -X POST https://skillx.sh/api/v1/publishers \
+   curl -sS -w '\n%{http_code}\n' -X POST https://skillx.sh/api/v1/publishers \
      -H "X-Admin-Secret: $ADMIN_SECRET" \
      -H "Content-Type: application/json" \
      -d '{"handle":"<handle>","ownerUserId":"<user id>","reason":"activation smoke"}'

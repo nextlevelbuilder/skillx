@@ -1347,7 +1347,8 @@ the same batch: `subject_kind` `publisher`, actor `admin`, `from_state`
 `invalid_admin_secret`, `403 publisher.admin_only`, `404 not_found` (API
 disabled) / `user.not_found`, `409 publisher.conflict`, `413
 request_too_large`, `415 unsupported_media_type`, `429 rate_limited`, `500
-release.internal_error`.
+release.internal_error`, `503 rate_limit_unavailable` (an account request
+while the write limiter is missing or failing).
 
 ### Database table (migration `0013_release_state_audit`)
 
