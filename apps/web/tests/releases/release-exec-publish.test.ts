@@ -50,7 +50,9 @@ describe("publish-time agentkit-exec.json validation", () => {
   it("accepts a valid manifest and stores its capability summary", async () => {
     const res = await upload(exec());
     expect(res.status).toBe(200);
+    expect(res.body.warnings).toEqual([]);
     expect(res.body.exec).toMatchObject({
+      validated: true,
       schemaVersion: "agentkit.skill-exec/v1",
       dependencies: { kind: "none" },
       entrypoints: [{ name: "run", path: "scripts/run.sh", networkHosts: ["api.example.com"], secrets: ["API_TOKEN"], subprocess: false }],
@@ -73,6 +75,14 @@ describe("publish-time agentkit-exec.json validation", () => {
     expect(res.body.error.message).toContain("entrypoints[0].interpreter.name");
     expect(h.releaseRows()).toEqual([]);
     expect((await upload('{"schemaVersion":"agentkit.skill-exec/v1","schemaVersion":"x"}')).body.error.code).toBe("exec.manifest_invalid");
+  });
+
+  it("stores a newer schema major unvalidated, with a warning", async () => {
+    const res = await upload(JSON.stringify({ schemaVersion: "agentkit.skill-exec/v2", entrypoints: "future shape" }));
+    expect(res.status).toBe(200);
+    expect(res.body.exec).toEqual({ validated: false, schema: "agentkit.skill-exec/v2", path: "agentkit-exec.json", fileDigest: expect.stringMatching(/^sha256:[0-9a-f]{64}$/) });
+    expect(res.body.warnings).toEqual([{ code: "exec.schema_unvalidated", message: expect.stringContaining("agentkit.skill-exec/v2") }]);
+    expect(JSON.parse(storedSummary()!)).toEqual(res.body.exec);
   });
 
   it("rejects an entrypoint the publisher did not declare", async () => {

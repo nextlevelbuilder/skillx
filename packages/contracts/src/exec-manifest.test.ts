@@ -99,13 +99,34 @@ describe("validateExecManifest", () => {
     expect(result).toMatchObject({ ok: false, code: "exec.entrypoint_undeclared" });
   });
 
-  it("rejects syntax, duplicates, oversize and other schema majors", () => {
+  it.each([
+    ["parent traversal", "../scripts/render.py"],
+    ["dot-dot inside the path", "scripts/../scripts/render.py"],
+    ["absolute path", "/scripts/render.py"],
+    ["backslash separator", "scripts\\render.py"],
+    ["drive letter", "C:/scripts/render.py"],
+    ["directory", "scripts"],
+  ])("rejects an entrypoint path with %s even when declared", (_label, path) => {
+    const tree = { ...TREE, declaredScripts: [...TREE.declaredScripts, path] };
+    const result = check({ ...validManifest(), entrypoints: [{ ...validManifest().entrypoints[0], path }] }, tree);
+    expect(result).toMatchObject({ ok: false, code: "exec.manifest_invalid", issues: [{ path: "entrypoints[0].path", code: "not_in_tree" }] });
+  });
+
+  it("accepts a newer schema major unvalidated and rejects malformed schema ids", () => {
+    expect(check({ schemaVersion: "agentkit.skill-exec/v2", anything: [1] })).toEqual({ ok: true, manifest: null, schemaVersion: "agentkit.skill-exec/v2" });
+    for (const id of ["agentkit.skill-exec/v0", "agentkit.skill-exec/v1.1", "agentkit.skill-exec/v02", "other/v2"]) {
+      expect(mutate((d) => (d.schemaVersion = id))).toMatchObject({ ok: false, code: "exec.manifest_invalid" });
+    }
+    expect(check('{"schemaVersion":"agentkit.skill-exec/v2","schemaVersion":"x"}')).toMatchObject({ ok: false, issues: [{ code: "syntax" }] });
+  });
+
+  it("rejects syntax, duplicates and oversize", () => {
     expect(check("{not json")).toMatchObject({ ok: false, code: "exec.manifest_invalid" });
     const dup = JSON.stringify(validManifest()).replace('"schemaVersion"', '"entrypoints":[],"schemaVersion"');
     expect(check(dup)).toMatchObject({ ok: false, issues: [{ code: "syntax" }] });
     const big = validateExecManifest(new Uint8Array(EXEC_MANIFEST_MAX_BYTES + 1), TREE);
     expect(big).toMatchObject({ ok: false, issues: [{ code: "max_bytes" }] });
-    expect(mutate((d) => (d.schemaVersion = "agentkit.skill-exec/v2"))).toMatchObject({ ok: false, issues: [{ code: "unsupported_version" }] });
+
   });
 });
 
@@ -114,7 +135,7 @@ describe("capability digest and summary", () => {
     const a = check(validManifest());
     const reordered = JSON.parse(JSON.stringify(validManifest(), Object.keys(validManifest()).reverse()));
     const b = check(JSON.stringify({ ...reordered, ...validManifest() }));
-    if (!a.ok || !b.ok) throw new Error("fixtures must validate");
+    if (!a.ok || !b.ok || a.manifest === null || b.manifest === null) throw new Error("fixtures must validate");
     const digestA = await execCapabilityDigest(a.manifest.entrypoints[0]!);
     expect(await execCapabilityDigest(b.manifest.entrypoints[0]!)).toBe(digestA);
     const grown = structuredClone(a.manifest) as ExecManifest;
@@ -126,9 +147,10 @@ describe("capability digest and summary", () => {
   it("summarizes requested capabilities per entrypoint", async () => {
     const bytes = encoder.encode(JSON.stringify(validManifest()));
     const result = validateExecManifest(bytes, TREE);
-    if (!result.ok) throw new Error("fixture must validate");
+    if (!result.ok || result.manifest === null) throw new Error("fixture must validate");
     const summary = await summarizeExecManifest(result.manifest, bytes);
     expect(summary).toMatchObject({
+      validated: true,
       schemaVersion: "agentkit.skill-exec/v1",
       path: "agentkit-exec.json",
       dependencies: { kind: "none" },

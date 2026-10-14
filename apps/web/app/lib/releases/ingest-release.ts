@@ -163,7 +163,7 @@ async function ingest(request: Request, params: { scope?: string; slug?: string 
     treeSize: signed.manifest.treeSize,
     manifestKey: manifestKey(manifestHex),
     sourceProvenance: metadata.sourceProvenance,
-    execSummary: exec,
+    execSummary: exec.summary,
     createdAt: now.getTime(),
   });
   if (outcome === "conflict") {
@@ -182,7 +182,8 @@ async function ingest(request: Request, params: { scope?: string; slug?: string 
     keyId: signer.keyId,
     created: true,
     findings: scan.findings,
-    exec,
+    exec: exec.summary,
+    warnings: exec.warnings,
   });
 }
 

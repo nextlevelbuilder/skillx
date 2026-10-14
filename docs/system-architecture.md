@@ -626,16 +626,20 @@ POST .../releases/:version/state, /publishers/@h/state ── compare-and-set + 
   `skillx.release-status/v1` document signed with the registry key, in every
   served state. It is issued lazily on request (reused under 12 h, 24 h
   lifetime) from the effective read state (tree quarantine and a revoked
-  publisher report `quarantined`); the sequence advances by the transitions
-  needed (so lifting a quarantine advances it by 2), and a compare-and-set on
-  `status_sequence` keeps one document per sequence. Documents live in R2
+  publisher report `quarantined`), with a fixed public reason code only; the
+  sequence advances by the transitions needed (so lifting a quarantine
+  advances it by 2, and an unknown previous document by 4), and a
+  compare-and-set on `status_sequence` keeps one document per sequence (a
+  loser serves the winner only when it reports the observed state, else
+  retries, then 503). Documents live in R2
   `statuses/sha256/` (migration 0014 adds `status_key`).
 - **Exec manifest** (`packages/contracts/src/exec-manifest.ts`,
   `app/lib/releases/release-exec.ts`): an optional root `agentkit-exec.json`
   (`agentkit.skill-exec/v1`, AgentKit G3) is validated at publish (strict
   JSON, deny unknown fields, entrypoints must be `declaredScripts`, interpreter
   allowlist, limit ceilings) and its capability summary is stored in
-  `exec_summary_json`. SkillX never executes it.
+  `exec_summary_json`; a newer schema major is stored unvalidated with a
+  publish warning. SkillX never executes it.
 - **Legacy listings**: `skillx use` labels a multi-file legacy listing
   (references or scripts) as discovery-only, because only SKILL.md text is
   delivered there; pinned releases carry the whole tree. The label is dropped

@@ -984,7 +984,8 @@ vectors):
 
 - at most 64 KiB of UTF-8 JSON without a BOM; whitespace and member order are
   free, a duplicate member at any depth or an unknown member is invalid;
-  `schemaVersion` must be `agentkit.skill-exec/v1`;
+  `schemaVersion` must be `agentkit.skill-exec/v1`, except that a newer major
+  `agentkit.skill-exec/vN` (N > 1) is accepted without validation (below);
 - `entrypoints`: 1 to 32 objects with a unique `name`
   (`[a-z0-9][a-z0-9._-]{0,63}`), a `path` that is a file of the tree **and**
   listed in `declaredScripts` (else `exec.entrypoint_undeclared`), an
@@ -1006,8 +1007,14 @@ valid at publish; what is granted is AgentKit's decision. The summary
 (`exec_summary_json`, and `exec` in the response) lists per entrypoint its
 `name`, `path`, `interpreter`, `capabilityDigest` (sha256 of the canonical JSON
 of `{capabilities, interpreter}`), `networkHosts`, `subprocess`, `secrets`
-and `write`, plus `dependencies` and the manifest `fileDigest`. The manifest
-file itself stays the authority; it is covered by `releaseDigest`.
+and `write`, plus `dependencies` and the manifest `fileDigest`, with
+`validated: true`. The manifest file itself stays the authority; it is
+covered by `releaseDigest`.
+
+A newer schema major is stored as `{validated: false, schema, path,
+fileDigest}` and the response carries the warning `exec.schema_unvalidated`,
+so SkillX never blocks a publish because it lags AgentKit's schema. The file
+must still be strict JSON within 64 KiB.
 
 The scan only decides the initial state. Any of these makes the release
 `quarantined` instead of `published`:
@@ -1041,12 +1048,14 @@ SHA-256, so one tree under two versions never collides).
   "keyId": "skillx-reg-993cd14a011f7b76",
   "created": true,
   "findings": [],
-  "exec": null
+  "exec": null,
+  "warnings": []
 }
 ```
 
 `exec` is the exec manifest summary, or `null` when the tree has no
-`agentkit-exec.json`.
+`agentkit-exec.json`. `warnings` lists non-blocking `{code, message}` notes
+(currently only `exec.schema_unvalidated`).
 
 Re-uploading the same tree for an existing version answers `200` with
 `created: false` (idempotent retry); different content is `409`. Concurrent
@@ -1226,13 +1235,14 @@ The signed `state` mirrors what the read API enforces:
 
 | Release | Signed `state` | `reason` |
 |---------|----------------|----------|
-| quarantined | `quarantined` | the reason of the applied transition in `release_state_audit`, if any |
-| published or yanked, but another release of the tree is quarantined | `quarantined` | `another release of this tree is quarantined` |
-| publisher suspended or revoked | `quarantined` | `the publisher of this package is suspended or revoked` |
-| yanked | `yanked` | the audit reason, if any |
+| quarantined | `quarantined` | `quarantined` |
+| published or yanked, but another release of the tree is quarantined | `quarantined` | `tree_quarantined` |
+| publisher suspended or revoked | `quarantined` | `publisher_revoked` |
+| yanked | `yanked` | `yanked` |
 | published | `published` | none |
 
-An audit reason that breaks the status `reason` rules is left out.
+The document is public, so `reason` is only one of these fixed codes. The
+free-text `reason` of a state change stays admin-only in `release_state_audit`.
 
 **Issuing**: lazy and monotonic. The latest document is served again while it
 reports the current state, reason and active key and is less than 12 hours
@@ -1241,10 +1251,17 @@ issuedAt + 24h`; `issuedAt` is at least 1 second after the previous one and
 never before the manifest `createdAt`; `sequence` advances by the number of
 transitions needed to reach the new state (at least 1; `quarantined` to
 `published` advances by 2, through `yanked`), and a release whose first status
-is not `published` starts after an implied `published` sequence 1. A
-compare-and-set on `status_sequence` makes concurrent requests serve one
-document per sequence. State changes do not issue documents themselves; the
-next status request does.
+is not `published` starts after an implied `published` sequence 1. The next
+sequence is always above the recorded `status_sequence`; when the previous
+document is unknown (its R2 object is missing, does not hash to its key, or
+the pointer was lost by a 0014 rollback and reapply) it advances by 4, the
+verifier's transition cap, so any state stays reachable, and `issuedAt` stays
+after the recorded `status_issued_at`. Such a document is re-issued, never an
+error. A compare-and-set on `status_sequence` keeps one document per
+sequence: a request that loses the race re-reads the release and serves the
+recorded document only if it reports the state it now observes, else signs
+again; after 3 lost races it answers `503 release.status_contended`. State
+changes do not issue documents themselves; the next status request does.
 
 **Response** `200`: the canonical document bytes, `Content-Type:
 application/json`, `Cache-Control: <public|private>, max-age=60,
@@ -1252,7 +1269,7 @@ no-transform`, `Vary: Authorization, Cookie`, `ETag` (the document SHA-256),
 and `X-SkillX-Release-State` (the signed state), `X-SkillX-Release-Digest`,
 `X-SkillX-Identity`, `X-SkillX-Version`. Errors as above, plus `503
 release.signing_unavailable` when a new document is needed and the signing
-key is missing.
+key is missing, and `503 release.status_contended` (retry).
 
 ### Database columns (migration `0012_api_key_scopes`)
 
@@ -1274,7 +1291,8 @@ or `"true"`; other methods `405`).
 `{"from": "<expected state>", "to": "<new state>", "reason": "<optional>"}`.
 Unknown members are rejected. `reason` is 1 to 512 UTF-8 bytes without
 control, format (bidi) or line separator characters (the
-`skillx.release-status/v1` reason rules).
+`skillx.release-status/v1` reason rules). It is stored in the admin-only
+audit and never published; the signed status carries a fixed reason code.
 
 **Auth**: admin with `X-Admin-Secret: <ADMIN_SECRET>` (the existing admin
 pattern; a present but wrong or unconfigured secret is `401

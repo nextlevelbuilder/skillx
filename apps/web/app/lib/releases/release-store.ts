@@ -4,7 +4,7 @@
  * batch with the package row, and the unique (package_id, version) index
  * makes exactly one of two concurrent uploads of a version win.
  */
-import type { ExecManifestSummary, PackageKind, ReleaseChannel, ReleaseSourceProvenance } from "@skillx/contracts";
+import type { ExecSummary, PackageKind, ReleaseChannel, ReleaseSourceProvenance } from "@skillx/contracts";
 
 export interface ExistingPackage {
   id: string;
@@ -38,7 +38,7 @@ export interface NewRelease {
   manifestKey: string;
   sourceProvenance: ReleaseSourceProvenance | null;
   /** Capability summary of a valid agentkit-exec.json, or null when the tree has none. */
-  execSummary: ExecManifestSummary | null;
+  execSummary: ExecSummary | null;
   createdAt: number;
 }
 

@@ -6,7 +6,8 @@
  * at publish and stores a parsed summary.
  *
  * The shape follows AgentKit's EX-0/EX-1 draft (decision D1). Align with the
- * AgentKit conformance vectors once they are published.
+ * AgentKit conformance vectors once they are published. Newer schema majors
+ * are accepted unvalidated (see `validateExecManifest`).
  */
 import { canonicalJsonBytes } from "./canonical-json";
 import { checkNameList, EXEC_NAME_PATTERN, unknownFields, validateExecCapabilities } from "./exec-capabilities";
@@ -61,8 +62,12 @@ export interface ExecManifestTree {
   declaredScripts: readonly string[];
 }
 
+/** A schema `agentkit.skill-exec/vN` with N > 1: newer than this validator, accepted without validation. */
+export const EXEC_FUTURE_SCHEMA_PATTERN = /^agentkit\.skill-exec\/v([1-9][0-9]*)$/;
+
 export type ExecManifestResult =
   | { ok: true; manifest: ExecManifest }
+  | { ok: true; manifest: null; schemaVersion: string }
   | { ok: false; code: (typeof EXEC_MANIFEST_CODES)[keyof typeof EXEC_MANIFEST_CODES]; issues: ValidationIssue[] };
 
 const ENTRYPOINT_FIELDS = ["name", "path", "interpreter", "args", "inputs", "capabilities"];
@@ -142,7 +147,12 @@ function fail(issues: ValidationIssue[]): ExecManifestResult {
   return { ok: false, code: onlyUndeclared ? EXEC_MANIFEST_CODES.undeclared : EXEC_MANIFEST_CODES.invalid, issues };
 }
 
-/** Parses and validates `agentkit-exec.json` bytes against the package tree. Never throws. */
+/**
+ * Parses and validates `agentkit-exec.json` bytes against the package tree.
+ * v1 is validated strictly. A newer `agentkit.skill-exec/vN` is returned
+ * with `manifest: null` so a publish is not blocked on this validator
+ * lagging AgentKit; the caller stores it as unvalidated. Never throws.
+ */
 export function validateExecManifest(bytes: Uint8Array, tree: ExecManifestTree): ExecManifestResult {
   if (bytes.byteLength > EXEC_MANIFEST_MAX_BYTES) {
     return fail([issue("", "max_bytes", `must be at most ${EXEC_MANIFEST_MAX_BYTES} bytes`)]);
@@ -152,6 +162,9 @@ export function validateExecManifest(bytes: Uint8Array, tree: ExecManifestTree):
   const doc = parsed.value;
   if (!isPlainObject(doc)) return fail([issue("", "type", "must be a JSON object")]);
   const issues: ValidationIssue[] = [];
+  if (typeof doc.schemaVersion === "string" && doc.schemaVersion !== SKILL_EXEC_SCHEMA_VERSION && EXEC_FUTURE_SCHEMA_PATTERN.test(doc.schemaVersion)) {
+    return { ok: true, manifest: null, schemaVersion: doc.schemaVersion };
+  }
   if (doc.schemaVersion !== SKILL_EXEC_SCHEMA_VERSION) {
     const code = typeof doc.schemaVersion === "string" && doc.schemaVersion.startsWith("agentkit.skill-exec/") ? "unsupported_version" : "unsupported_value";
     return fail([issue("schemaVersion", code, `must be ${SKILL_EXEC_SCHEMA_VERSION}`)]);
