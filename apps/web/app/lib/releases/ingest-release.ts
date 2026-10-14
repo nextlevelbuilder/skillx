@@ -4,7 +4,7 @@
  * Order (each step rejects before any later one runs):
  * name and reserved namespaces -> scoped key and publisher ownership ->
  * signing key -> metadata -> capped upload -> tar read with limits and tree
- * digest -> version conflict -> scan -> signed manifest -> R2 artifact, blobs
+ * digest -> version conflict -> exec manifest -> scan -> signed manifest -> R2 artifact, blobs
  * and manifest (create-only) -> D1 row (last). Release bytes are stored
  * exactly as uploaded; nothing is sanitized.
  */
@@ -12,6 +12,7 @@ import { ReleaseManifestError, SKILLX_RELEASE_SCHEMA_VERSION } from "@skillx/con
 import { ERROR_CODES, SkillTreeError, readTarTree } from "@skillx/skill-tree";
 import type { TreeManifest } from "@skillx/skill-tree";
 import { authorizeReleasePublisher } from "./release-auth";
+import { checkExecManifest } from "./release-exec";
 import { ReleaseHttpError, errorResponse, releaseError } from "./release-http";
 import { BLOB_WRITE_CONCURRENCY, MAX_RELEASE_UPLOAD_BYTES, RELEASE_SERVER_TREE_LIMITS, assertSubrequestBudget } from "./release-limits";
 import { RELEASE_METADATA_HEADER, parseReleaseMetadata, parseReleaseName, readUploadBody } from "./release-request";
@@ -96,6 +97,7 @@ async function ingest(request: Request, params: { scope?: string; slug?: string 
   const existing = await findRelease(deps.db, name.identity, metadata.version);
   if (existing !== null) return existingOutcome(name.identity, metadata.version, existing, tree.digest);
 
+  const exec = await checkExecManifest(contents, metadata.declaredScripts);
   const scan = scanRelease(tree.files.map((f) => ({ path: f.path, bytes: contents.get(f.path)! })));
   const artifactHex = await sha256Hex(body);
   const now = deps.now?.() ?? new Date();
@@ -161,6 +163,7 @@ async function ingest(request: Request, params: { scope?: string; slug?: string 
     treeSize: signed.manifest.treeSize,
     manifestKey: manifestKey(manifestHex),
     sourceProvenance: metadata.sourceProvenance,
+    execSummary: exec,
     createdAt: now.getTime(),
   });
   if (outcome === "conflict") {
@@ -179,6 +182,7 @@ async function ingest(request: Request, params: { scope?: string; slug?: string 
     keyId: signer.keyId,
     created: true,
     findings: scan.findings,
+    exec,
   });
 }
 

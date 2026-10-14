@@ -100,7 +100,7 @@ export async function serveReleaseRead(
   }
 }
 
-function cacheControl(release: { visibility: string }, maxAge: number, immutable: boolean): string {
+export function cacheControl(release: { visibility: string }, maxAge: number, immutable: boolean): string {
   const scope = release.visibility === "public" ? "public" : "private";
   return `${scope}, max-age=${maxAge}${immutable ? ", immutable" : ""}, no-transform`;
 }
@@ -141,7 +141,7 @@ function notModified(request: Request, etag: string): boolean {
 }
 
 /** Which release a request selects can depend on who asks (entitlements). */
-const VARY_VIEWER = { Vary: "Authorization, Cookie" };
+export const VARY_VIEWER = { Vary: "Authorization, Cookie" };
 
 function bytesResponse(request: Request, object: R2ObjectBody, etag: string, headers: Record<string, string>): Response {
   const all = { ...headers, ...VARY_VIEWER, ETag: etag };
@@ -203,18 +203,23 @@ export async function readManifestByVersion(ctx: ReadContext, params: Params): P
 }
 
 /**
- * Resolves the release of a digest endpoint. The optional `?version=` query
- * parameter is a selector (never a credential) that pins one release of the
- * tree; a malformed value is 400, an unknown or mismatched one 404.
+ * Resolves the release of a digest endpoint. The optional `?version=` and
+ * `?package=@handle/slug` query parameters are selectors (never credentials)
+ * that pin one release of the tree; a malformed value is 400, an unknown or
+ * mismatched one 404.
  */
 async function resolveDigestTarget(ctx: ReadContext, params: Params): Promise<ReadableRelease> {
   const digest = parseReleaseDigest(params.digest);
-  const selector = new URL(ctx.request.url).searchParams.get("version");
+  const query = new URL(ctx.request.url).searchParams;
+  const selector = query.get("version");
   const version = selector === null ? null : parseReleaseVersion(selector);
-  return resolveReleaseByDigest(ctx.db, digest, ctx.userId, version);
+  const pkg = query.get("package");
+  const slash = pkg?.indexOf("/") ?? -1;
+  const identity = pkg === null ? null : parsePackageIdentity(pkg.slice(0, slash < 0 ? pkg.length : slash), slash < 0 ? undefined : pkg.slice(slash + 1));
+  return resolveReleaseByDigest(ctx.db, digest, ctx.userId, version, identity);
 }
 
-/** `GET /api/v1/releases/:digest/manifest[?version=]` */
+/** `GET /api/v1/releases/:digest/manifest[?version=&package=]` */
 export async function readManifestByDigest(ctx: ReadContext, params: Params): Promise<Response> {
   return manifestResponse(ctx, await resolveDigestTarget(ctx, params));
 }
@@ -244,7 +249,7 @@ export function releaseFilePath(request: Request): string {
   return path;
 }
 
-async function readManifest(bucket: R2Bucket, release: ReadableRelease): Promise<SkillxReleaseManifest> {
+export async function readManifest(bucket: R2Bucket, release: ReadableRelease): Promise<SkillxReleaseManifest> {
   const object = await getManifestObject(bucket, release);
   let parsed: unknown;
   try {
@@ -258,7 +263,7 @@ async function readManifest(bucket: R2Bucket, release: ReadableRelease): Promise
   return manifest;
 }
 
-/** `GET /api/v1/releases/:digest/files/*[?version=]` */
+/** `GET /api/v1/releases/:digest/files/*[?version=&package=]` */
 export async function readReleaseFile(ctx: ReadContext, params: Params): Promise<Response> {
   parseReleaseDigest(params.digest);
   const path = releaseFilePath(ctx.request);
@@ -282,7 +287,7 @@ export async function readReleaseFile(ctx: ReadContext, params: Params): Promise
   });
 }
 
-/** `GET /api/v1/releases/:digest/artifact[?version=]`: the uploaded tar, streamed from the R2 body. */
+/** `GET /api/v1/releases/:digest/artifact[?version=&package=]`: the uploaded tar, streamed from the R2 body. */
 export async function readReleaseArtifact(ctx: ReadContext, params: Params): Promise<Response> {
   const release = await resolveDigestTarget(ctx, params);
   if (release.artifactKey === null || release.artifactDigest === null) throw storageError(`release ${release.id} has no artifact`);

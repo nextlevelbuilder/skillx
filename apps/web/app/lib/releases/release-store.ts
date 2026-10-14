@@ -4,7 +4,7 @@
  * batch with the package row, and the unique (package_id, version) index
  * makes exactly one of two concurrent uploads of a version win.
  */
-import type { PackageKind, ReleaseChannel, ReleaseSourceProvenance } from "@skillx/contracts";
+import type { ExecManifestSummary, PackageKind, ReleaseChannel, ReleaseSourceProvenance } from "@skillx/contracts";
 
 export interface ExistingPackage {
   id: string;
@@ -37,6 +37,8 @@ export interface NewRelease {
   treeSize: number;
   manifestKey: string;
   sourceProvenance: ReleaseSourceProvenance | null;
+  /** Capability summary of a valid agentkit-exec.json, or null when the tree has none. */
+  execSummary: ExecManifestSummary | null;
   createdAt: number;
 }
 
@@ -92,8 +94,8 @@ export async function insertRelease(db: D1Database, release: NewRelease): Promis
       .prepare(
         `INSERT INTO package_releases (id, package_id, version, channel, release_state, manifest_schema_version,
            artifact_key, artifact_digest, artifact_size, release_digest, file_count, tree_size, signed_manifest_key,
-           source_provenance, created_at, published_at, quarantined_at)
-         SELECT ?, id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+           source_provenance, exec_summary_json, created_at, published_at, quarantined_at)
+         SELECT ?, id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
            FROM packages WHERE name = ? AND publisher_id = ? AND kind = ?`,
       )
       .bind(
@@ -110,6 +112,7 @@ export async function insertRelease(db: D1Database, release: NewRelease): Promis
         release.treeSize,
         release.manifestKey,
         release.sourceProvenance === null ? null : JSON.stringify(release.sourceProvenance),
+        release.execSummary === null ? null : JSON.stringify(release.execSummary),
         release.createdAt,
         published,
         quarantined,

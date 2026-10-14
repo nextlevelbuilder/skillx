@@ -39,7 +39,7 @@ export interface ReadableRelease {
   visibility: string;
 }
 
-interface ReleaseRowAccess extends ReadableRelease {
+export interface ReleaseRowAccess extends ReadableRelease {
   publisherState: string;
   entitled: boolean;
   /** Some release of this tree, in any package, is quarantined. */
@@ -164,6 +164,16 @@ function strip({ publisherState: _p, entitled: _e, treeQuarantined: _q, ...relea
   return release;
 }
 
+/**
+ * A release by version in any served state, with the facts the read rules
+ * use (publisher state, tree quarantine), for the signed status endpoint.
+ * Only unknown, unentitled and draft releases are null (404).
+ */
+export async function findReleaseForStatus(db: D1Database, identity: string, version: string, userId: string | null): Promise<ReleaseRowAccess | null> {
+  const [row] = await queryReleases(db, "p.name = ? AND r.version = ?", userId, identity, version);
+  return row === undefined || !viewerMayRead(row, userId) ? null : row;
+}
+
 /** New resolution by version: only `published` is served. */
 export async function resolveReleaseByVersion(db: D1Database, identity: string, version: string, userId: string | null): Promise<ReadableRelease> {
   const [row] = await queryReleases(db, "p.name = ? AND r.version = ?", userId, identity, version);
@@ -184,16 +194,22 @@ export async function resolveReleaseByVersion(db: D1Database, identity: string, 
  *
  * With a `version` selector only that release counts: it must carry this
  * digest, otherwise the answer is the unknown-release 404. Yanked stays
- * per release: a yanked selection is served with its state.
+ * per release: a yanked selection is served with its state. A `package`
+ * identity selector likewise limits the rows to that package, so another
+ * package republishing the same bytes can never answer for it.
  */
 export async function resolveReleaseByDigest(
   db: D1Database,
   releaseDigest: string,
   userId: string | null,
   version: string | null = null,
+  identity: string | null = null,
 ): Promise<ReadableRelease> {
-  const where = version === null ? "r.release_digest = ?" : "r.release_digest = ? AND r.version = ?";
-  const found = await queryReleases(db, `${where} ${DIGEST_ORDER} LIMIT ?`, userId, releaseDigest, ...(version === null ? [] : [version]), MAX_DIGEST_ROWS);
+  const terms = ["r.release_digest = ?"];
+  const binds: unknown[] = [releaseDigest];
+  if (version !== null) terms.push("r.version = ?"), binds.push(version);
+  if (identity !== null) terms.push("p.name = ?"), binds.push(identity);
+  const found = await queryReleases(db, `${terms.join(" AND ")} ${DIGEST_ORDER} LIMIT ?`, userId, ...binds, MAX_DIGEST_ROWS);
   const rows = found.filter((row) => viewerMayRead(row, userId));
   if (rows.length === 0) throw notFound();
   // Every row of one digest carries the same tree-wide flag, so the row bound cannot hide a quarantine.

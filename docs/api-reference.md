@@ -854,9 +854,11 @@ exact bytes the manifest signature covers (`releaseManifestDigest`). It covers
 (`releaseDigest`) released under another identity or version has a different
 manifest digest, so a status never applies to a sibling release.
 
-**Freshness.** Every status expires. The registry re-signs the current status
-of every release every 24 hours (a new `sequence`, same state) with
-`expiresAt = issuedAt + 24h`; the 7-day limit is a hard cap for the contract,
+**Freshness.** Every status expires. The registry signs every status with
+`expiresAt = issuedAt + 24h` and re-signs the current status (a new
+`sequence`, same state) once it is 12 hours old, when it is next requested
+(see [Signed release status](#signed-release-status)), so a fetched status
+always has at least 12 hours left; the 7-day limit is a hard cap for the contract,
 not the issuing cadence, and it is the worst-case staleness a consumer can be
 held to. A consumer may keep using an expired status only for content it
 already installed; an expired status never authorizes a new resolution or
@@ -901,9 +903,11 @@ document against it, in this order, and fails closed:
    `sequence` needs a later `issuedAt` (`status.issued_at_regression`) and an
    allowed transition (`status.invalid_transition`).
 
-Storage (pinned read API work): the registry stores and serves the full signed
-status document as issued, so `reason` needs no database column; D1 keeps only
-the state, sequence and issue time used to issue the next status.
+Storage: the registry stores and serves the full signed status document as
+issued (R2 `statuses/sha256/<hex>.json`, create-only), so `reason` needs no
+database column; D1 keeps only the sequence, issue time and R2 key of the
+latest document (`status_sequence`, `status_issued_at`, `status_key`), used to
+issue the next one.
 
 Cross-language vectors: `packages/contracts/src/fixtures/release-status-v1.json`
 (the signed manifest documents with their manifest digests, including one tree
@@ -965,8 +969,45 @@ Unscoped keys are rejected (`auth.scope_missing`).
 namespaces, key and ownership, signing key, metadata, capped body, tar read
 with the shared skill-tree rules and digest (traversal, absolute paths,
 symlinks, hardlinks, devices and duplicate paths fail), version conflict, the
-release scan, the signed `skillx.release/v1` manifest, then R2 writes, and the
-D1 row last. Uploaded bytes are stored exactly; nothing is sanitized.
+exec manifest check (below), the release scan, the signed `skillx.release/v1`
+manifest, then R2 writes, and the D1 row last. Uploaded bytes are stored
+exactly; nothing is sanitized.
+
+**Exec manifest** (`agentkit-exec.json`, optional). A tree may carry an
+`agentkit.skill-exec/v1` manifest at its root naming the scripts AgentKit's
+script broker may run and the capabilities each requests. SkillX never runs
+them; it rejects a malformed manifest at publish with `422` before anything is
+signed or stored, and keeps a parsed summary. Rules
+(`packages/contracts/src/exec-manifest.ts`, `exec-capabilities.ts`; the shape
+follows the AgentKit G3 draft and will be aligned with its conformance
+vectors):
+
+- at most 64 KiB of UTF-8 JSON without a BOM; whitespace and member order are
+  free, a duplicate member at any depth or an unknown member is invalid;
+  `schemaVersion` must be `agentkit.skill-exec/v1`;
+- `entrypoints`: 1 to 32 objects with a unique `name`
+  (`[a-z0-9][a-z0-9._-]{0,63}`), a `path` that is a file of the tree **and**
+  listed in `declaredScripts` (else `exec.entrypoint_undeclared`), an
+  `interpreter` `{name: python3 | node | sh, version?: <range>}`, optional
+  `args` `{maxCount <= 64, maxBytes <= 65536}`, optional `inputs` (names), and
+  `capabilities`;
+- `capabilities` (all required): `filesystem.read` (`$PACKAGE`,
+  `$INPUT:<declared input>`), `filesystem.write` (`$OUTPUT`, `$TMP`; no host
+  paths), `network.hosts` (lowercase DNS names, no IP literal, port or
+  wildcard), `subprocess` (boolean), `env` and `secrets` (upper-case names),
+  `limits` `{wallSeconds <= 3600, cpuSeconds <= 3600, memoryMiB <= 8192,
+  processes <= 256, outputBytes <= 64 MiB}`; lists hold at most 32 unique
+  items;
+- optional `dependencies`: `{kind: "none"}` (default) or
+  `{kind: "python-lock" | "node-lock", lockfile: <tree file>}`.
+
+Requesting network hosts, a subprocess, secrets or locked dependencies is
+valid at publish; what is granted is AgentKit's decision. The summary
+(`exec_summary_json`, and `exec` in the response) lists per entrypoint its
+`name`, `path`, `interpreter`, `capabilityDigest` (sha256 of the canonical JSON
+of `{capabilities, interpreter}`), `networkHosts`, `subprocess`, `secrets`
+and `write`, plus `dependencies` and the manifest `fileDigest`. The manifest
+file itself stays the authority; it is covered by `releaseDigest`.
 
 The scan only decides the initial state. Any of these makes the release
 `quarantined` instead of `published`:
@@ -999,9 +1040,13 @@ SHA-256, so one tree under two versions never collides).
   "manifestKey": "manifests/sha256/....json",
   "keyId": "skillx-reg-993cd14a011f7b76",
   "created": true,
-  "findings": []
+  "findings": [],
+  "exec": null
 }
 ```
+
+`exec` is the exec manifest summary, or `null` when the tree has no
+`agentkit-exec.json`.
 
 Re-uploading the same tree for an existing version answers `200` with
 `created: false` (idempotent retry); different content is `409`. Concurrent
@@ -1019,7 +1064,7 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 | 409 | `release.version_exists`, `release.kind_conflict` |
 | 413 | `tree.limit_exceeded` |
 | 415 | `release.unsupported_media_type` |
-| 422 | other `tree.*` codes from the skill-tree reader |
+| 422 | other `tree.*` codes from the skill-tree reader, `exec.manifest_invalid`, `exec.entrypoint_undeclared` |
 | 500 | `release.internal_error` |
 | 503 | `release.signing_unavailable` |
 
@@ -1038,9 +1083,10 @@ Read-only, behind the same flag: unless `SKILLX_RELEASES_API` is `"1"` or
 |----------|---------|
 | `GET /api/v1/packages/@{publisher}/{slug}/releases` | JSON list, newest first (at most 500): `version`, `channel`, `state`, `releaseDigest`, `artifactDigest`, `artifactSize`, `createdAt`. Published and yanked releases; a release is hidden when its tree is quarantined anywhere (it would answer `403`), so the list never offers one |
 | `GET /api/v1/packages/@{publisher}/{slug}/releases/{version}` | The signed `skillx.release/v1` manifest bytes (new resolution: only `published`) |
-| `GET /api/v1/releases/{releaseDigest}/manifest[?version=]` | The same manifest, by tree digest (locked clients) |
-| `GET /api/v1/releases/{releaseDigest}/files/{path}[?version=]` | One file's raw bytes, only if `path` is in the manifest |
-| `GET /api/v1/releases/{releaseDigest}/artifact[?version=]` | The uploaded tar, streamed same-origin from R2 (no redirect) |
+| `GET /api/v1/packages/@{publisher}/{slug}/releases/{version}/status` | The signed `skillx.release-status/v1` document of that release, in every state (see [Signed release status](#signed-release-status)) |
+| `GET /api/v1/releases/{releaseDigest}/manifest[?version=&package=]` | The same manifest, by tree digest (locked clients) |
+| `GET /api/v1/releases/{releaseDigest}/files/{path}[?version=&package=]` | One file's raw bytes, only if `path` is in the manifest |
+| `GET /api/v1/releases/{releaseDigest}/artifact[?version=&package=]` | The uploaded tar, streamed same-origin from R2 (no redirect) |
 | `GET /api/v1/keys` | `{"algorithm": "ed25519", "active": [...], "revoked": [...]}` registry key IDs |
 
 **Auth**: optional. `Authorization: Bearer sx_...` with an unscoped API key,
@@ -1078,9 +1124,14 @@ revoked `403`, then yanked):
   with `X-SkillX-Release-State: yanked`.
 - Draft releases and releases without a signed manifest do not exist here.
 - One tree may be released under several versions or packages. The digest
-  endpoints (`manifest`, `files`, `artifact`) accept an optional
-  `?version={version}` selector (a selector, never a credential). Locked
-  clients should always send it:
+  endpoints (`manifest`, `files`, `artifact`) accept optional
+  `?version={version}` and `?package=@{publisher}/{slug}` selectors
+  (selectors, never credentials). Locked clients should always send both:
+  - With `package`, only releases of that package count, so another package
+    republishing the same bytes can never answer for it. Another package, or
+    one without a release of this tree, answers the same `404 not_found` as an
+    unknown release; a malformed identity is `400 identity.invalid`.
+    Quarantine still applies to the whole tree.
   - With `version`, exactly that release is resolved; its `releaseDigest`
     must equal the path digest. A mismatched or unknown version answers the
     same `404 not_found` as an unknown release (a malformed one is `400
@@ -1160,6 +1211,48 @@ public keys they embed. The private key is never read by this endpoint.
 Local smoke test (local bindings only, never remote):
 `node scripts/smoke-releases-local.mjs` against a running `pnpm dev` with
 `SKILLX_RELEASES_API=1` (see the script header).
+
+### Signed release status
+
+`GET /api/v1/packages/@{publisher}/{slug}/releases/{version}/status` answers
+the signed `skillx.release-status/v1` document of that release (contract
+above), so a consumer can verify yank and quarantine offline with the
+registry public key. Same flag, auth, rate limit and `404` rules as the other
+read endpoints; unlike them it answers in every served state (`published`,
+`yanked`, `quarantined`, and for a suspended or revoked publisher), because the
+signed state is the point. Drafts and unentitled private packages are `404`.
+
+The signed `state` mirrors what the read API enforces:
+
+| Release | Signed `state` | `reason` |
+|---------|----------------|----------|
+| quarantined | `quarantined` | the reason of the applied transition in `release_state_audit`, if any |
+| published or yanked, but another release of the tree is quarantined | `quarantined` | `another release of this tree is quarantined` |
+| publisher suspended or revoked | `quarantined` | `the publisher of this package is suspended or revoked` |
+| yanked | `yanked` | the audit reason, if any |
+| published | `published` | none |
+
+An audit reason that breaks the status `reason` rules is left out.
+
+**Issuing**: lazy and monotonic. The latest document is served again while it
+reports the current state, reason and active key and is less than 12 hours
+old. Otherwise a new one is signed with the registry key: `expiresAt =
+issuedAt + 24h`; `issuedAt` is at least 1 second after the previous one and
+never before the manifest `createdAt`; `sequence` advances by the number of
+transitions needed to reach the new state (at least 1; `quarantined` to
+`published` advances by 2, through `yanked`), and a release whose first status
+is not `published` starts after an implied `published` sequence 1. A
+compare-and-set on `status_sequence` makes concurrent requests serve one
+document per sequence. State changes do not issue documents themselves; the
+next status request does.
+
+**Response** `200`: the canonical document bytes, `Content-Type:
+application/json`, `Cache-Control: <public|private>, max-age=60,
+no-transform`, `Vary: Authorization, Cookie`, `ETag` (the document SHA-256),
+and `X-SkillX-Release-State` (the signed state), `X-SkillX-Release-Digest`,
+`X-SkillX-Identity`, `X-SkillX-Version`. Errors as above, plus `503
+release.signing_unavailable` when a new document is needed and the signing
+key is missing.
 
 ### Database columns (migration `0012_api_key_scopes`)
 
@@ -1267,9 +1360,9 @@ recorded too. The admin actor id is `admin` (the shared secret carries no
 individual identity). The table is append-only: triggers abort any `UPDATE`
 or `DELETE`.
 
-**Signed status**: transitions do not yet issue or re-sign
-`skillx.release-status/v1` documents and leave `status_sequence` unchanged;
-issuing them is a follow-up.
+**Signed status**: transitions leave `status_sequence` unchanged; the next
+request to the [status endpoint](#signed-release-status) issues a new signed
+document for the new state.
 
 **Response** `200` (`Cache-Control: no-store`):
 
@@ -1362,6 +1455,14 @@ keys, so the history outlives its subject. Additive; the header rollback drops
 the triggers, index and table and deletes the `0013_release_state_audit.sql`
 row from `d1_migrations`.
 
+### Database columns (migration `0014_release_status_and_exec`)
+
+`package_releases.status_key` (R2 key of the latest signed status document)
+and `package_releases.exec_summary_json` (the exec manifest summary, `NULL`
+without `agentkit-exec.json`). Both nullable and additive; the header rollback
+drops them and deletes the `0014_release_status_and_exec.sql` row from
+`d1_migrations`.
+
 ---
 
 ## Error Format
@@ -1394,6 +1495,7 @@ No explicit rate limiting at the API layer, except the release read API (300 req
 | `apps/web/app/routes/api.v1.release-publish.ts` | Release publish (flagged) |
 | `apps/web/app/routes/api.v1.package-releases.ts` | Release listing (GET) and publish (POST, action re-exported) on one path |
 | `apps/web/app/routes/api.v1.release-{manifest,file,artifact}.ts` | Pinned release reads (flagged) |
+| `apps/web/app/routes/api.v1.release-status.ts` | Signed release status document (flagged) |
 | `apps/web/app/routes/api.v1.signing-keys.ts` | Registry key IDs (flagged) |
 | `apps/web/app/routes/api.v1.release-state.ts` | Release and publisher state transitions (flagged) |
 | `apps/web/app/lib/releases/` | Release ingest, signing, scan, R2 and D1 writes; read access, rate limit and read handlers; state transitions (`release-transitions.ts`, `release-state-http.ts`) |

@@ -9,6 +9,8 @@
 export const artifactKey = (hex: string) => `artifacts/sha256/${hex}.tar`;
 export const blobKey = (hex: string) => `blobs/sha256/${hex}`;
 export const manifestKey = (hex: string) => `manifests/sha256/${hex}.json`;
+/** Signed skillx.release-status/v1 documents; each new one is a new object, so none is ever overwritten. */
+export const statusKey = (hex: string) => `statuses/sha256/${hex}.json`;
 
 const HEX64 = /^[0-9a-f]{64}$/;
 

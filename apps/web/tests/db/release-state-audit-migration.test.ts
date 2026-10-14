@@ -57,7 +57,7 @@ describe("migration 0013_release_state_audit", () => {
   it("is the migration after 0012 and is recorded in the drizzle journal", () => {
     expect(BEFORE.at(-1)).toBe("0012_api_key_scopes.sql");
     const journal = JSON.parse(read("meta/_journal.json")) as { entries: Array<{ idx: number; tag: string }> };
-    expect(journal.entries.at(-1)).toMatchObject({ idx: 13, tag: "0013_release_state_audit" });
+    expect(journal.entries.find((e) => e.tag === "0013_release_state_audit")).toMatchObject({ idx: 13 });
   });
 
   it("only creates the audit table, its index and its append-only triggers", () => {

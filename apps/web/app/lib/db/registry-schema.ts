@@ -63,6 +63,8 @@ export const packageReleases = sqliteTable(
     // Last signed skillx.release-status/v1 document: strictly increasing sequence and its issuedAt.
     status_sequence: integer("status_sequence"),
     status_issued_at: integer("status_issued_at", { mode: "timestamp_ms" }),
+    status_key: text("status_key"), // R2 key of that signed status document
+    exec_summary_json: text("exec_summary_json"), // JSON: parsed agentkit-exec.json capability summary
   },
   (table) => [
     uniqueIndex("idx_package_releases_version").on(table.package_id, table.version),

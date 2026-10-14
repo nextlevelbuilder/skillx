@@ -596,7 +596,7 @@ R2 (create-only): artifacts/  blobs/  manifests/ (signed skillx.release/v1)
 D1: packages, package_releases (row written last)
         │
         ▼
-GET  list / manifest / files / artifact ── release-access rules
+GET  list / manifest / files / artifact / status ── release-access rules
 POST .../releases/:version/state, /publishers/@h/state ── compare-and-set + audit
 ```
 
@@ -620,9 +620,22 @@ POST .../releases/:version/state, /publishers/@h/state ── compare-and-set + 
   row per edge, never observable as `published`. Owners' publisher standing
   is re-checked inside the batch. Requests are rate limited by their own
   `RELEASE_WRITE_LIMITER` before any state or audit write (admin-secret requests by IP
-  first; fail closed for accounts, open for the admin). Signed status issuance on
-  transition is a follow-up (the containment composite must advance the
-  status `sequence` by 2).
+  first; fail closed for accounts, open for the admin).
+- **Signed status** (`app/lib/releases/release-status-issue.ts`,
+  `release-status-state.ts`): `GET .../releases/:version/status` serves a
+  `skillx.release-status/v1` document signed with the registry key, in every
+  served state. It is issued lazily on request (reused under 12 h, 24 h
+  lifetime) from the effective read state (tree quarantine and a revoked
+  publisher report `quarantined`); the sequence advances by the transitions
+  needed (so lifting a quarantine advances it by 2), and a compare-and-set on
+  `status_sequence` keeps one document per sequence. Documents live in R2
+  `statuses/sha256/` (migration 0014 adds `status_key`).
+- **Exec manifest** (`packages/contracts/src/exec-manifest.ts`,
+  `app/lib/releases/release-exec.ts`): an optional root `agentkit-exec.json`
+  (`agentkit.skill-exec/v1`, AgentKit G3) is validated at publish (strict
+  JSON, deny unknown fields, entrypoints must be `declaredScripts`, interpreter
+  allowlist, limit ceilings) and its capability summary is stored in
+  `exec_summary_json`. SkillX never executes it.
 - **Legacy listings**: `skillx use` labels a multi-file legacy listing
   (references or scripts) as discovery-only, because only SKILL.md text is
   delivered there; pinned releases carry the whole tree. The label is dropped

@@ -365,6 +365,19 @@ the `d1_migrations` row). Dropping the table discards the audit trail; export
 it first. Restore from the Time Travel bookmark only when data, not only
 schema, must be reverted.
 
+**Migration 0014 (signed status and exec summary).**
+`0014_release_status_and_exec` adds two nullable `package_releases` columns,
+`status_key` and `exec_summary_json`; it is additive and must be applied
+(`pnpm run db:migrate:remote`, after the backup in step 1) before deploying
+code that serves `GET .../releases/<version>/status` or validates
+`agentkit-exec.json`, because the publish insert writes `exec_summary_json`.
+After deploy, smoke: `curl -sS https://skillx.sh/api/v1/packages/@<handle>/<slug>/releases/<version>/status`
+answers a signed document (`"schemaVersion":"skillx.release-status/v1"`) whose
+`keyId` is the active key. The first request per release signs and stores one
+document in R2 under `statuses/sha256/`. Rollback: the header SQL of
+`0014_release_status_and_exec.sql` (drops both columns, clears the
+`d1_migrations` row); deploy the previous code first.
+
 ### Phase 4: Domain & SSL Setup
 
 ```bash

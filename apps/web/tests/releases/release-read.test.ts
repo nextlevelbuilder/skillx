@@ -783,3 +783,40 @@ describe("release read: rate limit and flag", () => {
     expect(limiter.counts.size).toBe(0);
   });
 });
+
+describe("release read: package identity selector on digest endpoints", () => {
+  const pick = (identity: string, version?: string): CallOptions => ({
+    query: `?package=${encodeURIComponent(identity)}${version === undefined ? "" : `&version=${version}`}`,
+  });
+
+  it("serves only the named package when another package republishes the same tree", async () => {
+    const { digest } = await publish("@alpha/demo");
+    await publish("@bestagentkits/demo");
+    // The original is yanked: without a selector the other package's published copy would win.
+    setState("1.0.0", "yanked");
+    sql("UPDATE package_releases SET release_state = 'published', yanked_at = NULL WHERE package_id = (SELECT id FROM packages WHERE name = '@bestagentkits/demo')");
+    const unselected = await api.manifest(digest);
+    expect(unselected.headers.get("X-SkillX-Identity")).toBe("@bestagentkits/demo");
+    for (const res of [
+      await api.manifest(digest, pick("@alpha/demo", "1.0.0")),
+      await api.file(digest, "SKILL.md", pick("@alpha/demo")),
+      await api.artifact(digest, pick("@alpha/demo", "1.0.0")),
+    ]) {
+      expect(res.status).toBe(200);
+      expect(res.headers.get("X-SkillX-Identity")).toBe("@alpha/demo");
+      expect(res.headers.get("X-SkillX-Release-State")).toBe("yanked");
+    }
+  });
+
+  it("answers the unknown-release 404 to another package and 400 to a malformed identity", async () => {
+    const { digest } = await publish("@alpha/demo");
+    const unknownBody = await (await api.manifest(`sha256:${"0".repeat(64)}`)).text();
+    for (const res of [await api.manifest(digest, pick("@beta/demo")), await api.artifact(digest, pick("@alpha/other", "1.0.0"))]) {
+      expect(res.status).toBe(404);
+      expect(await res.text()).toBe(unknownBody);
+    }
+    for (const bad of ["alpha/demo", "@alpha", "@alpha/demo/x", "@Alpha/demo", ""]) {
+      await expectError(api.manifest(digest, pick(bad)), 400, "identity.invalid");
+    }
+  });
+});
