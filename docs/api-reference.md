@@ -1518,6 +1518,12 @@ the catalog holds more than it lists. KV-cached for 300 s per origin and size.
 Each `llms-full.txt` entry states its scanner risk label; a `danger` listing keeps its
 entry but its body is replaced by a warning. An embedded body is fenced with more
 backticks than its longest backtick run, so it cannot close its own block.
+Name, author, category and description are flattened to one line with a leading `#` or `>`
+and backticks escaped, so listing metadata cannot open a heading, quote or fence. The same
+`danger` policy applies to `GET /skills/<slug>.md` and to the MCP `get_package` tool (no
+`content`, `contentIncluded: false`, plus `contentOmitted`). Only `danger` is omitted: `unknown`
+(rows created before the scanner ran), `caution` and `safe` keep their bodies, with the label
+shown beside them.
 
 ### `POST /api/mcp`
 

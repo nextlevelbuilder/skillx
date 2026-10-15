@@ -20,6 +20,7 @@ import {
   resolveRowCompatibility,
   summarizeRowRuntimes,
 } from "~/lib/compatibility/catalog-compatibility";
+import { DANGER_BODY_NOTICE, isDangerListing } from "~/lib/markdown/listing-text";
 import { ToolInputError, asRecord } from "./protocol";
 import { optionalLimit, optionalString, requiredString } from "./args";
 import type { ToolContext } from "./handlers";
@@ -52,6 +53,16 @@ export async function searchPackages(rawArgs: unknown, ctx: ToolContext) {
   };
 }
 
+/** A `danger` listing keeps its metadata but never returns its SKILL.md body. */
+export function applyDangerPolicy<T extends { contentIncluded: boolean }>(
+  pkg: T,
+  riskLabel: string | null | undefined,
+): T & { contentOmitted?: string } {
+  if (!isDangerListing(riskLabel)) return pkg;
+  const { content: _content, ...rest } = pkg as T & { content?: string };
+  return { ...(rest as T), contentIncluded: false, contentOmitted: DANGER_BODY_NOTICE };
+}
+
 export async function getPackage(rawArgs: unknown, ctx: ToolContext) {
   const args = asRecord(rawArgs);
   const slug = requiredString(args, "slug");
@@ -74,11 +85,14 @@ export async function getPackage(rawArgs: unknown, ctx: ToolContext) {
   );
   return {
     found: true,
-    package: {
-      ...gated,
-      protected: isProtectedListing(row),
-      contentIncluded: typeof (gated as { content?: string }).content === "string",
-    },
+    package: applyDangerPolicy(
+      {
+        ...gated,
+        protected: isProtectedListing(row),
+        contentIncluded: typeof (gated as { content?: string }).content === "string",
+      },
+      row.risk_label,
+    ),
     compatibility: {
       declared: summarizeRowRuntimes(row),
       ...(target ? { target: resolveRowCompatibility(row, target) } : {}),

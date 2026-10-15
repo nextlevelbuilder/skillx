@@ -17,6 +17,7 @@
 
 import type { CompatibilitySummary } from "@skillx/contracts";
 import { LLMS_FULL_MAX, LLMS_INDEX_MAX } from "./llms-limit";
+import { DANGER_BODY_NOTICE, inlineText, isDangerListing } from "./listing-text";
 
 export interface LlmsEntry {
   slug: string;
@@ -73,7 +74,7 @@ export function renderLlmsTxt(siteUrl: string, entries: LlmsEntry[], truncated: 
       compat.length > 0
         ? ` (${compat.map((s) => `${s.runtime}: ${summaryLabel(s)}`).join(", ")})`
         : "";
-    lines.push(`- [${entry.name}](${href}): ${entry.description}${compatNote}`);
+    lines.push(`- [${inlineText(entry.name)}](${href}): ${inlineText(entry.description)}${compatNote}`);
   }
   lines.push("");
 
@@ -115,10 +116,10 @@ export function renderLlmsFullTxt(
   }
 
   for (const entry of entries) {
-    lines.push(`### ${entry.name}`, "");
+    lines.push(`### ${inlineText(entry.name)}`, "");
     lines.push(`- **Slug:** \`${entry.slug}\``);
-    lines.push(`- **Author:** ${entry.author}`);
-    lines.push(`- **Category:** ${entry.category}`);
+    lines.push(`- **Author:** ${inlineText(entry.author)}`);
+    lines.push(`- **Category:** ${inlineText(entry.category)}`);
     lines.push(`- **Canonical:** ${base}/skills/${entry.slug}`);
     lines.push(`- **Markdown:** ${base}/skills/${entry.slug}.md`);
     lines.push(`- **Risk:** ${entry.riskLabel ?? "unknown"}`);
@@ -129,13 +130,9 @@ export function renderLlmsFullTxt(
       );
     }
     lines.push("");
-    if (entry.description) lines.push(entry.description, "");
-    if (entry.riskLabel === "danger") {
-      lines.push(
-        "> **Warning:** the content scanner flagged this skill as `danger`. Its SKILL.md body is",
-        "> omitted here; review it on the canonical page before installing.",
-        "",
-      );
+    if (entry.description) lines.push(inlineText(entry.description), "");
+    if (isDangerListing(entry.riskLabel)) {
+      lines.push(`> **Warning:** ${DANGER_BODY_NOTICE}`, "");
     } else if (typeof entry.content === "string") {
       const body = entry.content.trim();
       const fence = codeFence(body);

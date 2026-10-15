@@ -148,3 +148,30 @@ describe("renderSkillMarkdown — content", () => {
     expect(out).not.toContain("## Scripts");
   });
 });
+
+describe("renderSkillMarkdown risk policy", () => {
+  it("omits the body of a danger listing even when the payload is granted", () => {
+    const base = input();
+    const out = renderSkillMarkdown(input({ skill: { ...base.skill, risk_label: "danger" } }));
+    expect(out).not.toContain("Body text.");
+    expect(out).toContain("`danger`");
+    expect(out).toContain("## SKILL.md");
+  });
+
+  it("keeps the body for unknown and caution listings", () => {
+    for (const risk_label of ["unknown", "caution"]) {
+      const base = input();
+      expect(renderSkillMarkdown(input({ skill: { ...base.skill, risk_label } }))).toContain("Body text.");
+    }
+  });
+
+  it("flattens metadata so it cannot add headings", () => {
+    const base = input();
+    const out = renderSkillMarkdown(
+      input({ skill: { ...base.skill, name: "A\n## Injected", description: "x\n# Fake", author: "a\n# b" } }),
+    );
+    expect(out).not.toMatch(/^## Injected/m);
+    expect(out).not.toMatch(/^# Fake/m);
+    expect(out).not.toMatch(/^# b/m);
+  });
+});

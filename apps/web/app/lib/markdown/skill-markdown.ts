@@ -13,6 +13,7 @@
  */
 
 import type { CompatibilitySummary } from "@skillx/contracts";
+import { DANGER_BODY_NOTICE, inlineText, isDangerListing } from "./listing-text";
 
 export interface MarkdownReference {
   title: string;
@@ -89,10 +90,10 @@ export function renderSkillMarkdown(input: SkillMarkdownInput): string {
   const page = skillPageUrl(siteUrl, skill.slug);
   const lines: string[] = [];
 
-  lines.push(`# ${skill.name}`, "");
-  if (skill.description) lines.push(`> ${skill.description}`, "");
+  lines.push(`# ${inlineText(skill.name)}`, "");
+  if (skill.description) lines.push(`> ${inlineText(skill.description)}`, "");
 
-  const facts: Array<[string, string]> = [["Author", skill.author], ["Category", skill.category]];
+  const facts: Array<[string, string]> = [["Author", inlineText(skill.author)], ["Category", inlineText(skill.category)]];
   if (skill.version) facts.push(["Version", skill.version]);
   if (skill.risk_label) facts.push(["Risk", skill.risk_label]);
   if (skill.avg_rating !== null && skill.avg_rating !== undefined) {
@@ -141,7 +142,9 @@ export function renderSkillMarkdown(input: SkillMarkdownInput): string {
   }
 
   lines.push("## SKILL.md", "");
-  if (input.payloadGranted && typeof skill.content === "string") {
+  if (isDangerListing(skill.risk_label)) {
+    lines.push(`> **Warning:** ${DANGER_BODY_NOTICE}`, "");
+  } else if (input.payloadGranted && typeof skill.content === "string") {
     lines.push(skill.content.trim(), "");
   } else {
     lines.push(
