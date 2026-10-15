@@ -155,7 +155,7 @@ Every kit has a `generation`. `GET` returns it, with an `ETag` of `"g<n>"`.
 |---|---|
 | `GET` | Kit summary: `kit`, `localId`, `visibility`, `generation`, `latestRevisionNumber`, `effectiveRevision`, `openConflicts`. |
 | `GET /revisions`, `GET /revisions/:id` | Revision list, or one revision with its `document`. |
-| `POST /revisions` `{expectedGeneration, idempotencyKey, document}` | Store a `draft` revision with origin `manual`. 201 `{revision, generation, replayed, warnings}`. The first write creates the kit. |
+| `POST /revisions` `{expectedGeneration, idempotencyKey, document}` | Store a `draft` revision with origin `manual`. 201 `{revision, generation, replayed, warnings}`. The first write creates the kit, always `private`: only an activation sets the kit's visibility, so an API key never creates a public kit. |
 | `POST /revisions/:id/reject` `{expectedGeneration}` | Reject a draft. Rejecting the effective revision fails with 409 `kit.revision_effective`. A session-derived proposal is refused with 403 `kit.interactive_approval_required`; it is rejected only through `POST /revisions/:id/review` in a web session. |
 | `GET /diff?from=&to=` | Read-only structural diff: changed document fields, and added, removed and changed entries with their overlay paths. |
 | `POST /preview-update` `{updates:[{package,version}], fromRevisionId?, includeForks?}` | Rebase report only. Writes nothing. |
@@ -274,15 +274,22 @@ Nothing activates implicitly.
   as the one AgentKit submits with, gets 403
   `kit.interactive_approval_required`. The proofs record `credential`.
 - **The gate is inherited**: a revision is gated when it, or any ancestor in
-  its parent chain, is session-derived, whatever the origins in between
-  (manual, rebase, resolution). A parent that cannot be found counts as
-  gated. A gated revision activates (or is rolled back to) only from a web
-  session, only on a private kit, and only as a private document.
-  **Consequence**: once a kit has had a session-derived revision, every later
-  revision descends from it, so every later activation of that kit needs a
-  web session, and API-key activation and going public stay off for that kit
-  for good. To publish such work, start a new kit from a document without
-  that history.
+  its revision chain, is session-derived, whatever the origins in between
+  (manual, rebase, resolution). The same holds for the revision a document's
+  `parent` names in another kit, and for that revision's own chain, at every
+  level of the lineage. A parent that cannot be found or read counts as
+  gated, or fails the activation with `kit.locked_incompatible`. A gated
+  revision activates (or is rolled back to) only from a web session, only on
+  a private kit, and only as a private document.
+- **What the gate follows**: the gate follows revision history, not
+  content. A manual revision's parent is the kit's *effective* revision, so
+  once a session-derived revision has been effective, the revisions built on
+  it stay gated. A session-derived revision that never became effective
+  gates nothing but its own rebases and resolutions and the kits whose document `parent` names it. Rolling back to an
+  earlier private revision with no session-derived ancestor (allowed with an
+  API key) ends the gate for the revisions built after it. Content copied
+  into a revision by hand carries no history, so it is not gated; making it
+  public still needs a web session.
 - **No chaining on unreviewed proposals**: a from-revision that is `proposed`
   (or any session-derived revision that is not `reviewed`) fails with 409
   `kit.review_required`, and an unreviewed proposal is never usable as a
@@ -361,26 +368,34 @@ verifies the result like any revision.
     binary content, text with a byte order mark (UTF-8/16/32), or an
     absolute local path.
   - Secrets: vendor token formats; a `key: value`, `key = value` or
-    `"key": "value"` assignment (YAML, JSON, `.env`, code) whose key ends with
-    a password stem (`secret-password`: `password`, `dbPassword`,
-    `DB_PASSWD`, a value of 4 or more characters) or a secret stem
-    (`secret-assignment`: `clientSecret`, `apiKey`, `accessToken`,
-    `awsCredentials`, a value of 8 or more characters), in any case and
+    `"key": "value"` assignment, also with `:=` or `=>`, in brackets
+    (`cfg["password"] = ...`), as a flag (`--password=...`) or inside another
+    value (`Server=db;Password=...`, `?user=a&password=...`), in YAML, JSON,
+    `.env` or code, whose key holds a stem followed by nothing or by at most
+    two qualifiers of `content.secretKeys.qualifiers` or a version number
+    (`secret_key_base`, `api_key_prod`, `private_key_id`; not `secretName`,
+    `passwordless` or `tokenizer`): a password stem (`secret-password`:
+    `password`, `dbPassword`, `DB_PASSWD`, a value of 4 or more characters)
+    or a secret stem (`secret-assignment`: `clientSecret`, `apiKey`,
+    `accessToken`, `awsCredentials`, a value of 8 or more characters), in any case and
     separator style, compared through the same key normalization as the
     envelope (the stems are `content.secretKeys` in the policy); a
     `KEY=value` line whose key holds a stem anywhere (`secret-dotenv`); a
     YAML `password:` key whose new value sits on the following indented lines
     or in a `|` / `>` block scalar, also as a list item `- password:`, a
-    quoted key `"password":`, or after an anchor or tag (`&pw`, `!secret`),
+    quoted key `"password":`, or after up to two anchors or tags (`&pw`,
+    `!secret`, `&a !s`),
     even when the key line is kept from the base; Bearer tokens, URLs with
     `user:pass@`, JWTs and private key blocks. A YAML anchor or tag before an
-    inline value is skipped. Placeholders (`<...>`, `%VAR%`, `{...}`, `***`,
+    inline value is skipped (up to two). Placeholders (`<...>`, `%VAR%`, `{...}`, `***`,
     `${...}`, a whole `$VAR`) and numbers are not secrets; any other value,
     also one that starts with `$`, is.
   - Paths: every absolute local path, matched case-insensitively, after NFC
-    normalization and with invisible format characters (zero-width spaces
-    and joiners) removed, and also JSON-escaped (`\/`, `\\`) or
-    percent-encoded (`%2F`, `%5C`, `%3A`, `%2E`): any drive-letter path, UNC
+    normalization, with Unicode slash forms (`／`, `∕`, `⁄`, `＼`) read as
+    separators and invisible format characters (zero-width spaces and
+    joiners) removed, and also JSON-escaped (`\/`, `\\`) or percent-encoded
+    (`%2F`, `%5C`, `%3A`, `%2E`, decoded up to three `%25` layers; a text
+    still holding an encoded separator or dot after that is refused): any drive-letter path, UNC
     shares (`\\host\share` and `//host/share`), `file:` and `smb:` URLs,
     editor links to a file (`vscode://file/...`), a user home in an `ssh` or
     `sftp` URL, a bare `/home`, `/Users`, `/root`, `/mnt`, `/media`,
@@ -395,7 +410,7 @@ verifies the result like any revision.
     `/dev/null`, `/usr/share/zoneinfo`; not `/usr/share/doc/x` or
     `/usr/local/opt/x`). A `..` segment refuses the path. URLs of network
     schemes (`https://host/path`, `s3://`, ...) are not local paths; a path
-    glued after a URL's `,`, `)` or `]` is still read.
+    glued after a URL's `,`, `;`, `|`, `&`, `(`, `)`, `[`, `]`, `{` or `}` is still read.
     `error.findings` lists `danger:<rule>:<path>` codes, never the matched
     text. Every detector runs in time linear in its input, so a hostile
     request body cannot exhaust the Worker CPU.
