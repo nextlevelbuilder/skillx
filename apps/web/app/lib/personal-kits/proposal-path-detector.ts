@@ -43,7 +43,7 @@ const LOCAL_PATHS: ReadonlyArray<RegExp> = [
   /\b(?:file|smb):[\\/]/i,
   // An editor or IDE link to a file: vscode://file/..., cursor://file/...
   /\b[a-z][a-z0-9+.-]{0,31}:(?:\\*\/){2}file[\\/:]/i,
-  // A user home on the remote side of an ssh or sftp URL (ssh://kai@devbox/home/kai).
+  // A user home on the remote side of an ssh or sftp URL (ssh://kai@devbox/home/alice).
   /\b(?:ssh|sftp|scp|git\+ssh|svn\+ssh):(?:\\*\/){2}[^\s/\\"'<>`]*(?:\\*\/)+(?:home|Users|root)(?![A-Za-z0-9_-])/i,
   // A bare user, temp, mount or volume root, after any non-path character (also `\/home`).
   new RegExp(String.raw`${START}${SEP}(?:home|Users|root|mnt|media|Volumes|var${SEP}folders|tmp|private|run${SEP}user)(?![\p{L}\p{N}_-])`, "iu"),

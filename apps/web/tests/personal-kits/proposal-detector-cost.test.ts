@@ -80,7 +80,7 @@ describe("detector cost on hostile input", () => {
   });
 
   it("still finds a path or secret at the end of a hostile run", () => {
-    expect(hasLocalPath(fill("/") + "home/kai")).toBe(true);
+    expect(hasLocalPath(fill("/") + "home/alice")).toBe(true);
     expect(hasLocalPath(fill("a-") + " /srv/x/y")).toBe(true);
     expect(genericSecrets(fill("eyJ-") + " " + ["eyJ", "hbGciOiJIUzI1NiJ9", ".eyJ", "zdWIiOiIxIn0", ".c2ln"].join(""))).toEqual(["secret-jwt"]);
   });
