@@ -41,6 +41,17 @@ describe("compatibility service (web adapter over the shared engine)", () => {
     expect(parseDeclaration('["claude-code"]')).toBeUndefined();
   });
 
+  it.each([
+    ["a boolean runtime value", '{"agentkit": true}'],
+    ["a string runtime value", '{"agentkit": "yes"}'],
+    ["a declaration without a status", '{"agentkit": {"requires": "x"}}'],
+  ])("treats %s as no declaration, never as declared", (_label, json) => {
+    expect(() => parseDeclaration(json)).not.toThrow();
+    expect(parseDeclaration(json)).toBeUndefined();
+    expect(resolveAllDeclaredRuntimes({ declarationJson: json })).toEqual([]);
+    expect(resolveCompatibility({ runtime: "agentkit" }, { declarationJson: json }).status).toBe("unknown");
+  });
+
   it("maps persisted evidence rows into contract evidence", () => {
     const [mapped] = toVerificationEvidence([evidenceRecord()]);
     expect(mapped?.releaseDigest).toBe(FIXTURE_DIGEST);

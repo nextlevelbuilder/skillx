@@ -8,6 +8,7 @@
 
 import {
   normalizeCompatibility,
+  validateCompatibilityDeclaration,
   type CompatibilityDeclarationMap,
   type CompatibilityTarget,
   type NormalizedCompatibility,
@@ -36,14 +37,15 @@ export interface EvidenceRecord {
 /**
  * Tolerant parse of the persisted declaration.
  *
- * Malformed or absent JSON resolves to `undefined`, which the engine reports as
- * `unknown` — never as support.
+ * Malformed or absent JSON, or a declaration that fails the shared contract
+ * validator (for example `{"agentkit": true}`), resolves to `undefined`, which the
+ * engine reports as `unknown` — never as support. It never throws.
  */
 export function parseDeclaration(declarationJson: string | null | undefined): CompatibilityDeclarationMap | undefined {
   if (!declarationJson) return undefined;
   try {
     const parsed: unknown = JSON.parse(declarationJson);
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined;
+    if (!validateCompatibilityDeclaration(parsed).valid) return undefined;
     return parsed as CompatibilityDeclarationMap;
   } catch {
     return undefined;

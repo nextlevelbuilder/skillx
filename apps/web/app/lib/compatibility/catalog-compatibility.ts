@@ -31,7 +31,8 @@ export interface ListingCompatibilityRow {
 /**
  * Compatibility inputs for a listing, or `{}` when it declares nothing.
  *
- * Malformed JSON resolves to `undefined`, which the engine reports as `unknown`:
+ * Malformed JSON or an invalid declaration shape resolves to `undefined`, which the
+ * engine reports as `unknown`:
  * a row that cannot be parsed must never be presented as supporting a runtime.
  */
 export function listingInputs(row: ListingCompatibilityRow): CatalogCompatibilityInputs {

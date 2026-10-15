@@ -50,5 +50,5 @@ export function parseLlmsLimit(raw: string | null | undefined, limits: LlmsLimit
 
 /** KV key for one rendered document. Only normalized inputs reach it. */
 export function llmsCacheKey(document: "llms-txt" | "llms-full-txt", origin: string, limit: number): string {
-  return `${document}:v4:${origin}:${limit}`;
+  return `${document}:v5:${origin}:${limit}`;
 }

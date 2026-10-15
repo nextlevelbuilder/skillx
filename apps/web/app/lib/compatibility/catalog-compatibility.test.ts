@@ -34,10 +34,22 @@ describe("listingInputs", () => {
     ["malformed JSON", "{not json"],
     ["a JSON array", "[1,2]"],
     ["a JSON scalar", '"agentkit"'],
+    ["a boolean runtime value", '{"agentkit": true}'],
+    ["a string runtime value", '{"agentkit": "yes"}'],
+    ["a declaration without a status", '{"agentkit": {"requires": "x"}}'],
   ])("yields no declaration for %s", (_label, value) => {
     expect(listingInputs({ compatibility_json: value })).toEqual({});
   });
-});
+
+  it.each(['{"agentkit": true}', '{"agentkit": "yes"}', '{"agentkit": {"requires": "x"}}'])(
+    "never counts the invalid shape %s as declared",
+    (value) => {
+      const row = { compatibility_json: value };
+      expect(summarizeRowRuntimes(row)).toEqual([]);
+      expect(summarizeRowRuntime(row, { runtime: "agentkit" })).toBeNull();
+      expect(resolveRowCompatibility(row, { runtime: "agentkit" }).status).toBe("unknown");
+    },
+  );});
 
 describe("summarizeRowRuntimes", () => {
   it("enumerates exactly the declared runtimes", () => {

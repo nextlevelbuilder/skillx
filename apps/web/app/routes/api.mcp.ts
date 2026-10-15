@@ -9,6 +9,8 @@
  * Two protocol rules are enforced here rather than in the tool layer:
  *   - a request with no `id` is a notification and is answered with 202 and no
  *     body; replying to one is a protocol violation.
+ *   - every tool runs as the anonymous viewer; the request's session or API key is
+ *     never read.
  *   - the tool handlers are thin adapters over the same executors as the HTTP
  *     API and the CLI, so MCP cannot drift from them.
  *
@@ -21,7 +23,6 @@
  */
 
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { authenticateRequest } from "~/lib/auth/authenticate-request";
 import { checkReleaseRateLimit, rateLimitCaller } from "~/lib/releases/release-rate-limit";
 import { readBoundedBody, MAX_MCP_BODY_BYTES } from "~/lib/mcp/request-body";
 import { callTool, TOOL_DEFINITIONS } from "~/lib/mcp/tools";
@@ -83,8 +84,6 @@ export async function action({ request, context }: ActionFunctionArgs) {
     return new Response(null, { status: 202, headers: JSON_HEADERS });
   }
 
-  const userId = (await authenticateRequest(request, env))?.userId ?? null;
-
   switch (rpc.method) {
     case "initialize":
       return Response.json(
@@ -114,7 +113,9 @@ export async function action({ request, context }: ActionFunctionArgs) {
           { headers: JSON_HEADERS },
         );
       }
-      const result = await callTool(params.name, params.arguments, { env, userId });
+      // Every MCP caller is the anonymous viewer: no session or API key is read, so a
+      // credential on the request never widens what any tool returns.
+      const result = await callTool(params.name, params.arguments, { env, userId: null });
       return Response.json(rpcResult(id, result), { headers: JSON_HEADERS });
     }
 

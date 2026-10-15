@@ -8,7 +8,7 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { renderLlmsFullTxt, renderLlmsTxt, type LlmsEntry } from "./llms-txt";
+import { codeFence, renderLlmsFullTxt, renderLlmsTxt, type LlmsEntry } from "./llms-txt";
 
 const SITE = "https://skillx.sh";
 
@@ -126,5 +126,39 @@ describe("renderLlmsFullTxt", () => {
       { truncated: false },
     );
     expect(out).toContain("- **Compatibility:** agentkit (declared)");
+  });
+});
+
+describe("llms-full.txt risk and fencing", () => {
+  it("states each entry's risk label, and unknown when it has none", () => {
+    const out = renderLlmsFullTxt(SITE, [entry({ riskLabel: "caution" }), entry({ slug: "other" })], {
+      truncated: false,
+    });
+    expect(out).toContain("- **Risk:** caution");
+    expect(out).toContain("- **Risk:** unknown");
+  });
+
+  it("keeps a danger listing but omits its body behind a warning", () => {
+    const out = renderLlmsFullTxt(SITE, [entry({ riskLabel: "danger", content: "DANGEROUS BODY" })], {
+      truncated: false,
+    });
+    expect(out).toContain("### Find Skills");
+    expect(out).toContain("- **Risk:** danger");
+    expect(out).toContain("**Warning:** the content scanner flagged this skill as `danger`");
+    expect(out).not.toContain("DANGEROUS BODY");
+    expect(out).not.toContain("```markdown");
+  });
+
+  it("opens the fence longer than any backtick run in the body", () => {
+    const body = "# Skill\n\n```\ninner\n```\n\n````\nlonger\n````\n\n## Injected heading";
+    const out = renderLlmsFullTxt(SITE, [entry({ content: body })], { truncated: false });
+    expect(out).toContain("`````markdown\n" + body + "\n`````\n");
+  });
+
+  it("uses at least three backticks", () => {
+    expect(codeFence("plain body")).toBe("```");
+    expect(codeFence("a `tick` and ``two``")).toBe("```");
+    expect(codeFence("```")).toBe("````");
+    expect(codeFence("x ```````` y")).toBe("`".repeat(9));
   });
 });

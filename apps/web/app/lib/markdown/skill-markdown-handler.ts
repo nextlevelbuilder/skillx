@@ -43,7 +43,7 @@ export function matchSkillMarkdownPath(pathname: string): string | null {
   }
 }
 
-const TEXT_HEADERS = { "Content-Type": "text/plain; charset=utf-8" };
+const TEXT_HEADERS = { "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff" };
 
 export async function handleSkillMarkdown(request: Request, env: Env, slug: string): Promise<Response> {
   if (!slug) return new Response("Skill slug is required\n", { status: 400, headers: TEXT_HEADERS });
@@ -77,6 +77,7 @@ export async function handleSkillMarkdown(request: Request, env: Env, slug: stri
       headers: {
         "Content-Type": "text/markdown; charset=utf-8",
         "Cache-Control": "public, max-age=300",
+        "X-Content-Type-Options": "nosniff",
         Link: `<${skillPageUrl(siteUrl, skill.slug)}>; rel="canonical"`,
       },
     });

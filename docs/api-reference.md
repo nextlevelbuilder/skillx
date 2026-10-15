@@ -1499,6 +1499,7 @@ drops them and deletes the `0014_release_status_and_exec.sql` row from
 
 Read-only surfaces for agent runtimes. All are anonymous: a protected listing's
 SKILL.md body is never included, and the omission is stated rather than rendered blank.
+No surface reads a session or API key. Text responses carry `X-Content-Type-Options: nosniff`.
 
 ### `GET /skills/<slug>.md`
 
@@ -1514,17 +1515,21 @@ SKILL.md body when the listing is free). `Cache-Control: public, max-age=300`;
 snaps up to a fixed size (index: 100, 250, 500, 1000 — default 1000; full: 25, 50,
 100, 200 — default 100); unusable values give the default. Each document says when
 the catalog holds more than it lists. KV-cached for 300 s per origin and size.
+Each `llms-full.txt` entry states its scanner risk label; a `danger` listing keeps its
+entry but its body is replaced by a warning. An embedded body is fenced with more
+backticks than its longest backtick run, so it cannot close its own block.
 
 ### `POST /api/mcp`
 
 Remote MCP server (JSON-RPC 2.0, streamable HTTP; `GET` answers 405). Methods:
-`initialize`, `tools/list`, `tools/call`; notifications get `202` with no body.
+`initialize`, `tools/list`, `tools/call`; notifications get `202` with no body. Every tool runs
+as the anonymous viewer: the request's session or API key is never read.
 
 | Tool | Arguments | Answer |
 |------|-----------|--------|
 | `search_packages` | `query`, `category?`, `limit?`, `compatible?` | Same executor and filter report as `POST /api/search` |
 | `get_package` | `slug`, `target?` | Listing detail (alias-aware) and declared compatibility |
-| `get_release` | `package` (`@handle/slug`), `version?` | Public published releases only, through the release access module; private, draft, and unsigned rows are `not_found`, quarantined is `release_quarantined`. Always anonymous |
+| `get_release` | `package` (`@handle/slug`), `version?` | Public published releases only, through the release access module; private, draft, and unsigned rows are `not_found`, quarantined is `release_quarantined` |
 | `check_compatibility` | `slug`, `target` (`runtime[@version]`) | Version-aware status plus reason codes; returns the canonical slug |
 
 A miss is `{ "found": false, "code": "not_found" }`. Invalid arguments are a tool

@@ -42,10 +42,11 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
       headers: {
         "Content-Type": "text/plain; charset=utf-8",
         "Cache-Control": "public, max-age=300",
+        "X-Content-Type-Options": "nosniff",
       },
     });
   } catch (error) {
     console.error("llms.txt error:", error);
-    return new Response("Failed to render llms.txt\n", { status: 500 });
+    return new Response("Failed to render llms.txt\n", { status: 500, headers: { "Content-Type": "text/plain; charset=utf-8", "X-Content-Type-Options": "nosniff" } });
   }
 }

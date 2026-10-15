@@ -9,10 +9,20 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("~/lib/auth/authenticate-request", () => ({
-  authenticateRequest: async () => null,
-}));
+const authSpy = vi.hoisted(() => vi.fn(async () => ({ userId: "user-with-session" })));
+vi.mock("~/lib/auth/authenticate-request", () => ({ authenticateRequest: authSpy }));
 
+const callToolSpy = vi.hoisted(() => ({ ctx: [] as Array<{ userId?: string | null }> }));
+vi.mock("~/lib/mcp/tools", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/lib/mcp/tools")>();
+  return {
+    ...actual,
+    callTool: (async (name, args, ctx) => {
+      callToolSpy.ctx.push(ctx);
+      return actual.callTool(name, args, ctx);
+    }) as typeof actual.callTool,
+  };
+});
 import { action, loader } from "./api.mcp";
 import { MCP_PROTOCOL_VERSION, RPC } from "~/lib/mcp/protocol";
 import { MAX_MCP_BODY_BYTES } from "~/lib/mcp/request-body";
@@ -68,6 +78,20 @@ describe("POST /api/mcp", () => {
     expect(json.result.isError).toBe(true);
   });
 
+  it("runs every tool as the anonymous viewer and never reads the request's credentials", async () => {
+    authSpy.mockClear();
+    callToolSpy.ctx.length = 0;
+    for (const name of ["search_packages", "get_package", "check_compatibility", "get_release"]) {
+      await post(
+        JSON.stringify({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name, arguments: {} } }),
+        {},
+        { Authorization: "Bearer sx_live_example", Cookie: "session=abc" },
+      );
+    }
+    expect(authSpy).not.toHaveBeenCalled();
+    expect(callToolSpy.ctx).toHaveLength(4);
+    expect(callToolSpy.ctx.every((ctx) => ctx.userId === null)).toBe(true);
+  });
   it("rejects tools/call without a name as invalid params", async () => {
     const { json } = await post('{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{}}');
     expect(json.error.code).toBe(RPC.invalidParams);

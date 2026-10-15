@@ -114,6 +114,7 @@ describe("GET /skills/<slug>.md — payload boundary", () => {
 
     expect(response.headers.get("Cache-Control")).toBe("public, max-age=300");
     expect(response.headers.get("Vary")).toBeNull();
+    expect(response.headers.get("X-Content-Type-Options")).toBe("nosniff");
     expect(h.state.sessionReads).toBe(0);
   });
 

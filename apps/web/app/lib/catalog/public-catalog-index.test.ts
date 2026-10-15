@@ -20,6 +20,7 @@ function row(overrides: Record<string, unknown> = {}) {
     category: "discovery",
     content: "SECRET BODY",
     is_paid: 0,
+    risk_label: "safe",
     compatibility_json: null,
     ...overrides,
   };
@@ -72,7 +73,7 @@ describe("fetchPublicCatalogIndex", () => {
     const { db, recorded } = stubDb([row()]);
     await fetchPublicCatalogIndex(db, { limit: 10, includeContent: true });
     expect(recorded.columns.sort()).toEqual(
-      ["author", "category", "compatibility_json", "content", "description", "is_paid", "name", "slug"].sort(),
+      ["author", "category", "compatibility_json", "content", "description", "is_paid", "name", "risk_label", "slug"].sort(),
     );
   });
 
@@ -91,6 +92,22 @@ describe("fetchPublicCatalogIndex", () => {
     expect(entries[0].slug).toBe("find-skills");
   });
 
+  it("carries the scanner risk label, defaulting a missing one to unknown", async () => {
+    const { entries } = await fetchPublicCatalogIndex(
+      stubDb([row({ risk_label: "caution" }), row({ slug: "s2", risk_label: null })]).db,
+      { limit: 10 },
+    );
+    expect(entries.map((e) => e.riskLabel)).toEqual(["caution", "unknown"]);
+  });
+
+  it("never attaches the body of a danger listing, even when it is free", async () => {
+    const { entries } = await fetchPublicCatalogIndex(stubDb([row({ risk_label: "danger" })]).db, {
+      limit: 10,
+      includeContent: true,
+    });
+    expect(Object.hasOwn(entries[0], "content")).toBe(false);
+    expect(entries[0].riskLabel).toBe("danger");
+  });
   it("issues one bounded select and no catalog-wide count", async () => {
     const { db, recorded } = stubDb([row()]);
     await fetchPublicCatalogIndex(db, { limit: 100 });

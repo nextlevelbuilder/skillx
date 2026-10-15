@@ -60,7 +60,7 @@ describe("llmsCacheKey", () => {
     const keys = ["120", "250", " 250", "2.5e2", "249.5"].map((raw) =>
       llmsCacheKey("llms-txt", origin, parseLlmsLimit(raw, INDEX_LIMITS)),
     );
-    expect(new Set(keys)).toEqual(new Set(["llms-txt:v4:https://skillx.sh:250"]));
+    expect(new Set(keys)).toEqual(new Set(["llms-txt:v5:https://skillx.sh:250"]));
   });
 
   it("separates the two documents and the origins", () => {

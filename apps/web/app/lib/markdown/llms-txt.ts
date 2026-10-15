@@ -9,6 +9,10 @@
  * catalog holds thousands of listings and an unbounded document would be both
  * unusably large and expensive to render per request, so it says when it is
  * truncated rather than silently stopping.
+ *
+ * Every entry states its scanner risk label. A `danger` body is never embedded,
+ * and an embedded body sits in a fence it cannot close, so a SKILL.md cannot break
+ * out of its block and pose as part of the surrounding document.
  */
 
 import type { CompatibilitySummary } from "@skillx/contracts";
@@ -20,6 +24,8 @@ export interface LlmsEntry {
   description: string;
   author: string;
   category: string;
+  /** `skills.risk_label` from the content scanner: safe, caution, danger or unknown. */
+  riskLabel?: string;
   compatibility?: CompatibilitySummary[];
   /** Present only when the payload was granted for this request. */
   content?: string;
@@ -37,6 +43,16 @@ function header(): string[] {
     "> The Only Skill That Your AI Agent Needs. AI agent skills, published and discoverable.",
     "",
   ];
+}
+
+/**
+ * A Markdown code fence that the body cannot close: one backtick longer than the
+ * longest backtick run inside it, and never shorter than three.
+ */
+export function codeFence(body: string): string {
+  let longest = 0;
+  for (const match of body.matchAll(/`+/g)) longest = Math.max(longest, match[0].length);
+  return "`".repeat(Math.max(3, longest + 1));
 }
 
 function summaryLabel(summary: CompatibilitySummary): string {
@@ -105,6 +121,7 @@ export function renderLlmsFullTxt(
     lines.push(`- **Category:** ${entry.category}`);
     lines.push(`- **Canonical:** ${base}/skills/${entry.slug}`);
     lines.push(`- **Markdown:** ${base}/skills/${entry.slug}.md`);
+    lines.push(`- **Risk:** ${entry.riskLabel ?? "unknown"}`);
     const compat = entry.compatibility ?? [];
     if (compat.length > 0) {
       lines.push(
@@ -113,8 +130,16 @@ export function renderLlmsFullTxt(
     }
     lines.push("");
     if (entry.description) lines.push(entry.description, "");
-    if (typeof entry.content === "string") {
-      lines.push("```markdown", entry.content.trim(), "```", "");
+    if (entry.riskLabel === "danger") {
+      lines.push(
+        "> **Warning:** the content scanner flagged this skill as `danger`. Its SKILL.md body is",
+        "> omitted here; review it on the canonical page before installing.",
+        "",
+      );
+    } else if (typeof entry.content === "string") {
+      const body = entry.content.trim();
+      const fence = codeFence(body);
+      lines.push(`${fence}markdown`, body, fence, "");
     } else {
       lines.push("_SKILL.md is not included: this listing's payload was not granted._", "");
     }

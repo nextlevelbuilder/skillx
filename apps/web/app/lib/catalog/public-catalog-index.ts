@@ -12,7 +12,8 @@
  *
  * The gate decides per row: a protected listing comes back without its body and
  * the caller reports that, rather than rendering a blank that would read as an
- * empty skill.
+ * empty skill. A listing the content scanner labelled `danger` never gets its body
+ * attached, so `llms-full.txt` cannot hand an agent instructions flagged as unsafe.
  */
 
 import { desc } from "drizzle-orm";
@@ -43,6 +44,7 @@ const INDEX_COLUMNS = {
   author: skills.author,
   category: skills.category,
   is_paid: skills.is_paid,
+  risk_label: skills.risk_label,
   compatibility_json: skills.compatibility_json,
 };
 
@@ -67,9 +69,11 @@ export async function fetchPublicCatalogIndex(
       description: row.description,
       author: row.author,
       category: row.category,
+      riskLabel: row.risk_label ?? "unknown",
       compatibility: summarizeRowRuntimes(row),
     };
-    if (!includeContent || typeof row.content !== "string") return base;
+    // A `danger` listing never ships its body to an agent, granted or not.
+    if (!includeContent || typeof row.content !== "string" || base.riskLabel === "danger") return base;
     const gated = gateSkillRow({ slug: row.slug, is_paid: row.is_paid, content: row.content }, userId);
     return typeof gated.content === "string" ? { ...base, content: gated.content } : base;
   });
@@ -84,6 +88,7 @@ interface IndexRow {
   author: string;
   category: string;
   is_paid: boolean | null;
+  risk_label: string | null;
   compatibility_json: string | null;
   content?: string;
 }
