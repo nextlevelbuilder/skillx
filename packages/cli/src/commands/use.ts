@@ -213,7 +213,7 @@ async function handleRegisterResult(
 /** Search for a keyword and use the top result */
 async function searchAndUse(query: string, options: DisplayOptions): Promise<void> {
   const spinner = ora(`Searching for "${query}"...`).start();
-  const results = await searchSkills(query);
+  const { results } = await searchSkills(query);
   spinner.stop();
 
   if (results.length === 0) {
