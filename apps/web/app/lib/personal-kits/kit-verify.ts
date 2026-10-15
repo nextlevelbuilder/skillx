@@ -62,6 +62,8 @@ export interface LoadedChain {
   foreign: Set<number>;
   /** A parent was unavailable (reported in `reasons`), so `chain` stops before it. */
   incomplete: boolean;
+  /** The parent revision rows behind `chain[1..]`, with the id of their kit. */
+  parents: Array<{ kitId: string; row: RevisionRow }>;
 }
 
 /**
@@ -76,6 +78,7 @@ export async function loadChain(caller: KitCaller, doc: PersonalKitDocument, rea
   const { env, userId } = caller;
   const chain = [doc];
   const foreign = new Set<number>();
+  const parents: LoadedChain["parents"] = [];
   let parentPublic = true;
   for (let cur = doc; cur.parent !== undefined; cur = chain[chain.length - 1]!) {
     if (chain.length >= MAX_LINEAGE_DEPTH || chain.some((d, i) => i > 0 && d.kit === cur.parent!.kit) || cur.parent.kit === doc.kit) {
@@ -92,14 +95,15 @@ export async function loadChain(caller: KitCaller, doc: PersonalKitDocument, rea
       const detail = `parent revision ${cur.parent.revisionDigest} of ${cur.parent.kit} is not available`;
       if (reasons === undefined) throw kitError(KIT_CODES.baseUnavailable, "parent", detail);
       reasons.push(detail);
-      return { chain, parentPublic: false, foreign, incomplete: true };
+      return { chain, parentPublic: false, foreign, incomplete: true, parents };
     }
     if (kit!.visibility !== "public") parentPublic = false;
     if (!owned) foreign.add(chain.length);
+    parents.push({ kitId: kit!.id, row: row! });
     chain.push(documentOf(row!));
   }
   resolveLineage(chain);
-  return { chain, parentPublic, foreign, incomplete: false };
+  return { chain, parentPublic, foreign, incomplete: false, parents };
 }
 
 /** The chain as returned to the caller: own documents in full, foreign ancestors as digest references only. */

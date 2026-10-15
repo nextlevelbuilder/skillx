@@ -1,7 +1,8 @@
 /**
  * Activation gate of session-derived content. A revision with a
- * session-derived revision anywhere in its parent chain, whatever its own
- * origin (manual, rebase, resolution), or with a parent that cannot be read,
+ * session-derived revision anywhere in its history, whatever its own origin
+ * (manual, rebase, resolution), also through the revision of a parent kit
+ * its document names, or with a parent that cannot be read,
  * activates (and rolls back) only from a web session and only as a private
  * document on a private kit. Any activation that makes a kit public needs a
  * web session too; other private activations keep working with an API key.
@@ -138,6 +139,18 @@ describe("revisions derived from a proposal", () => {
     k.sql("UPDATE personal_kit_revisions SET parent_revision_id = ? WHERE id = ?", "pkr_00000000-0000-0000-0000-000000000000", manual.id);
     gated(await k.call("activate", activation(res.body.revision, res.body.generation)));
   });
+
+  it("gates a kit whose document parent is a session-derived revision of another kit", async () => {
+    const { rev } = await reviewedProposal();
+    const CHILD = { kit: "@alpha/child" };
+    const document = k.doc([], { kit: CHILD.kit, localId: "local/child", parent: { kit: "@alpha/my-kit", revisionDigest: rev.digest } });
+    const stored = await k.call("revisions", { expectedGeneration: 0, idempotencyKey: k.idem(), document }, CHILD);
+    expect(stored.status).toBe(201);
+    const child = stored.body.revision as Rev;
+    gated(await k.call("activate", activation(child, 1), CHILD));
+    const byWeb = await k.call("activate", activation(child, 1), { ...WEB, ...CHILD });
+    expect(byWeb.status).toBe(200);
+  });
 });
 
 describe("activations without session-derived content", () => {
@@ -153,5 +166,14 @@ describe("activations without session-derived content", () => {
     const pub = await manualRevision(1, "published\n", "public");
     await expectWebOnly(pub.rev, pub.generation);
     expect((await k.call("")).body.visibility).toBe("public");
+  });
+
+  it("creates every kit private, also from a public first document", async () => {
+    const CHILD = { kit: "@alpha/child" };
+    const document = k.doc([await k.entry("@alpha/demo", "1.0.0", MINE)], { kit: CHILD.kit, localId: "local/child", visibility: "public" });
+    const res = await k.call("revisions", { expectedGeneration: 0, idempotencyKey: k.idem(), document }, CHILD);
+    expect(res.status).toBe(201);
+    expect((await k.call("", undefined, CHILD)).body.visibility).toBe("private");
+    gated(await k.call("activate", activation(res.body.revision, 1), CHILD));
   });
 });

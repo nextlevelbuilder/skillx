@@ -77,7 +77,11 @@ export async function readRevision(caller: KitCaller, kitName: string, id: strin
   return json(revisionView(await getRevision(caller.env.DB, kit.id, id), true));
 }
 
-/** Validates, verifies and stores one revision under the generation guard. */
+/**
+ * Validates, verifies and stores one revision under the generation guard. A
+ * new kit always starts private: only an activation sets its visibility, so
+ * an API key never creates a public kit.
+ */
 export async function storeRevision(caller: KitCaller, req: StoreRequest): Promise<{ revision: RevisionRow; generation: number; warnings: string[]; replayed: boolean }> {
   const db = caller.env.DB;
   const existing = await findKit(db, req.kitName);
@@ -107,7 +111,7 @@ export async function storeRevision(caller: KitCaller, req: StoreRequest): Promi
   const ok = await commitKitMutation(db, {
     kitId,
     generation: req.expectedGeneration,
-    create: existing === null ? { name: req.kitName, publisherId, ownerUserId: caller.userId, localId: doc.localId ?? null, visibility: doc.visibility } : undefined,
+    create: existing === null ? { name: req.kitName, publisherId, ownerUserId: caller.userId, localId: doc.localId ?? null, visibility: "private" } : undefined,
     statements: [
       {
         sql: `INSERT INTO personal_kit_revisions (id, kit_id, revision_number, parent_revision_id, revision_digest, document_json, state, origin,
