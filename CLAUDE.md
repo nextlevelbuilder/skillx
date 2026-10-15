@@ -81,6 +81,10 @@ pnpm db:migrate:remote    # Apply migrations to remote D1
 |---------|------|------|
 | `/` | home.tsx | None |
 | `/skills/:slug` | skill-detail.tsx | None |
+| `/skills/<slug>.md` | lib/markdown/skill-markdown-handler.ts, dispatched in `workers/app.ts` (React Router has no partial dynamic segment) | None; always anonymous, public cache |
+| `/llms.txt`, `/llms-full.txt` | llms-txt.ts, llms-full-txt.ts (`?limit=` snaps to fixed sizes; KV-cached per origin and size) | None; protected bodies withheld |
+| `/docs/harness`, `/docs/publishers` | docs-harness.tsx, docs-publishers.tsx | None |
+| `/api/mcp` | api.mcp.ts (read-only MCP over JSON-RPC: `search_packages`, `get_package`, `get_release`, `check_compatibility`; 64 KiB body cap, `RELEASE_READ_LIMITER` under `mcp:`) | Optional Key/Session; `get_release` is always anonymous |
 | `/profile` | profile.tsx | Session |
 | `/settings` | settings.tsx | Session |
 | `/api/auth/*` | auth-catchall.tsx | Better Auth |

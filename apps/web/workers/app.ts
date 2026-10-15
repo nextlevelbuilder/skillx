@@ -1,4 +1,5 @@
 import { createRequestHandler } from "react-router";
+import { handleSkillMarkdown, matchSkillMarkdownPath } from "../app/lib/markdown/skill-markdown-handler";
 
 // Extend Env type with auth secrets
 declare global {
@@ -39,6 +40,12 @@ const requestHandler = createRequestHandler(
 
 export default {
   async fetch(request, env, ctx) {
+    // `/skills/<slug>.md` is matched here: React Router has no partial dynamic
+    // segment, so `skills/:slug.md` cannot be declared as a route.
+    if (request.method === "GET" || request.method === "HEAD") {
+      const markdownSlug = matchSkillMarkdownPath(new URL(request.url).pathname);
+      if (markdownSlug !== null) return handleSkillMarkdown(request, env, markdownSlug);
+    }
     return requestHandler(request, {
       cloudflare: { env, ctx },
     });

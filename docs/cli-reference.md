@@ -31,12 +31,15 @@ Search for skills in the SkillX marketplace.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-u, --use` | Auto-pick top result and show full details | `false` |
+| `-c, --compatible <runtime>` | Only skills that declare support for this runtime; prints the filter report (`unknown` is not support) | — |
+| `--json` | Machine-readable envelope | `false` |
 
 **Examples:**
 ```bash
 skillx search "code review"
 skillx search "database migration"
 skillx search "ui ux" --use
+skillx search "lint" --compatible agentkit --json
 ```
 
 **Output:** Table with SKILL, CATEGORY, RATING, DESCRIPTION columns.
@@ -98,6 +101,27 @@ skillx use "testing" --search
 
 ---
 
+### `skillx inspect <identifier>`
+
+Show a skill's metadata, requirements, declared compatibility, and evidence.
+`<identifier>` is a slug, `author/skill`, or `org/repo/skill`.
+
+| Flag | Description |
+|------|-------------|
+| `--target <runtime[@version]>` | Also answer for one runtime |
+| `--json` | Machine-readable envelope |
+
+### `skillx check <identifier> --target <runtime[@version]>`
+
+Gate on compatibility. Exit code is the answer: `0` when the target may be acted on
+(`declared` or `verified`), `4` when it may not (`unknown`, `unsupported`, `blocked`),
+`3` when the skill does not exist, `2` for invalid input. `--json` emits an envelope.
+
+```bash
+skillx check find-skills --target agentkit@1.4.0 && echo ok
+```
+
+---
 ### `skillx find <query>`
 
 Interactive search — browse results and select a skill.

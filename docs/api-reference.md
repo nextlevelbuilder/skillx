@@ -42,6 +42,7 @@ Search skills via hybrid keyword + semantic engine. Supports query params.
 | `category` | string | No | — | Filter by category |
 | `is_paid` | string | No | — | `"true"` or `"false"` |
 | `limit` | number | No | 20 | Max results (capped at 100) |
+| `compatible` | string | No | — | Runtime id (`agentkit`, `claude-code`), optionally `runtime@version`; the version is not evaluated here. Returns only listings that declare support (`declared`/`verified`) |
 
 **Response** `200`:
 
@@ -92,14 +93,19 @@ Same search via JSON body. Preferred for API integrations.
 | `category` | string | No | Filter by category |
 | `is_paid` | boolean | No | Filter free/paid |
 | `limit` | number | No | Max results (default 20, max 100) |
+| `compatible` | string | No | Same as the `GET` parameter |
 
-**Response**: Same as `GET /api/search`.
+**Response**: Same as `GET /api/search`. When `compatible` was given, the response
+also carries `compatibilityFilter` (`runtime`, `evaluated`, `matched`, `undecided`,
+`refused`, `poolExhausted`) and, for an empty page, a `note`. A listing that declares
+nothing is `undecided`, never a match: `unknown` is not support.
 
 **Errors**:
 
 | Status | Body | Cause |
 |--------|------|-------|
 | 400 | `{ "error": "Query parameter is required..." }` | Missing or non-string `query` |
+| 400 | `{ "error": "compatible must be a runtime id ..." }` | `compatible` is not a runtime id (the value is not echoed) |
 | 500 | `{ "error": "Search failed", "details": "..." }` | Internal error |
 
 ---
@@ -113,6 +119,8 @@ Fetch full skill details with reviews and rating summary.
 **Auth**: Optional (authenticated users see `isFavorited` status)
 
 **URL Params**: `slug` — skill URL slug
+
+**Query Params**: `target` (optional) — `runtime` or `runtime@version`. The response's `compatibility` object always lists the declared runtimes (`declared`); with a valid `target` it adds a version-aware `target` answer. An invalid `target` is ignored and never echoed.
 
 **Response** `200`:
 
@@ -1486,6 +1494,45 @@ drops them and deletes the `0014_release_status_and_exec.sql` row from
 `d1_migrations`.
 
 ---
+
+## Agent Surfaces
+
+Read-only surfaces for agent runtimes. All are anonymous: a protected listing's
+SKILL.md body is never included, and the omission is stated rather than rendered blank.
+
+### `GET /skills/<slug>.md`
+
+The skill page as Markdown (metadata, compatibility, references, scripts, and the
+SKILL.md body when the listing is free). `Cache-Control: public, max-age=300`;
+`Link: <canonical>; rel="canonical"`. Legacy slugs from `skill_aliases` resolve.
+`404` for an unknown slug. Served by the worker entry, not a React Router route.
+
+### `GET /llms.txt`, `GET /llms-full.txt`
+
+[llmstxt.org](https://llmstxt.org)-style catalog documents, ordered by score.
+`llms.txt` is the index; `llms-full.txt` adds granted SKILL.md bodies. `?limit=`
+snaps up to a fixed size (index: 100, 250, 500, 1000 — default 1000; full: 25, 50,
+100, 200 — default 100); unusable values give the default. Each document says when
+the catalog holds more than it lists. KV-cached for 300 s per origin and size.
+
+### `POST /api/mcp`
+
+Remote MCP server (JSON-RPC 2.0, streamable HTTP; `GET` answers 405). Methods:
+`initialize`, `tools/list`, `tools/call`; notifications get `202` with no body.
+
+| Tool | Arguments | Answer |
+|------|-----------|--------|
+| `search_packages` | `query`, `category?`, `limit?`, `compatible?` | Same executor and filter report as `POST /api/search` |
+| `get_package` | `slug`, `target?` | Listing detail (alias-aware) and declared compatibility |
+| `get_release` | `package` (`@handle/slug`), `version?` | Public published releases only, through the release access module; private, draft, and unsigned rows are `not_found`, quarantined is `release_quarantined`. Always anonymous |
+| `check_compatibility` | `slug`, `target` (`runtime[@version]`) | Version-aware status plus reason codes; returns the canonical slug |
+
+A miss is `{ "found": false, "code": "not_found" }`. Invalid arguments are a tool
+error with `details.code = "invalid_arguments"`; an unexpected failure is a tool
+error with `details.code = "internal_error"` (the cause is only logged).
+Guards: request bodies above 64 KiB get `413`; each client IP is counted on
+`RELEASE_READ_LIMITER` under an `mcp:` key and a refusal is `429` with
+`Retry-After` (a missing binding lets the request through).
 
 ## Error Format
 

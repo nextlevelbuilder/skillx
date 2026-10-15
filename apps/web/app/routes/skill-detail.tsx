@@ -12,9 +12,12 @@ import { getDb } from "~/lib/db";
 import { loadSkillDetailData } from "~/lib/catalog/skill-detail-data";
 import { SkillReferencesSection } from "../components/skill-references-section";
 import { SkillScriptsSection } from "../components/skill-scripts-section";
+import { CompatibilityPanel } from "../components/compatibility-panel";
+import { CopyMarkdownButton } from "../components/copy-markdown-button";
+import { RiskWarningBanner } from "../components/risk-warning-banner";
 import { useState } from "react";
 import { useFetcher } from "react-router";
-import { FileText, ShieldAlert } from "lucide-react";
+import { FileText } from "lucide-react";
 
 export async function loader({ params, request, context }: LoaderFunctionArgs) {
   const slug = params.slug;
@@ -51,6 +54,9 @@ export default function SkillDetail() {
 
   return (
     <PageContainer>
+      {/* The Markdown variant of this page, for agents that prefer it. React 19
+          hoists this link into <head>. */}
+      <link rel="alternate" type="text/markdown" href={`/skills/${data.skill.slug}.md`} />
       {/* Breadcrumb */}
       <nav className="mb-6 flex items-center gap-1.5 text-sm text-sx-fg-muted">
         <Link to="/" className="transition-colors hover:text-sx-fg">skills</Link>
@@ -82,18 +88,7 @@ export default function SkillDetail() {
           </div>
 
           {/* Risk warning banner */}
-          {data.skill.risk_label === "danger" && (
-            <div className="mb-6 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-              <ShieldAlert className="mr-2 inline h-4 w-4" />
-              Suspicious content patterns detected. Review carefully before use.
-            </div>
-          )}
-          {data.skill.risk_label === "caution" && (
-            <div className="mb-6 rounded-lg border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm text-yellow-400">
-              <ShieldAlert className="mr-2 inline h-4 w-4" />
-              Some content patterns flagged for review.
-            </div>
-          )}
+          <RiskWarningBanner riskLabel={data.skill.risk_label} />
 
           {/* Use this skill */}
           <div className="mb-8 space-y-3">
@@ -114,10 +109,18 @@ export default function SkillDetail() {
             )}
           </div>
 
+          {/* Compatibility — declared is not the same as verified */}
+          <div className="mb-8">
+            <CompatibilityPanel summaries={data.compatibility} />
+          </div>
+
           {/* SKILL.md label */}
           <div className="mb-4 flex items-center gap-2 text-xs text-sx-fg-subtle">
             <FileText size={14} />
             <span className="font-mono uppercase tracking-wider">SKILL.md</span>
+            <span className="ml-auto">
+              <CopyMarkdownButton url={`/skills/${data.skill.slug}.md`} />
+            </span>
           </div>
 
           {/* Separator */}

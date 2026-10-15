@@ -1,0 +1,130 @@
+/**
+ * `llms.txt` and `llms-full.txt`.
+ *
+ * The two properties that matter: a listing whose payload was not granted is
+ * marked as such rather than rendered blank, and truncation is always visible —
+ * a document that silently stops mid-catalog makes an agent believe the catalog
+ * ends there.
+ */
+
+import { describe, expect, it } from "vitest";
+import { renderLlmsFullTxt, renderLlmsTxt, type LlmsEntry } from "./llms-txt";
+
+const SITE = "https://skillx.sh";
+
+function entry(overrides: Partial<LlmsEntry> = {}): LlmsEntry {
+  return {
+    slug: "find-skills",
+    name: "Find Skills",
+    description: "Discovery helper",
+    author: "vercel",
+    category: "discovery",
+    ...overrides,
+  };
+}
+
+describe("renderLlmsTxt", () => {
+  it("opens with the catalog identity", () => {
+    const out = renderLlmsTxt(SITE, [entry()], false);
+    expect(out.startsWith("# SkillX")).toBe(true);
+    expect(out).toContain("## Skills");
+  });
+
+  it("links each skill to its Markdown resource", () => {
+    const out = renderLlmsTxt(SITE, [entry()], false);
+    expect(out).toContain("- [Find Skills](https://skillx.sh/skills/find-skills.md): Discovery helper");
+  });
+
+  it("annotates compatibility when a runtime is declared", () => {
+    const out = renderLlmsTxt(
+      SITE,
+      [
+        entry({
+          compatibility: [
+            {
+              runtime: "agentkit",
+              status: "verified",
+              versions: null,
+              reasonCodes: [],
+              verifiedAt: "2026-09-20T00:00:00.000Z",
+              probeId: "p1",
+            },
+          ],
+        }),
+      ],
+      false,
+    );
+    expect(out).toContain("(agentkit: verified 2026-09-20)");
+  });
+
+  it("says nothing about compatibility when nothing is declared", () => {
+    const out = renderLlmsTxt(SITE, [entry({ compatibility: [] })], false);
+    expect(out).toContain(": Discovery helper\n");
+    expect(out).not.toContain(": Discovery helper (");
+  });
+
+  it("names the truncation instead of stopping silently", () => {
+    const out = renderLlmsTxt(SITE, [entry()], true);
+    expect(out).toContain("Listing the top 1 skills; the catalog holds more");
+  });
+
+  it("omits the truncation note when the catalog is fully listed", () => {
+    const out = renderLlmsTxt(SITE, [entry()], false);
+    expect(out).not.toContain("the catalog holds more");
+  });
+
+  it("advertises the sibling resources", () => {
+    const out = renderLlmsTxt(SITE, [entry()], false);
+    expect(out).toContain("https://skillx.sh/llms-full.txt");
+    expect(out).toContain("https://skillx.sh/api/search");
+  });
+});
+
+describe("renderLlmsFullTxt", () => {
+  it("embeds a granted SKILL.md body", () => {
+    const out = renderLlmsFullTxt(SITE, [entry({ content: "# Find Skills\n\nBody." })], {
+      truncated: false,
+    });
+    expect(out).toContain("```markdown");
+    expect(out).toContain("# Find Skills\n\nBody.");
+  });
+
+  it("marks a withheld body instead of rendering an empty one", () => {
+    const out = renderLlmsFullTxt(SITE, [entry()], { truncated: false });
+    expect(out).toContain("payload was not granted");
+    expect(out).not.toContain("```markdown");
+  });
+
+  it("says when it left skills out", () => {
+    const out = renderLlmsFullTxt(SITE, [entry()], { truncated: true });
+    expect(out).toContain("renders the top 1 skills; the catalog holds more");
+  });
+
+  it("carries per-skill links so an agent can fetch one skill directly", () => {
+    const out = renderLlmsFullTxt(SITE, [entry()], { truncated: false });
+    expect(out).toContain("- **Canonical:** https://skillx.sh/skills/find-skills");
+    expect(out).toContain("- **Markdown:** https://skillx.sh/skills/find-skills.md");
+  });
+
+  it("lists declared compatibility when present", () => {
+    const out = renderLlmsFullTxt(
+      SITE,
+      [
+        entry({
+          compatibility: [
+            {
+              runtime: "agentkit",
+              status: "declared",
+              versions: null,
+              reasonCodes: [],
+              verifiedAt: null,
+              probeId: null,
+            },
+          ],
+        }),
+      ],
+      { truncated: false },
+    );
+    expect(out).toContain("- **Compatibility:** agentkit (declared)");
+  });
+});
