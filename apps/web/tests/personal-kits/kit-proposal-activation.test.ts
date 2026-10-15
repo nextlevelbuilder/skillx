@@ -1,8 +1,10 @@
 /**
- * A rebase or conflict-resolution draft that carries a reviewed
- * session-derived revision forward inherits its activation gate: only a
- * web session activates it, never the API key that submitted the proposal.
- * Drafts that descend from manual revisions keep activating with a key.
+ * Activation gate of session-derived content. A revision with a
+ * session-derived revision anywhere in its parent chain, whatever its own
+ * origin (manual, rebase, resolution), or with a parent that cannot be read,
+ * activates (and rolls back) only from a web session and only as a private
+ * document on a private kit. Any activation that makes a kit public needs a
+ * web session too; other private activations keep working with an API key.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { BODY, createKitHarness, skillText } from "./kit-harness";
@@ -20,6 +22,10 @@ const WEB = { key: null };
 const MINE = { "SKILL.md": skillText(BODY.replace("two\n", "two (mine)\n")), "notes.md": "my notes\n" };
 const LEARNED = { ...MINE, "notes.md": "my notes\nprefer small steps\n" };
 const v2 = (from: string, to: string) => ({ "SKILL.md": skillText(BODY.replace(from, to)) });
+const gated = (res: { status: number; body: Record<string, any> }) => {
+  expect(res.status).toBe(403);
+  expect(res.body.error.code).toBe("kit.interactive_approval_required");
+};
 
 beforeEach(async () => {
   session.user = { id: "user-a" };
@@ -38,22 +44,38 @@ async function reviewedProposal(): Promise<{ rev: Rev; generation: number }> {
   return { rev, generation: review.body.generation };
 }
 
+const activation = (rev: Rev, generation: number) => ({ expectedGeneration: generation, revisionId: rev.id, approval: { revisionDigest: rev.digest } });
+
+/** The reviewed proposal, made effective from a web session; returns the generation after it. */
+async function effectiveProposal(): Promise<{ rev: Rev; generation: number }> {
+  const { rev, generation } = await reviewedProposal();
+  const act = await k.call("activate", activation(rev, generation), WEB);
+  expect(act.status).toBe(200);
+  return { rev, generation: act.body.generation };
+}
+
+/** A manual revision; its parent is the effective revision. */
+async function manualRevision(generation: number, note: string, visibility = "private") {
+  const document = k.doc([await k.entry("@alpha/demo", "1.0.0", { ...LEARNED, "notes.md": note })], { visibility });
+  const res = await k.call("revisions", { expectedGeneration: generation, idempotencyKey: k.idem(), document });
+  expect(res.status).toBe(201);
+  return { rev: res.body.revision as Rev & { parentRevisionId: string }, generation: res.body.generation as number };
+}
+
 const rebase = (fromRevisionId: string, version: string, expectedGeneration: number) =>
   k.call("rebase", { expectedGeneration, idempotencyKey: k.idem(), fromRevisionId, updates: [{ package: "@alpha/demo", version }] });
 
 /** Activation by API key is refused with the interactive gate; a web session then activates. */
-async function expectWebOnly(rev: Rev, generation: number) {
-  const body = { expectedGeneration: generation, revisionId: rev.id, approval: { revisionDigest: rev.digest } };
-  const byKey = await k.call("activate", body);
-  expect(byKey.status).toBe(403);
-  expect(byKey.body.error.code).toBe("kit.interactive_approval_required");
-  const byWeb = await k.call("activate", body, WEB);
+async function expectWebOnly(rev: Rev, generation: number, action = "activate") {
+  gated(await k.call(action, activation(rev, generation)));
+  const byWeb = await k.call(action, activation(rev, generation), WEB);
   expect(byWeb.status).toBe(200);
   const stored = k.h.d1.raw.prepare("SELECT approval_json FROM personal_kit_revisions WHERE id = ?").get(rev.id) as { approval_json: string };
   expect(JSON.parse(stored.approval_json)).toMatchObject({ credential: "web-session" });
+  return byWeb.body.generation as number;
 }
 
-describe("activation gate of revisions derived from a proposal", () => {
+describe("revisions derived from a proposal", () => {
   it("gates a rebase draft of a reviewed proposal, also through a chain of rebases", async () => {
     const { rev, generation } = await reviewedProposal();
     await k.publish("@alpha/demo", "2.0.0", v2("eight\n", "eight (v2)\n"));
@@ -82,12 +104,54 @@ describe("activation gate of revisions derived from a proposal", () => {
     await expectWebOnly(res.body.revision, res.body.generation);
   });
 
-  it("keeps API-key activation for drafts that descend from manual revisions", async () => {
+  it("gates a manual revision stored over an effective proposal, and a rebase of it", async () => {
+    const { rev, generation } = await effectiveProposal();
+    const next = await manualRevision(generation, "edited by hand\n");
+    expect(next.rev).toMatchObject({ origin: "manual", parentRevisionId: rev.id });
+    const after = await expectWebOnly(next.rev, next.generation);
+    await k.publish("@alpha/demo", "2.0.0", v2("eight\n", "eight (v2)\n"));
+    const rebased = await rebase(next.rev.id, "2.0.0", after);
+    expect(rebased.body.revision).toMatchObject({ origin: "rebase", parentRevisionId: next.rev.id });
+    await expectWebOnly(rebased.body.revision, rebased.body.generation);
+  });
+
+  it("gates a rollback onto a session-derived revision", async () => {
+    const { rev, generation } = await effectiveProposal();
+    const next = await manualRevision(generation, "edited by hand\n");
+    const after = await expectWebOnly(next.rev, next.generation);
+    await expectWebOnly(rev, after, "rollback");
+  });
+
+  it("keeps a revision derived from a proposal private, even from a web session", async () => {
+    const { generation } = await effectiveProposal();
+    const pub = await manualRevision(generation, "published\n", "public");
+    const act = await k.call("activate", activation(pub.rev, pub.generation), WEB);
+    expect(act.status).toBe(409);
+    expect(act.body.error.code).toBe("proposal.private_kit_required");
+  });
+
+  it("gates a revision whose parent cannot be read (fails closed)", async () => {
     await k.publish("@alpha/demo", "2.0.0", v2("eight\n", "eight (v2)\n"));
     const res = await rebase(manual.id, "2.0.0", 1);
     expect(res.status).toBe(201);
-    const draft = res.body.revision as Rev;
-    const act = await k.call("activate", { expectedGeneration: res.body.generation, revisionId: draft.id, approval: { revisionDigest: draft.digest } });
+    k.sql("DROP TRIGGER personal_kit_revisions_immutable");
+    k.sql("UPDATE personal_kit_revisions SET parent_revision_id = ? WHERE id = ?", "pkr_00000000-0000-0000-0000-000000000000", manual.id);
+    gated(await k.call("activate", activation(res.body.revision, res.body.generation)));
+  });
+});
+
+describe("activations without session-derived content", () => {
+  it("keeps API-key activation for private drafts that descend from manual revisions", async () => {
+    await k.publish("@alpha/demo", "2.0.0", v2("eight\n", "eight (v2)\n"));
+    const res = await rebase(manual.id, "2.0.0", 1);
+    expect(res.status).toBe(201);
+    const act = await k.call("activate", activation(res.body.revision, res.body.generation));
     expect(act.status).toBe(200);
+  });
+
+  it("makes a kit public only from a web session", async () => {
+    const pub = await manualRevision(1, "published\n", "public");
+    await expectWebOnly(pub.rev, pub.generation);
+    expect((await k.call("")).body.visibility).toBe("public");
   });
 });

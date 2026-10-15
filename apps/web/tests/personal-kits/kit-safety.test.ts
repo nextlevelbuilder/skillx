@@ -9,7 +9,8 @@ import { ReleaseHttpError } from "~/lib/releases/release-http";
 import { BODY, createKitHarness, skillText } from "./kit-harness";
 import type { KitHarness } from "./kit-harness";
 
-vi.mock("~/lib/auth/session-helpers", () => ({ getSession: async () => null }));
+const session = vi.hoisted(() => ({ user: null as { id: string } | null }));
+vi.mock("~/lib/auth/session-helpers", () => ({ getSession: async () => (session.user === null ? null : { user: session.user }) }));
 
 let k: KitHarness;
 const V1 = { "SKILL.md": skillText(BODY) };
@@ -22,14 +23,16 @@ beforeEach(async () => {
   await k.publish("@alpha/demo", "1.0.0", V1);
 });
 
-/** A revision of user-b's kit `@beta/base`; activated when `activate` is set. */
+/** A revision of user-b's kit `@beta/base`; activated when `activate` is set (in user-b's web session: a public activation needs one). */
 async function betaRevision(generation: number, visibility: "private" | "public", activate: boolean, files = MINE) {
   const document = { ...k.doc([await k.entry("@alpha/demo", "1.0.0", files)], { visibility }), kit: "@beta/base", localId: "local/base" };
   const res = await k.call("revisions", { expectedGeneration: generation, idempotencyKey: k.idem(), document }, { ...BETA, key: k.otherKey });
   expect(res.status).toBe(201);
   const rev = res.body.revision as { id: string; digest: string };
   if (activate) {
-    const ok = await k.call("activate", { expectedGeneration: generation + 1, revisionId: rev.id, approval: { revisionDigest: rev.digest } }, { ...BETA, key: k.otherKey });
+    session.user = { id: "user-b" };
+    const ok = await k.call("activate", { expectedGeneration: generation + 1, revisionId: rev.id, approval: { revisionDigest: rev.digest } }, { ...BETA, key: null });
+    session.user = null;
     expect(ok.status).toBe(200);
   }
   return rev;

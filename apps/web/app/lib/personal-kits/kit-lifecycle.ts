@@ -4,9 +4,10 @@
  * exact `revisionDigest`, re-checks every base of the effective lineage and
  * moves `effective_revision_id` under the generation guard; nothing becomes
  * effective implicitly. A proposal (`proposed`) must be reviewed first, and
- * a session-derived revision activates only on a private kit and only from
- * an interactive web session, and so does a rebase or conflict-resolution
- * draft that carries one forward. A quarantined revision anywhere in the chain
+ * a revision with a session-derived revision anywhere in its parent chain
+ * (any origin; an unreadable parent counts) activates only on a private kit,
+ * as a private document, and only from an interactive web session. Any
+ * activation that makes a kit public needs a web session too. A quarantined revision anywhere in the chain
  * fails the lock with `kit.locked_incompatible`.
  * Rejection is final for that revision; a proposal is rejected only through
  * its web-session review, never through the generic reject. The lock is derived on read from the
@@ -64,26 +65,27 @@ function requireApproval(raw: unknown, rev: RevisionRow): void {
 }
 
 /**
- * True for a session-derived revision and for a rebase or conflict-resolution
- * revision that carries one forward (through any chain of rebases and
- * resolutions): it inherits the web-session activation gate. A manual
- * revision is a document its author submits whole, so the chain stops there.
+ * True when `rev` or any revision in its parent chain, whatever its origin,
+ * is session-derived: it inherits the web-session activation gate. A parent
+ * that cannot be read (missing, or in another kit) counts as session-derived,
+ * so the check fails closed.
  */
 async function derivesFromSession(db: D1Database, kitId: string, rev: RevisionRow): Promise<boolean> {
   if (rev.origin === "session-derived") return true;
-  if (rev.origin !== "rebase" && rev.origin !== "resolution") return false;
-  const found = await db
+  const row = await db
     .prepare(
       `WITH RECURSIVE chain(id, origin, parent) AS (
          SELECT id, origin, parent_revision_id FROM personal_kit_revisions WHERE id = ? AND kit_id = ?
          UNION
-         SELECT r.id, r.origin, r.parent_revision_id FROM personal_kit_revisions r JOIN chain c ON r.id = c.parent
-           WHERE r.kit_id = ? AND c.origin IN ('rebase', 'resolution'))
-       SELECT 1 AS found FROM chain WHERE origin = 'session-derived' LIMIT 1`,
+         SELECT r.id, r.origin, r.parent_revision_id FROM personal_kit_revisions r JOIN chain c ON r.id = c.parent WHERE r.kit_id = ?)
+       SELECT COUNT(*) AS n,
+              COALESCE(SUM(origin = 'session-derived'), 0) AS tainted,
+              COALESCE(SUM(parent IS NOT NULL AND parent NOT IN (SELECT id FROM chain)), 0) AS dangling
+         FROM chain`,
     )
     .bind(rev.id, kitId, kitId)
-    .first<{ found: number }>();
-  return found !== null;
+    .first<{ n: number; tainted: number; dangling: number }>();
+  return row === null || Number(row.n) === 0 || Number(row.tainted) > 0 || Number(row.dangling) > 0;
 }
 
 /** `POST .../activate` and `POST .../rollback` (rollback: a revision that was effective before). */
@@ -96,16 +98,20 @@ export async function activateRevision(caller: KitCaller, kitName: string, body:
   if (!ACTIVATABLE.has(rev.state)) throw conflict("kit.revision_unusable", `the revision is ${rev.state}`);
   const sessionDerived = rev.origin === "session-derived";
   if (sessionDerived && rev.state !== "reviewed") throw conflict("kit.review_required", "a session-derived revision must be reviewed");
+  const doc = documentOf(rev);
   if (await derivesFromSession(caller.env.DB, kit.id, rev)) {
     requireInteractive(caller);
-    // Activation would make the kit private; a public kit is forked to a private one instead.
-    if (kit.visibility !== "private") throw conflict("proposal.private_kit_required", "a session-derived revision activates on a private kit only; fork this kit to a private kit");
+    // Both the kit and the visibility the activation writes stay private; a public kit is forked to a private one instead.
+    if (kit.visibility !== "private" || doc.visibility !== "private") {
+      throw conflict("proposal.private_kit_required", "a revision derived from a session-derived revision activates on a private kit, as a private document, only");
+    }
   }
+  // Publishing is a human decision whatever the origin: an API key never makes a kit public.
+  if (doc.visibility !== "private") requireInteractive(caller, "activate a public revision signed in on the web, not with an API key");
   if (rollback && (rev.activated_at === null || rev.id === kit.effective_revision_id)) throw badRequest("rollback targets an earlier effective revision");
   if (!rollback && rev.id === kit.effective_revision_id) throw badRequest("the revision is already effective");
   const check = await checkLock(caller, rev);
   if (check.reasons.length > 0) return incompatible(check.reasons);
-  const doc = documentOf(rev);
   const at = caller.now.getTime();
   // A reviewed proposal keeps its review proof next to the activation approval.
   const review = sessionDerived && rev.approval_json !== null ? (JSON.parse(rev.approval_json) as { review?: unknown }) : null;

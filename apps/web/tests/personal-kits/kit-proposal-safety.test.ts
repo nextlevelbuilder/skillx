@@ -166,7 +166,7 @@ describe("proposal approval", () => {
     const rev = (await submit(await proposal(with_("x\n")), 1)).body.revision;
     await approve(rev, 2);
     const pub = (await k.call("revisions", { expectedGeneration: 3, idempotencyKey: k.idem(), document: k.doc([await k.entry("@alpha/demo", "1.0.0", MINE)], { visibility: "public" }) })).body.revision;
-    expect((await k.call("activate", { expectedGeneration: 4, revisionId: pub.id, approval: { revisionDigest: pub.digest } })).status).toBe(200);
+    expect((await k.call("activate", { expectedGeneration: 4, revisionId: pub.id, approval: { revisionDigest: pub.digest } }, WEB)).status).toBe(200);
     const act = await k.call("activate", { expectedGeneration: 5, revisionId: rev.id, approval: { revisionDigest: rev.digest } }, WEB);
     expect(act.status).toBe(409);
     expect(act.body.error.code).toBe("proposal.private_kit_required");

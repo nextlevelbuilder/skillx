@@ -30,11 +30,12 @@ export const kitNotFound = () => releaseError(404, "not_found", "Not found");
 export const badRequest = (message: string) => releaseError(400, "invalid_request", message);
 export const conflict = (code: string, message: string) => releaseError(409, code, message);
 
-/** Review and activation of a session-derived revision: a human in a web session, never an API key. */
-export function requireInteractive(caller: { interactive: boolean }): void {
-  if (!caller.interactive) {
-    throw releaseError(403, "kit.interactive_approval_required", "approve session-derived revisions signed in on the web, not with an API key");
-  }
+/**
+ * Review and activation of a session-derived revision, and any activation
+ * that makes a kit public: a human in a web session, never an API key.
+ */
+export function requireInteractive(caller: { interactive: boolean }, message = "approve session-derived revisions signed in on the web, not with an API key"): void {
+  if (!caller.interactive) throw releaseError(403, "kit.interactive_approval_required", message);
 }
 
 /** `@handle/name` of the route; malformed is 400. */
