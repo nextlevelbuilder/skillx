@@ -1,0 +1,116 @@
+{
+  "schema": "skillx.kit-proposal-policy/v1",
+  "envelope": "skillx.kit-proposal/v1",
+  "forbiddenKeys": {
+    "description": "A key anywhere in a proposal is normalized, then refused when it equals an exact name or contains a stem. A key longer than maxKeyLength (Unicode code points of the key as received) or not printable ASCII after normalization cannot be checked and is refused too. A key whose value is a number is exempt (an evidence signal such as sessions: 3 cannot carry session content). String values outside the file-content fields that parse as a JSON object or array are checked as nested documents.",
+    "normalization": [
+      "percent-decode %XX escapes until nothing changes (at most 3 rounds), each escape to the code unit of its byte",
+      "Unicode NFKC",
+      "lowercase",
+      "refuse when any character is outside printable ASCII (U+0020 to U+007E)",
+      "remove every character outside [a-z0-9]"
+    ],
+    "maxKeyLength": 64,
+    "exact": [
+      "chat",
+      "chats",
+      "cwd",
+      "dotenv",
+      "env",
+      "log",
+      "logs",
+      "message",
+      "messages",
+      "pwd",
+      "raw",
+      "session",
+      "sessions"
+    ],
+    "contains": [
+      "accesskey",
+      "apikey",
+      "conversation",
+      "credential",
+      "environment",
+      "envvar",
+      "history",
+      "homedir",
+      "passphrase",
+      "passwd",
+      "password",
+      "privatekey",
+      "prompt",
+      "secret",
+      "sessionid",
+      "sessionlog",
+      "stderr",
+      "stdout",
+      "token",
+      "toolcall",
+      "tooloutput",
+      "toolresult",
+      "transcript",
+      "workdir"
+    ],
+    "contentFields": [
+      "contentBase64",
+      "patch"
+    ],
+    "refusal": {
+      "code": "proposal.forbidden_field",
+      "reports": "the key path only, never the value"
+    }
+  },
+  "content": {
+    "description": "What a change introduces (added lines of a changed file, a new file whole, the evidence summary) is refused on any rule below; findings are danger:<rule>:<path> and never carry the matched text. Regular expressions are implementation detail; the vectors are the contract.",
+    "refusing": [
+      "binary-content",
+      "byte-order-mark",
+      "local-path",
+      "secret-bearer",
+      "secret-dotenv",
+      "secret-jwt",
+      "secret-password",
+      "secret-private-key",
+      "secret-url-credentials"
+    ],
+    "localPathSystemAllowlist": {
+      "roots": [
+        "bin",
+        "sbin",
+        "etc",
+        "proc"
+      ],
+      "usr": [
+        "bin",
+        "include",
+        "lib",
+        "lib32",
+        "lib64",
+        "libexec",
+        "sbin",
+        "share",
+        "src"
+      ],
+      "usrLocal": [
+        "bin",
+        "cellar",
+        "etc",
+        "include",
+        "lib",
+        "lib64",
+        "libexec",
+        "man",
+        "opt",
+        "sbin",
+        "share"
+      ],
+      "dev": [
+        "null",
+        "stderr",
+        "stdin",
+        "stdout"
+      ]
+    }
+  }
+}

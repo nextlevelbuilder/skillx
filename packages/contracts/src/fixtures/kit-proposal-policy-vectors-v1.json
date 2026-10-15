@@ -1,0 +1,710 @@
+{
+  "schema": "skillx.kit-proposal-policy-vectors/v1",
+  "policy": "skillx.kit-proposal-policy/v1",
+  "description": "Shared test vectors. keys: run the forbidden-key check over value (the root path is proposal); refusedAt is the first refused key path in document order, or null. secrets.parts and multilinePasswords.*.parts are joined with no separator before use.",
+  "keys": [
+    {
+      "name": "a benign envelope with every known field",
+      "value": {
+        "schema": "skillx.kit-proposal/v1",
+        "fromRevisionId": "pkr_00000000-0000-4000-8000-000000000000",
+        "skill": {
+          "identity": "@alpha/demo",
+          "base": {
+            "package": "@alpha/demo",
+            "version": "1.0.0",
+            "releaseDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+          },
+          "overlay": {
+            "schema": "agentkit.skill-overlay/v1",
+            "baseTreeDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+            "ops": [
+              {
+                "op": "patch",
+                "path": "SKILL.md",
+                "expectSha256": "0000000000000000000000000000000000000000000000000000000000000000",
+                "patch": "{\"prompt\": \"file content is scanned by the content rules\"}"
+              },
+              {
+                "op": "add",
+                "path": "notes.md",
+                "contentBase64": "bm90ZXMK",
+                "mode": "100644"
+              }
+            ]
+          },
+          "compositionDigest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "declaredPermissions": [],
+        "evidence": {
+          "summary": "prefer small steps",
+          "signals": {
+            "sessions": 3,
+            "tokens": 1200,
+            "tool_calls": 4
+          }
+        },
+        "visibility": "private"
+      },
+      "refusedAt": null
+    },
+    {
+      "name": "top-level transcript",
+      "value": {
+        "transcript": "x"
+      },
+      "refusedAt": "proposal.transcript"
+    },
+    {
+      "name": "upper case",
+      "value": {
+        "TRANSCRIPT": "x"
+      },
+      "refusedAt": "proposal.TRANSCRIPT"
+    },
+    {
+      "name": "camel case under skill",
+      "value": {
+        "skill": {
+          "systemPrompt": "x"
+        }
+      },
+      "refusedAt": "proposal.skill.systemPrompt"
+    },
+    {
+      "name": "kebab case",
+      "value": {
+        "session-log": "x"
+      },
+      "refusedAt": "proposal.session-log"
+    },
+    {
+      "name": "snake case",
+      "value": {
+        "api_key": "x"
+      },
+      "refusedAt": "proposal.api_key"
+    },
+    {
+      "name": "dotted",
+      "value": {
+        "api.key": "x"
+      },
+      "refusedAt": "proposal.api.key"
+    },
+    {
+      "name": "spaced title case",
+      "value": {
+        "Tool Calls": []
+      },
+      "refusedAt": "proposal.Tool Calls"
+    },
+    {
+      "name": "stem inside a longer key",
+      "value": {
+        "rawTranscript": "x"
+      },
+      "refusedAt": "proposal.rawTranscript"
+    },
+    {
+      "name": "stem with a suffix",
+      "value": {
+        "sessionLogs": []
+      },
+      "refusedAt": "proposal.sessionLogs"
+    },
+    {
+      "name": "vendor secret name",
+      "value": {
+        "AWS_SECRET_ACCESS_KEY": "x"
+      },
+      "refusedAt": "proposal.AWS_SECRET_ACCESS_KEY"
+    },
+    {
+      "name": "password stem",
+      "value": {
+        "dbPassword": "x"
+      },
+      "refusedAt": "proposal.dbPassword"
+    },
+    {
+      "name": "history stem",
+      "value": {
+        "conversationHistory": []
+      },
+      "refusedAt": "proposal.conversationHistory"
+    },
+    {
+      "name": "exact env",
+      "value": {
+        "evidence": {
+          "env": {
+            "HOME": "x"
+          }
+        }
+      },
+      "refusedAt": "proposal.evidence.env"
+    },
+    {
+      "name": "exact cwd in an array",
+      "value": {
+        "evidence": {
+          "items": [
+            {
+              "ok": 1
+            },
+            {
+              "cwd": "x"
+            }
+          ]
+        }
+      },
+      "refusedAt": "proposal.evidence.items[1].cwd"
+    },
+    {
+      "name": "deeply nested",
+      "value": {
+        "a": {
+          "b": {
+            "c": {
+              "d": {
+                "e": {
+                  "messages": []
+                }
+              }
+            }
+          }
+        }
+      },
+      "refusedAt": "proposal.a.b.c.d.e.messages"
+    },
+    {
+      "name": "percent-encoded",
+      "value": {
+        "%74ranscript": "x"
+      },
+      "refusedAt": "proposal.%74ranscript"
+    },
+    {
+      "name": "double percent-encoded",
+      "value": {
+        "%2574oken": "x"
+      },
+      "refusedAt": "proposal.%2574oken"
+    },
+    {
+      "name": "fullwidth letters (NFKC)",
+      "value": {
+        "ｔｒａｎｓｃｒｉｐｔ": "x"
+      },
+      "refusedAt": "proposal.ｔｒａｎｓｃｒｉｐｔ"
+    },
+    {
+      "name": "zero-width character",
+      "value": {
+        "pro​mpt": "x"
+      },
+      "refusedAt": "proposal.pro​mpt"
+    },
+    {
+      "name": "Cyrillic homoglyph",
+      "value": {
+        "рrompt": "x"
+      },
+      "refusedAt": "proposal.рrompt"
+    },
+    {
+      "name": "any non-ASCII key",
+      "value": {
+        "café": "x"
+      },
+      "refusedAt": "proposal.café"
+    },
+    {
+      "name": "key longer than the limit",
+      "value": {
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "x"
+      },
+      "refusedAt": "proposal.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "name": "key at the limit",
+      "value": {
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "x"
+      },
+      "refusedAt": null
+    },
+    {
+      "name": "numeric value is exempt",
+      "value": {
+        "evidence": {
+          "signals": {
+            "sessions": 3,
+            "prompt_count": 2
+          }
+        }
+      },
+      "refusedAt": null
+    },
+    {
+      "name": "string value is not exempt",
+      "value": {
+        "evidence": {
+          "signals": {
+            "sessions": "3"
+          }
+        }
+      },
+      "refusedAt": "proposal.evidence.signals.sessions"
+    },
+    {
+      "name": "boolean value is not exempt",
+      "value": {
+        "env": true
+      },
+      "refusedAt": "proposal.env"
+    },
+    {
+      "name": "null value is not exempt",
+      "value": {
+        "secret": null
+      },
+      "refusedAt": "proposal.secret"
+    },
+    {
+      "name": "embedded JSON object in a string",
+      "value": {
+        "evidence": {
+          "summary": "{\"transcript\": \"x\"}"
+        }
+      },
+      "refusedAt": "proposal.evidence.summary#json.transcript"
+    },
+    {
+      "name": "embedded JSON array in a string",
+      "value": {
+        "evidence": {
+          "summary": " [{\"chat\": []}]"
+        }
+      },
+      "refusedAt": "proposal.evidence.summary#json[0].chat"
+    },
+    {
+      "name": "embedded JSON with an escaped key",
+      "value": {
+        "evidence": {
+          "summary": "{\"\\u0074oken\": \"x\"}"
+        }
+      },
+      "refusedAt": "proposal.evidence.summary#json.token"
+    },
+    {
+      "name": "text that is not JSON",
+      "value": {
+        "evidence": {
+          "summary": "{not json"
+        }
+      },
+      "refusedAt": null
+    },
+    {
+      "name": "file content fields are not parsed",
+      "value": {
+        "ops": [
+          {
+            "patch": "{\"transcript\": \"x\"}",
+            "contentBase64": "[]"
+          }
+        ]
+      },
+      "refusedAt": null
+    },
+    {
+      "name": "first refusal in document order",
+      "value": {
+        "a": {
+          "prompt": "x"
+        },
+        "b": {
+          "secret": "y"
+        }
+      },
+      "refusedAt": "proposal.a.prompt"
+    }
+  ],
+  "localPaths": {
+    "refuse": [
+      "\"cwd\": \"C:\\\\Users\\\\kai\\\\repo\"",
+      "D:\\www\\project\\notes.md",
+      "d:/data/file",
+      "share \\\\srv01\\public\\x",
+      "\"\\\\\\\\srv01\\\\share\\\\x\"",
+      "file:///home/kai/x",
+      "file://host/share",
+      "/mnt/c/Users/kai",
+      ">/home/kai/log",
+      "</home/kai",
+      "{/Users/kai}",
+      "|/home/kai",
+      ";/home/kai",
+      "*/home/kai",
+      "/Volumes/Data/x",
+      "/var/folders/ab/T/x",
+      "see /tmp/build",
+      "/private/var/x",
+      "/root/.bashrc",
+      "\"\\/home\\/kai\\/x\"",
+      "/opt/acme/bin/tool",
+      "/opt/homebrew/bin/node",
+      "/srv/client/data",
+      "/var/www/site",
+      "cd /workspaces/acme-internal",
+      "/data/exports/x.csv",
+      "/nix/store/abc-pkg",
+      "/Applications/Tool.app/x",
+      "path:/workspace/acme",
+      "/users/kai/repo",
+      "/USERS/kai",
+      "cd /TMP",
+      "/Home/kai",
+      "//host/share/x",
+      "see //fileserver/public",
+      "smb://host/share",
+      "SMB://host/share",
+      "FILE:///etc/passwd",
+      "%2Fhome%2Fkai%2Fx",
+      "%2fsrv%2fclient%2fx",
+      "%5C%5Chost%5Cshare",
+      "C%3A%5CUsers%5Ckai",
+      "%252Fhome%252Fkai",
+      "/usr/bin/../../home/kai",
+      "/etc/../srv/x",
+      "/dev/sda1/x",
+      "/dev/null/x",
+      "-I/opt/acme/include",
+      "cc -I/home/kai/src x.c",
+      "-isystem/opt/x/include",
+      "--include=/opt/x",
+      "-L/srv/lib",
+      "vscode://file/home/kai/x.ts",
+      "vscode-insiders://file/c:/Users/kai/x",
+      "cursor://file/Users/kai/x",
+      "[x](vscode://file/srv/app/a.ts:3)",
+      "idea://open?file=/home/kai/x",
+      "zed://file/opt/acme/x",
+      "/Usuários/kai/x",
+      "/Пользователи/kai",
+      "/données/x",
+      "/usr/home/kai",
+      "/USR/HOME/kai",
+      "/usr/local/acme-internal/bin",
+      "%2Fusr%2Fhome%2Fkai",
+      "\"\\/usr\\/home\\/kai\"",
+      "/usr/local/acme/x",
+      "////////////////////////////////////////home/kai",
+      "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\srv01\\share\\x",
+      "x \\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/srv/x",
+      "chrome-extension://abc/home/kai"
+    ],
+    "allow": [
+      "#!/usr/bin/env node",
+      "https://example.com/Users/guide",
+      "src/tmp/file",
+      "./tmp/x",
+      "~/notes",
+      "docs/home/page",
+      "at 12:30 today",
+      "http://localhost:3000/api",
+      "\"\\\\n\\\\t\"",
+      "ratio a:b",
+      "/homepage and /tmpl",
+      "#!/bin/sh",
+      "/usr/local/bin/tool",
+      "/sbin/ifconfig",
+      "edit /etc/hosts",
+      "/proc/self/status",
+      "cmd 2>/dev/null",
+      "read /dev/stdin, write /dev/stdout and /dev/stderr",
+      "/USR/BIN/env",
+      "https://example.com/var/www/x?y=%2Fz",
+      "dates 12/31/2025 and 1/2",
+      "run /ak:plan now",
+      "-I/usr/include",
+      "-L/usr/local/lib",
+      "/usr/lib/node_modules/x",
+      "/usr/share/doc/x",
+      "/usr/local",
+      "/usr/local/opt/node",
+      "https://example.com/usr/home/x",
+      "vscode://ms-python.python",
+      "git+https://github.com/a/b",
+      "ssh://git@github.com/org/repo",
+      "foo-bar/-draft/x",
+      "a -b",
+      "a/b//c",
+      "////////////////////////////////////////",
+      "postgres://db.internal/app"
+    ]
+  },
+  "secrets": [
+    {
+      "parts": [
+        "password=",
+        "hunter",
+        "22"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "db_passwd: ",
+        "hunter",
+        "22"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "\"password\": \"",
+        "hunter",
+        "22",
+        "\""
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "Authorization: Bearer ",
+        "a1a1a1a1a1a1a1a1a1a1a1a1"
+      ],
+      "rules": [
+        "secret-bearer"
+      ]
+    },
+    {
+      "parts": [
+        "postgres://admin:",
+        "s3cretpw",
+        "@db.internal/x"
+      ],
+      "rules": [
+        "secret-url-credentials"
+      ]
+    },
+    {
+      "parts": [
+        "x-postgres://admin:",
+        "s3cretpw",
+        "@db.internal/x"
+      ],
+      "rules": [
+        "secret-url-credentials"
+      ]
+    },
+    {
+      "parts": [
+        "token ",
+        "eyJ",
+        "hbGciOiJIUzI1NiJ9",
+        ".eyJ",
+        "zdWIiOiIxIn0",
+        ".c2ln"
+      ],
+      "rules": [
+        "secret-jwt"
+      ]
+    },
+    {
+      "parts": [
+        "auth-",
+        "eyJ",
+        "hbGciOiJIUzI1NiJ9",
+        ".eyJ",
+        "zdWIiOiIxIn0",
+        ".c2ln"
+      ],
+      "rules": [
+        "secret-jwt"
+      ]
+    },
+    {
+      "parts": [
+        "-----BEGIN ",
+        "OPENSSH PRIVATE KEY-----"
+      ],
+      "rules": [
+        "secret-private-key"
+      ]
+    },
+    {
+      "parts": [
+        "OPENAI_API_KEY=",
+        "x9x9x9x9x9x9x9x9x9x9"
+      ],
+      "rules": [
+        "secret-dotenv"
+      ]
+    },
+    {
+      "parts": [
+        "export DB_PASSWORD=",
+        "qqqqqqqqqqqq"
+      ],
+      "rules": [
+        "secret-dotenv",
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "password: <your-password>"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "password=${PASSWORD}"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "Bearer <token>"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "https://example.com/a@b"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "API_KEY="
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "the password field"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "AUTHOR_NAME=Jonathan"
+      ],
+      "rules": []
+    }
+  ],
+  "multilinePasswords": {
+    "refuse": [
+      {
+        "parts": [
+          "db:\n  password:\n    ",
+          "hunter",
+          "22",
+          "\n"
+        ]
+      },
+      {
+        "parts": [
+          "password: |\n  ",
+          "hunter",
+          "22",
+          "\n"
+        ]
+      },
+      {
+        "parts": [
+          "password: >-\n  ",
+          "hunter",
+          "22",
+          "\n  more\n"
+        ]
+      },
+      {
+        "parts": [
+          "PASSWORD:\n\n  ",
+          "hunter",
+          "22",
+          "\n"
+        ]
+      },
+      {
+        "parts": [
+          "users:\n  - password:\n      ",
+          "hunter",
+          "22",
+          "\n"
+        ]
+      },
+      {
+        "parts": [
+          "users:\n  - name: a\n    password:\n      ",
+          "hunter",
+          "22",
+          "\n"
+        ]
+      },
+      {
+        "parts": [
+          "\"password\":\n  ",
+          "hunter",
+          "22",
+          "\n"
+        ]
+      },
+      {
+        "parts": [
+          "'db_password': |\n    ",
+          "hunter",
+          "22",
+          "\n"
+        ]
+      },
+      {
+        "parts": [
+          "  - \"password\":\n      ",
+          "hunter",
+          "22",
+          "\n"
+        ]
+      }
+    ],
+    "allow": [
+      {
+        "parts": [
+          "password: |\n  <your-password>\n"
+        ]
+      },
+      {
+        "parts": [
+          "password:\n  ${DB_PASSWORD}\n"
+        ]
+      },
+      {
+        "parts": [
+          "password:\nnext: 1\n"
+        ]
+      },
+      {
+        "parts": [
+          "password: |\n  ab\n"
+        ]
+      },
+      {
+        "parts": [
+          "- password:\n- next\n"
+        ]
+      }
+    ]
+  }
+}
