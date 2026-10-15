@@ -182,7 +182,7 @@ describe("renderLlmsFullTxt metadata", () => {
     expect(out).not.toMatch(/^# Fake heading/m);
     expect(out.match(/^```/gm)).toHaveLength(2); // only the body fence
     expect(out.match(/^- \*\*Risk:\*\*/gm)).toHaveLength(1);
-    expect(out).toContain("### \# Evil ## Injected");
+    expect(out).toContain("### \\# Evil ## Injected");
   });
 
   it("keeps the body for unknown and caution rows, omits it for danger", () => {
