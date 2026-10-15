@@ -86,18 +86,27 @@
       "refusedAt": "proposal.api_key"
     },
     {
-      "name": "dotted",
+      "name": "dotted (bracket-quoted in the path)",
       "value": {
         "api.key": "x"
       },
-      "refusedAt": "proposal.api.key"
+      "refusedAt": "proposal[\"api.key\"]"
     },
     {
       "name": "spaced title case",
       "value": {
         "Tool Calls": []
       },
-      "refusedAt": "proposal.Tool Calls"
+      "refusedAt": "proposal[\"Tool Calls\"]"
+    },
+    {
+      "name": "brackets in a key stay unambiguous",
+      "value": {
+        "a[0]": {
+          "secret": "x"
+        }
+      },
+      "refusedAt": "proposal[\"a[0]\"].secret"
     },
     {
       "name": "stem inside a longer key",
@@ -183,49 +192,77 @@
       "value": {
         "%74ranscript": "x"
       },
-      "refusedAt": "proposal.%74ranscript"
+      "refusedAt": "proposal[\"%74ranscript\"]"
     },
     {
       "name": "double percent-encoded",
       "value": {
         "%2574oken": "x"
       },
-      "refusedAt": "proposal.%2574oken"
+      "refusedAt": "proposal[\"%2574oken\"]"
+    },
+    {
+      "name": "an escape left after the last round",
+      "value": {
+        "%2525252573ession": "x"
+      },
+      "refusedAt": "proposal[\"%2525252573ession\"]"
+    },
+    {
+      "name": "a percent sign that is not an escape",
+      "value": {
+        "100%": "x"
+      },
+      "refusedAt": null
     },
     {
       "name": "fullwidth letters (NFKC)",
       "value": {
         "ｔｒａｎｓｃｒｉｐｔ": "x"
       },
-      "refusedAt": "proposal.ｔｒａｎｓｃｒｉｐｔ"
+      "refusedAt": "proposal[\"ｔｒａｎｓｃｒｉｐｔ\"]"
+    },
+    {
+      "name": "fullwidth upper case",
+      "value": {
+        "ＴＯＫＥＮ": "x"
+      },
+      "refusedAt": "proposal[\"ＴＯＫＥＮ\"]"
+    },
+    {
+      "name": "a compatibility ligature outside the fullwidth forms",
+      "value": {
+        "ﬁle": "x"
+      },
+      "refusedAt": "proposal[\"ﬁle\"]"
     },
     {
       "name": "zero-width character",
       "value": {
         "pro​mpt": "x"
       },
-      "refusedAt": "proposal.pro​mpt"
+      "refusedAt": "proposal[\"pro​mpt\"]"
     },
     {
       "name": "Cyrillic homoglyph",
       "value": {
         "рrompt": "x"
       },
-      "refusedAt": "proposal.рrompt"
+      "refusedAt": "proposal[\"рrompt\"]"
     },
     {
       "name": "any non-ASCII key",
       "value": {
         "café": "x"
       },
-      "refusedAt": "proposal.café"
+      "refusedAt": "proposal[\"café\"]"
     },
     {
-      "name": "key longer than the limit",
+      "name": "key longer than the limit (never echoed)",
       "value": {
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa": "x"
       },
-      "refusedAt": "proposal.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      "refusedAt": "proposal[…]"
     },
     {
       "name": "key at the limit",
@@ -299,10 +336,28 @@
       "refusedAt": "proposal.evidence.summary#json.token"
     },
     {
+      "name": "JSON inside a JSON string",
+      "value": {
+        "evidence": {
+          "summary": "\"{\\\"transcript\\\": \\\"x\\\"}\""
+        }
+      },
+      "refusedAt": "proposal.evidence.summary#json.transcript"
+    },
+    {
       "name": "text that is not JSON",
       "value": {
         "evidence": {
           "summary": "{not json"
+        }
+      },
+      "refusedAt": null
+    },
+    {
+      "name": "a quoted word is not JSON",
+      "value": {
+        "evidence": {
+          "summary": "\"small steps\" help"
         }
       },
       "refusedAt": null
@@ -404,7 +459,33 @@
       "////////////////////////////////////////home/kai",
       "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\srv01\\share\\x",
       "x \\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/\\/srv/x",
-      "chrome-extension://abc/home/kai"
+      "chrome-extension://abc/home/kai",
+      "/usr/src/app/config/prod.yml",
+      "/usr/src/acme-internal/.env",
+      "/proc/self/root/home/kai/.ssh/id_rsa",
+      "/proc/1/cwd/x",
+      "/proc/self/cwd",
+      "/proc/1/root",
+      "/etc/letsencrypt/live/acme-internal.com/privkey.pem",
+      "/etc/acme/app.conf",
+      "/usr/share/acme/x",
+      "/usr/share/doc/x",
+      "/usr/local/share/acme/x",
+      "/usr/local/etc/acme/x",
+      "/usr/local/opt/acme",
+      "/usr/local/opt/node",
+      "/usr/bin/%2e%2e/%2e%2e/home/kai/.ssh",
+      "/usr/bin/%252e%252e/%252e%252e/srv/x",
+      "/​home/kai",
+      "/ho‍me/kai",
+      "/Données/x",
+      "/usr/bin/⁠../../srv/x",
+      "https://x.io),/home/kai/x",
+      "https://a.b/c,/Users/kai/x",
+      "[doc](https://a.b/c]/srv/x",
+      "ssh://kai@devbox/home/kai/work",
+      "sftp://host/Users/kai/x",
+      "git+ssh://git@host/home/git/repo.git"
     ],
     "allow": [
       "#!/usr/bin/env node",
@@ -432,9 +513,8 @@
       "-I/usr/include",
       "-L/usr/local/lib",
       "/usr/lib/node_modules/x",
-      "/usr/share/doc/x",
       "/usr/local",
-      "/usr/local/opt/node",
+      "/usr/local/",
       "https://example.com/usr/home/x",
       "vscode://ms-python.python",
       "git+https://github.com/a/b",
@@ -443,7 +523,20 @@
       "a -b",
       "a/b//c",
       "////////////////////////////////////////",
-      "postgres://db.internal/app"
+      "postgres://db.internal/app",
+      "/proc/cpuinfo",
+      "/etc/ssl/certs/ca-certificates.crt",
+      "/usr/share/zoneinfo",
+      "/usr/share/doc",
+      "/dev/urandom",
+      "see /etc/hosts.",
+      "/usr/local/Cellar",
+      "/usr/local/opt",
+      "/etc/",
+      "\"\\/usr\\/bin\\/env\"",
+      "/usr/lib/x86_64-linux-gnu/libc.so.6",
+      "(https://example.com/a/b), next",
+      "/usr/bin/./env"
     ]
   },
   "secrets": [
@@ -557,9 +650,225 @@
         "qqqqqqqqqqqq"
       ],
       "rules": [
-        "secret-dotenv",
         "secret-password"
       ]
+    },
+    {
+      "parts": [
+        "SECRET_KEY_BASE=",
+        "ab12ab12ab12ab12"
+      ],
+      "rules": [
+        "secret-dotenv"
+      ]
+    },
+    {
+      "parts": [
+        "export github_token=",
+        "ab12ab12ab12ab12"
+      ],
+      "rules": [
+        "secret-dotenv"
+      ]
+    },
+    {
+      "parts": [
+        "\"dbPassword\": \"",
+        "hunter",
+        "22",
+        "\""
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "adminPassword: ",
+        "hunter",
+        "22"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "url?smtpPwd=",
+        "hunter",
+        "22"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "const dbPassword = \"",
+        "hunter",
+        "22",
+        "\";"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "spring.datasource.password=",
+        "hunter",
+        "22"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "- password: ",
+        "hunter",
+        "22"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "apiKey: ",
+        "sk",
+        "-live-",
+        "ab12ab12ab12ab12"
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "client_secret: ",
+        "ab12ab12ab12"
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "{\"accessToken\": \"",
+        "ab12ab12ab12",
+        "\"}"
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "GITHUB_TOKEN: ",
+        "ab12ab12ab12"
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "const awsSecretAccessKey = '",
+        "ab12ab12ab12ab12ab12",
+        "'"
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "let clientCredentials = ",
+        "ab12ab12ab12"
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "password: &a ",
+        "hunter",
+        "22",
+        "secret"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "password: !s ",
+        "hunter",
+        "22",
+        "secret"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "password: $",
+        "ecretP@ss"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "password: $DB_PASSWORD"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "token: ${{ secrets.GITHUB_TOKEN }}"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "apiKey: %API_KEY%"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "max_tokens: 4096"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "tokenizer: whitespace"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "secret_name: my-secret-value"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "password_file: /run/secrets/db"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "token: abc"
+      ],
+      "rules": []
     },
     {
       "parts": [
@@ -676,6 +985,28 @@
           "hunter",
           "22",
           "\n"
+        ]
+      },
+      {
+        "parts": [
+          "password: &pw\n  ",
+          "hunter",
+          "22",
+          "\n"
+        ]
+      },
+      {
+        "parts": [
+          "password: !secret |\n  ",
+          "hunter",
+          "22",
+          "\n"
+        ]
+      },
+      {
+        "parts": [
+          "password:\n  $",
+          "ecretP@ss\n"
         ]
       }
     ],

@@ -1,25 +1,46 @@
 /**
  * Text detectors for session-derived content. Absolute local paths are
- * refused by `proposal-path-detector`. Generic credentials (password
- * assignments, also a YAML `password:` key, list item or quoted key whose
- * value sits on the next lines, Bearer tokens, URLs with `user:pass@`, JWTs,
- * private key blocks and dotenv-style secret keys) complement the vendor
- * token rules of the release scanner. Detectors return rule names only,
- * never the matched text. Every pattern runs in time linear in the text
- * (bounded scheme names, one start per token or line), so hostile input
- * cannot exhaust the Worker CPU. The shared vectors are in
- * `@skillx/contracts` (`kit-proposal-policy-vectors-v1.json`).
+ * refused by `proposal-path-detector`. Generic credentials complement the
+ * vendor token rules of the release scanner:
+ * - a `key: value`, `key = value` or `"key": "value"` assignment (YAML, JSON,
+ *   code, `.env`) whose key names a password or a secret (`dbPassword`,
+ *   `client_secret`, `apiKey`, `GITHUB_TOKEN`), compared through the shared
+ *   key normalization of `@skillx/contracts`, so content rules and envelope
+ *   keys agree; a YAML password key whose value sits on the following lines;
+ * - Bearer tokens, URLs with `user:pass@`, JWTs and private key blocks.
+ * Detectors return rule names only, never the matched text. Every pattern
+ * runs in time linear in the text (bounded keys and scheme names, one start
+ * per token or line), so hostile input cannot exhaust the Worker CPU. The
+ * shared vectors are in `@skillx/contracts` (`kit-proposal-policy-vectors-v1.json`).
  */
+import { secretKeyKind } from "@skillx/contracts";
+
 export { hasLocalPath } from "./proposal-path-detector";
 
-const SECRET_KEY = /SECRET|TOKEN|PASSWORD|PASSWD|PWD|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CLIENT_?SECRET|CREDENTIALS?/;
-/** A value that is not an obvious placeholder (`<...>`, `${...}`, `$VAR`, `%VAR%`, `***`). */
-const VALUE = String.raw`["']?(?![<$%{*])[^\s"'<>]`;
-/** `KEY=value` at the start of a line; the key is tested against `SECRET_KEY` on its own. */
-const DOTENV_LINE = new RegExp(String.raw`(?:^|\n)[ \t]*(?:export[ \t]+)?([A-Za-z0-9_]+)[ \t]*=[ \t]*${VALUE}{8,}`, "g");
+/**
+ * An obvious placeholder value: `<...>`, `%VAR%`, `{...}`, `***`, `${...}` or
+ * a whole `$VAR`. Any other value, also one that starts with `$`, is real.
+ */
+const PLACEHOLDER = String.raw`(?:[<%{*]|\$\{|\$[A-Z_][A-Z0-9_]*(?![^\s"'<>]))`;
+/** An optional YAML anchor or tag before the value (`&a`, `!secret`). */
+const ANCHOR = String.raw`(?:[&!][^\s"'<>]{0,64}[ \t]+)?`;
+/** The same before a block value, where the anchor or tag may end the key line. */
+const BLOCK_ANCHOR = String.raw`(?:[&!][^\s"'<>]{0,64}[ \t]*)?`;
+/**
+ * `key <sep> value` on one line: a key of at most 128 characters, optionally
+ * quoted, at a key boundary; group 1 is the key, 2 the separator, 3 the
+ * value. A key past the 64-character policy limit counts as a secret key.
+ */
+const ASSIGNMENT = new RegExp(
+  String.raw`(?<![A-Za-z0-9_.-])["']?([A-Za-z_][A-Za-z0-9_.-]{0,127})["']?[ \t]*([:=])[ \t]*${ANCHOR}["']?(?!${PLACEHOLDER})([^\s"'<>]+)`,
+  "g",
+);
+/** A `KEY=value` (or `export KEY=value`) line start before the key at the end of this window. */
+const DOTENV_START = /(?:^|\n)[ \t]*(?:export[ \t]+)?["']?$/;
+const MIN_PASSWORD = 4;
+const MIN_SECRET = 8;
 
 const LINE_RULES: ReadonlyArray<[rule: string, re: RegExp]> = [
-  ["secret-password", new RegExp(String.raw`(?<![A-Za-z0-9])(?:password|passwd|passphrase|pwd)["']?\s*[:=]\s*${VALUE}{4,}`, "i")],
   ["secret-bearer", /\bbearer\s+[A-Za-z0-9._~+/-]{16,}=*/i],
   ["secret-url-credentials", /\b[a-z][a-z0-9+.-]{0,31}:\/\/[^\s/?#:@]+:[^\s/?#@]+@/i],
   ["secret-private-key", /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----/],
@@ -43,17 +64,35 @@ function hasJwt(text: string): boolean {
   return false;
 }
 
-function hasDotenvSecret(text: string): boolean {
-  for (const m of text.matchAll(DOTENV_LINE)) if (SECRET_KEY.test(m[1]!)) return true;
-  return false;
+/**
+ * Rules of the assignments in `text`: `secret-password` for a password key
+ * (value of 4 or more characters); for other keys, values of 8 or more
+ * characters, `secret-dotenv` on a `KEY=value` line whose key holds a
+ * password or secret stem anywhere, `secret-assignment` for any other
+ * assignment to a secret key.
+ */
+function assignmentRules(text: string, rules: Set<string>): void {
+  for (const m of text.matchAll(ASSIGNMENT)) {
+    const [, key, sep, value] = m as unknown as [string, string, string, string];
+    if (/^[0-9.]+$/.test(value)) continue;
+    const kind = secretKeyKind(key);
+    if (kind === "password") {
+      if (value.length >= MIN_PASSWORD) rules.add("secret-password");
+      continue;
+    }
+    if (value.length < MIN_SECRET) continue;
+    const dotenv = sep === "=" && DOTENV_START.test(text.slice(Math.max(0, m.index! - 80), m.index!));
+    if (dotenv && secretKeyKind(key, true) !== null) rules.add("secret-dotenv");
+    else if (kind === "secret") rules.add("secret-assignment");
+  }
 }
 
 /** Generic credential rules matched by `text`, sorted. */
 export function genericSecrets(text: string): string[] {
-  const rules = LINE_RULES.filter(([, re]) => re.test(text)).map(([rule]) => rule);
-  if (hasJwt(text)) rules.push("secret-jwt");
-  if (hasDotenvSecret(text)) rules.push("secret-dotenv");
-  return rules.sort();
+  const rules = new Set(LINE_RULES.filter(([, re]) => re.test(text)).map(([rule]) => rule));
+  if (hasJwt(text)) rules.add("secret-jwt");
+  assignmentRules(text, rules);
+  return [...rules].sort();
 }
 
 /**
@@ -62,18 +101,17 @@ export function genericSecrets(text: string): string[] {
  * plain indented block or a `|` / `>` block scalar). Group 2 is the block.
  */
 const YAML_PASSWORD_BLOCK = new RegExp(
-  String.raw`(?:^|\n)([ \t]*)(?:-[ \t]+)*["']?[A-Za-z0-9_-]*(?:password|passwd|passphrase|pwd)["']?[ \t]*:[ \t]*(?:[|>][-+0-9]*[ \t]*)?(?:#[^\n]*)?\n((?:[ \t]*\n)*\1[ \t]+\S[^\n]*(?:\n\1[ \t]+[^\n]*|\n[ \t]*(?=\n))*)`,
+  String.raw`(?:^|\n)([ \t]*)(?:-[ \t]+)*["']?[A-Za-z0-9_-]*(?:password|passwd|passphrase|pwd)["']?[ \t]*:[ \t]*${BLOCK_ANCHOR}(?:[|>][-+0-9]*[ \t]*)?(?:#[^\n]*)?\n((?:[ \t]*\n)*\1[ \t]+\S[^\n]*(?:\n\1[ \t]+[^\n]*|\n[ \t]*(?=\n))*)`,
   "gi",
 );
-/** An obvious placeholder value (`<...>`, `${...}`, `$VAR`, `%VAR%`, `***`), optionally quoted. */
-const PLACEHOLDER = /^["']?[<$%{*]/;
+const BLOCK_PLACEHOLDER = new RegExp(String.raw`^["']?${PLACEHOLDER}`);
 
 /** The password blocks of `text` that hold a real value. */
 function passwordBlocks(text: string): string[] {
   const blocks: string[] = [];
   for (const m of text.matchAll(YAML_PASSWORD_BLOCK)) {
     const value = m[2]!.trim();
-    if (value.length >= 4 && !PLACEHOLDER.test(value)) blocks.push(m[0].replace(/^\n/, ""));
+    if (value.length >= MIN_PASSWORD && !BLOCK_PLACEHOLDER.test(value)) blocks.push(m[0].replace(/^\n/, ""));
   }
   return blocks;
 }

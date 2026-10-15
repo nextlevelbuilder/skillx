@@ -1,52 +1,74 @@
 /**
- * The proposal detectors run in time linear in the text: a request body of
- * about 1 MiB built to make a backtracking pattern quadratic (long separator
- * runs, `a-a-a-...` scheme runs, `eyJ-eyJ-...`, repeated keys) must scan in
- * well under the Worker CPU limit. The bound is generous for slow runners;
- * a quadratic pattern takes minutes on these inputs.
+ * The proposal detectors run in time linear in the text. Each input is built
+ * to make a backtracking pattern quadratic (long separator runs, `a-a-a-...`
+ * scheme runs, `eyJ-eyJ-...`, repeated keys, blank lines under a YAML key)
+ * and scanned at 128 KiB and at 1 MiB: 8 times the text may cost at most 24
+ * times the time (a quadratic pattern costs 64 times), measured as the best
+ * of several runs, with a small floor so timer noise on fast inputs is not
+ * read as growth. No wall-clock bound, so a slow runner does not fail it.
  */
 import { describe, expect, it } from "vitest";
 import { genericSecrets, hasLocalPath, hasMultilinePassword } from "~/lib/personal-kits/proposal-detectors";
 
 const SIZE = 1024 * 1024;
-const fill = (unit: string) => unit.repeat(Math.ceil(SIZE / unit.length)).slice(0, SIZE);
-const BOUND_MS = 1500;
+const SMALL = SIZE / 8;
+const repeatTo = (unit: string, size: number) => unit.repeat(Math.ceil(size / unit.length)).slice(0, size);
+const fill = (unit: string) => repeatTo(unit, SIZE);
+const MAX_RATIO = 24;
+const FLOOR_MS = 5;
+const RUNS = 3;
 
-const HOSTILE: Record<string, string> = {
-  "slashes": fill("/"),
-  "backslashes": fill("\\"),
-  "JSON-escaped slashes": fill("\\/"),
-  "percent-encoded slashes": fill("%2F"),
-  "double-encoded slashes": fill("%252F"),
-  "scheme-like dashes": fill("a-"),
-  "scheme-like pluses": fill("a+"),
-  "drive-like colons": fill("a:"),
-  "JWT-like heads": fill("eyJ-"),
-  "dollar segments": fill("/usr/$"),
-  "allowed system paths": fill(" /usr/bin/x"),
-  "climbing segments": fill("/a/.."),
-  "editor links": fill("x://file"),
-  "glued flags": fill(" -I"),
-  "flag-like dashes": " -" + fill("a"),
-  "one long segment": " /" + fill("a"),
-  "non-ASCII segments": fill("/é"),
-  "UNC-like runs": fill("\\\\ab"),
-  "secret key words": fill("TOKEN"),
-  "password words": fill("password"),
-  "password assignments": fill("password: "),
-  "credential URLs": fill("x://a:"),
-  "YAML password keys": fill("password:\n"),
-  "YAML list password keys": fill("- password:\n  \n"),
-  "private key heads": fill("-----BEGIN A "),
+type Build = (size: number) => string;
+const unit = (u: string): Build => (size) => repeatTo(u, size);
+const after = (head: string, u: string): Build => (size) => head + repeatTo(u, size);
+
+const HOSTILE: Record<string, Build> = {
+  "slashes": unit("/"),
+  "backslashes": unit("\\"),
+  "JSON-escaped slashes": unit("\\/"),
+  "percent-encoded slashes": unit("%2F"),
+  "double-encoded slashes": unit("%252F"),
+  "scheme-like dashes": unit("a-"),
+  "scheme-like pluses": unit("a+"),
+  "drive-like colons": unit("a:"),
+  "JWT-like heads": unit("eyJ-"),
+  "dollar segments": unit("/usr/$"),
+  "allowed system paths": unit(" /usr/bin/x"),
+  "climbing segments": unit("/a/.."),
+  "editor links": unit("x://file"),
+  "glued flags": unit(" -I"),
+  "flag-like dashes": after(" -", "a"),
+  "one long segment": after(" /", "a"),
+  "non-ASCII segments": unit("/é"),
+  "UNC-like runs": unit("\\\\ab"),
+  "secret key words": unit("TOKEN"),
+  "password words": unit("password"),
+  "password assignments": unit("password: "),
+  "credential URLs": unit("x://a:"),
+  "YAML password keys": unit("password:\n"),
+  "YAML list password keys": unit("- password:\n  \n"),
+  "private key heads": unit("-----BEGIN A "),
+  "blank lines under a YAML password key": (size) => "password:\n" + repeatTo("   \n", size) + "x\n",
 };
 
 describe("detector cost on hostile input", () => {
-  it.each(Object.entries(HOSTILE))("scans %s in linear time", (_name, text) => {
-    const started = performance.now();
-    hasLocalPath(text);
-    genericSecrets(text);
-    hasMultilinePassword(text, text);
-    expect(performance.now() - started).toBeLessThan(BOUND_MS);
+  /** The best of `RUNS` timings of every detector on `text`. */
+  function cost(text: string): number {
+    let best = Infinity;
+    for (let i = 0; i < RUNS; i++) {
+      const started = performance.now();
+      hasLocalPath(text);
+      genericSecrets(text);
+      hasMultilinePassword(text, text);
+      best = Math.min(best, performance.now() - started);
+    }
+    return best;
+  }
+
+  it.each(Object.entries(HOSTILE))("scans %s in linear time", (_name, build) => {
+    const small = cost(build(SMALL));
+    const large = cost(build(SIZE));
+    expect(large).toBeLessThan(MAX_RATIO * Math.max(small, FLOOR_MS));
   });
 
   it("still finds a path or secret at the end of a hostile run", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import vectors from "../fixtures/kit-proposal-policy-vectors-v1.json";
-import { KIT_PROPOSAL_POLICY, KIT_PROPOSAL_POLICY_SCHEMA, findForbiddenProposalKey, isForbiddenProposalKey, normalizeProposalKey } from "./proposal-policy";
+import { KIT_PROPOSAL_POLICY, KIT_PROPOSAL_POLICY_SCHEMA, findForbiddenProposalKey, isForbiddenProposalKey, normalizeProposalKey, secretKeyKind } from "./proposal-policy";
 
 /**
  * The shared `skillx.kit-proposal-policy/v1` rules and their vectors, the
@@ -47,6 +47,21 @@ describe("forbidden key vectors", () => {
     expect(normalizeProposalKey("😀".repeat(64))).toBeNull();
   });
 
+  it("folds only fullwidth forms through NFKC and pins the Unicode version", () => {
+    expect(KIT_PROPOSAL_POLICY.forbiddenKeys.unicodeVersion).toBe("15.0");
+    expect(normalizeProposalKey("ＴＯＫＥＮ")).toBe("token");
+    // A compatibility ligature outside the fullwidth block is refused, not folded.
+    expect(normalizeProposalKey("ﬁle")).toBeNull();
+    expect(normalizeProposalKey("%2525252573ession")).toBeNull();
+    expect(normalizeProposalKey("100%")).toBe("100");
+  });
+
+  it("writes unambiguous key paths and never echoes a long key", () => {
+    expect(findForbiddenProposalKey({ "a.b": { transcript: "x" } }, 32)?.path).toBe('proposal["a.b"].transcript');
+    expect(findForbiddenProposalKey({ "a[0]": { transcript: "x" } }, 32)?.path).toBe('proposal["a[0]"].transcript');
+    expect(findForbiddenProposalKey({ ["t".repeat(65)]: "x" }, 32)?.path).toBe("proposal[…]");
+  });
+
   it("bounds the nesting, also through embedded JSON", () => {
     let deep: unknown = {};
     for (let i = 0; i < 40; i++) deep = { a: deep };
@@ -56,5 +71,25 @@ describe("forbidden key vectors", () => {
     for (let i = 0; i < 12; i++) text = JSON.stringify({ a: text });
     expect(findForbiddenProposalKey({ summary: text }, 32)).toBeNull();
     expect(findForbiddenProposalKey({ summary: text }, 8)).toMatchObject({ reason: "too_deep" });
+  });
+});
+
+describe("secret key names of the content rules", () => {
+  it("names password and secret keys in any case and separator style", () => {
+    for (const key of ["password", "dbPassword", "DB_PASSWORD", "db-passwd", "userPwd", "sshPassphrase"]) expect(secretKeyKind(key)).toBe("password");
+    for (const key of ["apiKey", "API_KEY", "clientSecret", "client_secret", "GITHUB_TOKEN", "accessToken", "awsCredentials", "privateKey"]) expect(secretKeyKind(key)).toBe("secret");
+  });
+
+  it("matches a stem at the end of the key, anywhere only on a dotenv line", () => {
+    expect(secretKeyKind("tokenizer")).toBeNull();
+    expect(secretKeyKind("passwordHint")).toBeNull();
+    expect(secretKeyKind("TOKEN_URL")).toBeNull();
+    expect(secretKeyKind("TOKEN_URL", true)).toBe("secret");
+    expect(secretKeyKind("PASSWORD_FILE", true)).toBe("password");
+  });
+
+  it("treats a key that cannot be normalized as a secret key", () => {
+    expect(secretKeyKind("pаssword")).toBe("secret");
+    expect(secretKeyKind("k".repeat(65))).toBe("secret");
   });
 });
