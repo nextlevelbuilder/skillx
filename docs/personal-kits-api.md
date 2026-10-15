@@ -159,7 +159,7 @@ Every kit has a `generation`. `GET` returns it, with an `ETag` of `"g<n>"`.
 | `POST /revisions/:id/reject` `{expectedGeneration}` | Reject a draft. Rejecting the effective revision fails with 409 `kit.revision_effective`. A session-derived proposal is refused with 403 `kit.interactive_approval_required`; it is rejected only through `POST /revisions/:id/review` in a web session. |
 | `GET /diff?from=&to=` | Read-only structural diff: changed document fields, and added, removed and changed entries with their overlay paths. |
 | `POST /preview-update` `{updates:[{package,version}], fromRevisionId?, includeForks?}` | Rebase report only. Writes nothing. |
-| `POST /rebase` `{expectedGeneration, idempotencyKey, updates, fromRevisionId?, includeForks?}` | Clean: 201, a `draft` revision with origin `rebase` (never activated). Otherwise: 200 `{status:"needs-review", conflictId, report}`. A newer conflict supersedes older open ones. |
+| `POST /rebase` `{expectedGeneration, idempotencyKey, updates, fromRevisionId?, includeForks?}` | Clean: 201, a `draft` revision with origin `rebase` (never activated implicitly). Otherwise: 200 `{status:"needs-review", conflictId, report}`. A newer conflict supersedes older open ones. |
 | `GET /conflicts`, `GET /conflicts/:id` | Conflict records: the report, the resolution and `reevalRequired`. |
 | `POST /conflicts/:id/resolve` `{expectedGeneration, idempotencyKey, approvedBy:"user", decisions, agentSuggestion?}` | The user's decision becomes a `draft` revision with origin `resolution`. |
 | `POST /activate`, `POST /rollback` `{expectedGeneration, revisionId, approval:{revisionDigest}}` | Make a revision effective. `rollback` re-activates an earlier effective revision. |
@@ -232,7 +232,10 @@ written.
 ### Activation, rollback and lock
 
 Activation requires `approval.revisionDigest` to equal the exact revision
-digest, otherwise 409 `kit.approval_required`. Before moving
+digest, otherwise 409 `kit.approval_required`. Activating (or rolling back
+to) a revision whose document is `public` needs an interactive web session,
+whatever its origin: an API key gets 403 `kit.interactive_approval_required`,
+so a kit becomes public only by a signed-in owner. Before moving
 `effective_revision_id`, it re-checks every pinned base of the lineage:
 
 - A base that is quarantined, revoked, no longer entitled or removed blocks
@@ -261,17 +264,25 @@ proposal is always private. The owner reviews it, then activates it as usual.
 Nothing activates implicitly.
 
 - **Private kits only**: a proposal for a public kit fails with 409
-  `proposal.private_kit_required` (fork it to a private kit first), and so
-  does activating a session-derived revision once the kit has become public.
-  The kit's visibility is never flipped by a proposal.
+  `proposal.private_kit_required` (fork it to a private kit first). So does
+  activating a gated revision (below) while the kit is public, or when its
+  own document is `public`: the check covers the visibility the kit would
+  have after activation, not only its current one. The kit's visibility is
+  never flipped by a proposal.
 - **A human approves**: review (approve or reject) and activation of a
   session-derived revision need an interactive web session. An API key, such
   as the one AgentKit submits with, gets 403
-  `kit.interactive_approval_required`. The proofs record `credential`. A
-  rebase or conflict-resolution draft that carries a session-derived revision
-  forward (through any chain of rebases and resolutions) inherits the same
-  gate: it activates only from a web session and only on a private kit. A
-  manual revision in the chain ends the inheritance.
+  `kit.interactive_approval_required`. The proofs record `credential`.
+- **The gate is inherited**: a revision is gated when it, or any ancestor in
+  its parent chain, is session-derived, whatever the origins in between
+  (manual, rebase, resolution). A parent that cannot be found counts as
+  gated. A gated revision activates (or is rolled back to) only from a web
+  session, only on a private kit, and only as a private document.
+  **Consequence**: once a kit has had a session-derived revision, every later
+  revision descends from it, so every later activation of that kit needs a
+  web session, and API-key activation and going public stay off for that kit
+  for good. To publish such work, start a new kit from a document without
+  that history.
 - **No chaining on unreviewed proposals**: a from-revision that is `proposed`
   (or any session-derived revision that is not `reviewed`) fails with 409
   `kit.review_required`, and an unreviewed proposal is never usable as a
@@ -317,11 +328,20 @@ verifies the result like any revision.
   messages, conversation, environment, secret or token, working directory,
   history, tool output or logs, at any depth, fails with 422
   `proposal.forbidden_field`. The message names the key path, never its value.
-  Keys are compared after percent-decoding, NFKC and lowercasing, with
-  separators removed (`Session_Log`, `api-key`, `%70assword`, full-width
-  letters). A key longer than 64 code points or with a character outside
-  printable ASCII is refused. A string that holds a JSON object or array
-  (outside `contentBase64` and `patch`) is checked as nested keys. A key with
+  A path is `proposal`, then `.key` for a key of `[A-Za-z0-9_$-]`, `["key"]`
+  (a JSON string) for any other key, so `.` and `[` in a key are never
+  ambiguous, `[index]` for an array item, `#json` for a JSON string read as
+  nested keys, and `[…]` for a key over the length limit, which is never
+  echoed. Keys are compared in this order: refused when longer than 64 code
+  points; percent-decoded up to 3 rounds (refused when an escape remains);
+  refused unless every character is printable ASCII or its fullwidth form
+  (U+FF01 to U+FF5E); NFKC (Unicode 15.0, pinned in the policy; only the
+  fullwidth forms change, so the result does not depend on the runtime's
+  Unicode version); refused unless printable ASCII; `A-Z` lowercased;
+  everything but `a-z0-9` removed (`Session_Log`, `api-key`, `%70assword`,
+  fullwidth letters). A string that holds a JSON object or array, also
+  inside JSON string layers (outside `contentBase64` and `patch`), is
+  checked as nested keys. A key with
   a numeric value (an evidence signal) is allowed. Unknown fields are refused.
   An unknown top-level body field is 400 `invalid_request`. The key lists and
   the content rules are the shared policy `skillx.kit-proposal-policy/v1` in
@@ -337,28 +357,45 @@ verifies the result like any revision.
   composition (the lines a changed file gains, a new file whole), plus the
   evidence summary as `evidence/summary.md`. Lines kept from the base are not
   scanned, so a finding already in the base never refuses a proposal.
-  - Fails with 422 `proposal.content_refused`, nothing stored: a secret
-    (vendor token formats, `password=`/`passwd:` assignments, a YAML
-    `password:` key whose new value sits on the following indented lines or in
-    a `|` / `>` block scalar, also as a list item `- password:` or a quoted
-    key `"password":`, even when the key line is kept from the base,
-    Bearer tokens, URLs with `user:pass@`, JWTs, private key blocks,
-    dotenv-style secret keys), binary content, text with a byte order mark
-    (UTF-8/16/32), and every absolute local path, matched case-insensitively
-    and also JSON-escaped (`\/`, `\\`) or percent-encoded (`%2F`, `%5C`,
-    `%3A`): any drive-letter path, UNC shares (`\\host\share` and
-    `//host/share`), `file:` and `smb:` URLs, editor links to a file
-    (`vscode://file/...`), a bare `/home`, `/Users`, `/root`, `/mnt`,
-    `/media`, `/Volumes`, `/var/folders`, `/tmp`, `/private` or `/run/user`,
-    a path glued to a flag (`-I/opt/x`, `--include=/opt/x`), and any other
-    POSIX path of two or more segments in any script (such as `/opt/...`,
-    `/srv/...`, `/var/www/...`, `/Usuários/...`). Only these system paths are
-    allowed: `/bin/`, `/sbin/`, `/etc/`, `/proc/`, the system directories of
-    `/usr/` and `/usr/local/` (`bin`, `lib`, `share`, `include` and the others
-    listed in the policy; `/usr/home` and `/usr/local/<org>` are refused),
-    `/dev/null`, `/dev/stdin`, `/dev/stdout` and `/dev/stderr` (a `..`
-    segment that climbs out of them is refused). URLs of network schemes
-    (`https://host/path`, `ssh://`, `s3://`, ...) are not local paths.
+  - Fails with 422 `proposal.content_refused`, nothing stored: a secret,
+    binary content, text with a byte order mark (UTF-8/16/32), or an
+    absolute local path.
+  - Secrets: vendor token formats; a `key: value`, `key = value` or
+    `"key": "value"` assignment (YAML, JSON, `.env`, code) whose key ends with
+    a password stem (`secret-password`: `password`, `dbPassword`,
+    `DB_PASSWD`, a value of 4 or more characters) or a secret stem
+    (`secret-assignment`: `clientSecret`, `apiKey`, `accessToken`,
+    `awsCredentials`, a value of 8 or more characters), in any case and
+    separator style, compared through the same key normalization as the
+    envelope (the stems are `content.secretKeys` in the policy); a
+    `KEY=value` line whose key holds a stem anywhere (`secret-dotenv`); a
+    YAML `password:` key whose new value sits on the following indented lines
+    or in a `|` / `>` block scalar, also as a list item `- password:`, a
+    quoted key `"password":`, or after an anchor or tag (`&pw`, `!secret`),
+    even when the key line is kept from the base; Bearer tokens, URLs with
+    `user:pass@`, JWTs and private key blocks. A YAML anchor or tag before an
+    inline value is skipped. Placeholders (`<...>`, `%VAR%`, `{...}`, `***`,
+    `${...}`, a whole `$VAR`) and numbers are not secrets; any other value,
+    also one that starts with `$`, is.
+  - Paths: every absolute local path, matched case-insensitively, after NFC
+    normalization and with invisible format characters (zero-width spaces
+    and joiners) removed, and also JSON-escaped (`\/`, `\\`) or
+    percent-encoded (`%2F`, `%5C`, `%3A`, `%2E`): any drive-letter path, UNC
+    shares (`\\host\share` and `//host/share`), `file:` and `smb:` URLs,
+    editor links to a file (`vscode://file/...`), a user home in an `ssh` or
+    `sftp` URL, a bare `/home`, `/Users`, `/root`, `/mnt`, `/media`,
+    `/Volumes`, `/var/folders`, `/tmp`, `/private` or `/run/user`, a path
+    glued to a flag (`-I/opt/x`, `--include=/opt/x`), and any other POSIX
+    path of two or more segments in any script (such as `/opt/...`,
+    `/srv/...`, `/var/www/...`, `/usr/src/...`, `/proc/self/root/...`,
+    `/Usuários/...`). Only the policy's `localPathSystemAllowlist` is allowed:
+    whole `subtrees` of binary and library directories (`/usr/bin/...`,
+    `/usr/lib/...`, `/usr/local/bin/...`), and `exact` well-known
+    directories and files, matched as a whole (`/etc/hosts`, `/proc/cpuinfo`,
+    `/dev/null`, `/usr/share/zoneinfo`; not `/usr/share/doc/x` or
+    `/usr/local/opt/x`). A `..` segment refuses the path. URLs of network
+    schemes (`https://host/path`, `s3://`, ...) are not local paths; a path
+    glued after a URL's `,`, `)` or `]` is still read.
     `error.findings` lists `danger:<rule>:<path>` codes, never the matched
     text. Every detector runs in time linear in its input, so a hostile
     request body cannot exhaust the Worker CPU.
