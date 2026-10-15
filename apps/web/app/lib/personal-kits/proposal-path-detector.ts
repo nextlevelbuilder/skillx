@@ -1,9 +1,11 @@
 /**
  * Absolute local path detector for session-derived content. Every absolute
  * local path is refused, in plain, JSON-escaped (`\/`, `\\`) and
- * percent-encoded (`%2F`, `%5C`, `%3A`, `%2E`) form, case-insensitively,
- * after NFC normalization and with invisible format characters (zero-width
- * spaces and joiners) removed: a drive-letter path, a UNC share (`\\host\share`
+ * percent-encoded (`%2F`, `%5C`, `%3A`, `%2E`, up to three rounds; an
+ * encoded separator or dot left after them refuses the text) form,
+ * case-insensitively, after NFC normalization, with Unicode slash forms
+ * (`／`, `∕`, `⁄`, `＼`) read as separators and invisible format characters
+ * (zero-width spaces and joiners) removed: a drive-letter path, a UNC share (`\\host\share`
  * or `//host/share`), a `file:` or `smb:` URL, an editor link to a file
  * (`vscode://file/...`), a user home in an `ssh`/`sftp` URL, a bare user,
  * temp, mount or volume root (`/home`, `/Users`, `/tmp`, ...), a path glued to
@@ -60,20 +62,27 @@ const SUBTREES = ALLOW.subtrees;
 
 /** A URL of a network scheme; its path is not a local path. Other schemes (`vscode:`, `chrome-extension:`) keep theirs. */
 const WEB_URL =
-  /(?<![A-Za-z0-9+.-])(?:https?|wss?|ftps?|sftp|ssh|git(?:\+(?:ssh|https?))?|svn(?:\+ssh)?|s3|gs|postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?|amqps?):(?:\\*\/){2,}[^\s"'<>`,)\]]*/gi;
+  /(?<![A-Za-z0-9+.-])(?:https?|wss?|ftps?|sftp|ssh|git(?:\+(?:ssh|https?))?|svn(?:\+ssh)?|s3|gs|postgres(?:ql)?|mysql|mongodb(?:\+srv)?|rediss?|amqps?):(?:\\*\/){2,}[^\s"'<>`,;|&{}()[\]]*/gi;
 /** A short flag glued to a path (`-I/opt/x`, `-isystem/opt/x`), after a word boundary of a command line. */
 const GLUED_FLAG = /(?<![^\s"'`=(,;[{])(-{1,2}[A-Za-z][A-Za-z0-9-]*)(?=[\\/])/g;
 
-/** Decodes percent-encoded separators, colons and dots (also double-encoded, `%252F`). */
+const DECODE_ROUNDS = 3;
+/** An encoded separator, colon or dot, also under more `%25` layers. */
+const ENCODED = /%(?:25)*(?:2f|5c|3a|2e)/i;
+
+/** Decodes `%25`, separators, colons and dots, one layer per round (`%252F` takes two). */
 function decodeSeparators(text: string): string {
   let out = text;
-  for (let i = 0; i < 3; i++) {
-    const next = out.replace(/%25(2f|5c|3a|2e)/gi, "%$1").replace(/%2f/gi, "/").replace(/%5c/gi, "\\").replace(/%3a/gi, ":").replace(/%2e/gi, ".");
+  for (let i = 0; i < DECODE_ROUNDS; i++) {
+    const next = out.replace(/%25/gi, "%").replace(/%2f/gi, "/").replace(/%5c/gi, "\\").replace(/%3a/gi, ":").replace(/%2e/gi, ".");
     if (next === out) break;
     out = next;
   }
   return out;
 }
+
+/** Fullwidth and other Unicode slash forms, read as `/` and `\`. */
+const unicodeSlashes = (text: string) => text.replace(/[\uff0f\u2215\u2044\u29f8]/g, "/").replace(/[\uff3c\u2216\u29f9]/g, "\\");
 
 /** Shortens every run of more than 8 separators to its first and last 4, which every pattern reads the same way. */
 const collapseSeparators = (text: string) => text.replace(/[\\/]{9,}/g, (run) => run.slice(0, 4) + run.slice(-4));
@@ -91,12 +100,13 @@ function allowedSystemPath(run: string): boolean {
 
 /** The text as the detector reads it: NFC, no format characters, decoded separators, collapsed runs, flags apart. */
 const prepare = (text: string) =>
-  collapseSeparators(decodeSeparators(text.replace(/\p{Cf}/gu, "").normalize("NFC"))).replace(GLUED_FLAG, "$1 ");
+  collapseSeparators(decodeSeparators(unicodeSlashes(text.replace(/\p{Cf}/gu, "").normalize("NFC")))).replace(GLUED_FLAG, "$1 ");
 
 /** True when `text` names an absolute local path. */
 export function hasLocalPath(text: string): boolean {
   const decoded = prepare(text);
-  if (LOCAL_PATHS.some((re) => re.test(decoded))) return true;
+  // Still encoded after the last round: the path cannot be read, so it is refused.
+  if (ENCODED.test(decoded) || LOCAL_PATHS.some((re) => re.test(decoded))) return true;
   const plain = decoded.replace(WEB_URL, " ");
   let runEnd = -1;
   for (const m of plain.matchAll(POSIX_PATH)) {

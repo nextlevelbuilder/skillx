@@ -80,7 +80,7 @@
       "secret-url-credentials"
     ],
     "secretKeys": {
-      "description": "Keys of key: value, key = value and \"key\": value assignments in file content, normalized like forbiddenKeys. A key names a password (secret-password, value of 4 or more characters) or a secret (secret-assignment, 8 or more) when its normalized form ends with a stem. On a KEY=value line (optionally after export) a key that is not a password key and holds any stem anywhere is secret-dotenv instead (8 or more). A key that cannot be normalized names a secret. Placeholder values (<...>, %VAR%, {...}, ***, ${...}, a whole $VAR) and plain numbers are not secrets.",
+      "description": "Keys of key: value, key = value and \"key\": value assignments in file content, normalized like forbiddenKeys. A key names a password (secret-password, value of 4 or more characters) or a secret (secret-assignment, 8 or more) when its normalized form holds a stem followed by at most two qualifiers (or by nothing): secretkeybase, apikeyprod, privatekeyid and clientsecretv2 are secret keys, secretname and tokenizer are not. A qualifier is one of qualifiers, or a number with an optional v. Separators are :, =, := and =>. On a KEY=value line (optionally after export) a key that is not a password key and holds any stem anywhere is secret-dotenv instead (8 or more). A key that cannot be normalized names a secret. Placeholder values (<...>, %VAR%, {...}, ***, ${...}, a whole $VAR) and plain numbers are not secrets.",
       "password": [
         "passphrase",
         "passwd",
@@ -96,6 +96,19 @@
         "secret",
         "secretkey",
         "token"
+      ],
+      "qualifiers": [
+        "base",
+        "dev",
+        "hash",
+        "id",
+        "key",
+        "live",
+        "old",
+        "prod",
+        "staging",
+        "test",
+        "value"
       ]
     },
     "localPathSystemAllowlist": {

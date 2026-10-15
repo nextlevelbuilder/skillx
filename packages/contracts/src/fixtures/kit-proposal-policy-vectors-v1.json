@@ -485,7 +485,18 @@
       "[doc](https://a.b/c]/srv/x",
       "ssh://kai@devbox/home/kai/work",
       "sftp://host/Users/kai/x",
-      "git+ssh://git@host/home/git/repo.git"
+      "git+ssh://git@host/home/git/repo.git",
+      "／home／kai／.ssh",
+      "∕srv∕acme∕x",
+      "⁄opt⁄acme⁄x",
+      "C:＼Users＼kai",
+      "/usr/bin/%25252e%25252e/home/kai/.ssh",
+      "/usr/bin/%2525252e%2525252e/srv/x",
+      "https://x.io;/srv/acme-internal/x",
+      "https://x.io|/opt/acme/secret.yml",
+      "https://x.io}/srv/x/y",
+      "https://x.io?a=1&b=/srv/acme/x",
+      "https://x.io{/opt/acme/x"
     ],
     "allow": [
       "#!/usr/bin/env node",
@@ -793,6 +804,156 @@
     },
     {
       "parts": [
+        "Server=db;User Id=sa;Password=",
+        "hunter",
+        "22",
+        "!;"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "https://api.x/login?user=kai&password=",
+        "hunter",
+        "22"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "a=1,password=",
+        "hunter",
+        "22"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "mysql -u root --password=",
+        "hunter",
+        "22"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "--client-secret=",
+        "ab12ab12ab12"
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "curl --api-key=",
+        "ab12ab12ab12"
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "secret_key_base: ",
+        "ab12ab12ab12ab12ab12ab12ab12ab12"
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "api_key_prod: ",
+        "ab12ab12ab12"
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "\"private_key_id\": \"",
+        "ab12ab12ab12ab12ab12",
+        "\""
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "client_secret_v2: ",
+        "ab12ab12ab12"
+      ],
+      "rules": [
+        "secret-assignment"
+      ]
+    },
+    {
+      "parts": [
+        "passwordValue: ",
+        "hunter",
+        "22"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "password := \"",
+        "hunter",
+        "22",
+        "\""
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "'password' => '",
+        "hunter",
+        "22",
+        "'"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "cfg[\"password\"] = \"",
+        "hunter",
+        "22",
+        "\""
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
+        "password: &a !s ",
+        "hunter",
+        "22",
+        "secret"
+      ],
+      "rules": [
+        "secret-password"
+      ]
+    },
+    {
+      "parts": [
         "password: &a ",
         "hunter",
         "22",
@@ -909,6 +1070,54 @@
     {
       "parts": [
         "AUTHOR_NAME=Jonathan"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "secretName: db-credentials-ref"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "tokenizerName: cl100k_base_x"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "passwordless: enabled"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "passwordPolicy: strict-mode"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "token_count: many-many"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "--password-file=secrets.txt"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "secretsManager: aws-secrets"
+      ],
+      "rules": []
+    },
+    {
+      "parts": [
+        "a=a=a=a=a=a=a=a"
       ],
       "rules": []
     }

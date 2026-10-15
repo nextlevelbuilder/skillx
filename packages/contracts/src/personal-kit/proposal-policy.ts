@@ -48,20 +48,25 @@ export function isForbiddenProposalKey(key: string): boolean {
 }
 
 const SECRET_KEYS = policy.content.secretKeys;
-const endsWithAny = (key: string, stems: string[]) => stems.some((stem) => key.endsWith(stem));
+/** A stem followed by at most two qualifiers (`base`, `prod`, `id`, `v2`, ...) at the end of a normalized key. */
+const stemAtEnd = (stems: string[]) => new RegExp(`(?:${stems.join("|")})(?:${SECRET_KEYS.qualifiers.join("|")}|v?[0-9]+){0,2}$`);
+const PASSWORD_KEY = stemAtEnd(SECRET_KEYS.password);
+const SECRET_KEY = stemAtEnd(SECRET_KEYS.secret);
 
 /**
  * What a key in file content (`key: value`, `key = value`, `"key": value`)
- * names: `"password"` or `"secret"` when its normalized form ends with one of
- * the policy stems, `null` otherwise. `dotenv` (a `KEY=value` line) matches a
- * stem anywhere in the key. A key that cannot be normalized names a secret.
+ * names: `"password"` or `"secret"` when its normalized form holds one of the
+ * policy stems followed by nothing or by at most two qualifiers
+ * (`secret_key_base`, `api_key_prod`, `private_key_id`), `null` otherwise
+ * (`secretName`, `tokenizer`). `dotenv` (a `KEY=value` line) matches a stem
+ * anywhere in the key. A key that cannot be normalized names a secret.
  */
 export function secretKeyKind(key: string, dotenv = false): "password" | "secret" | null {
   const normal = normalizeProposalKey(key);
   if (normal === null) return "secret";
-  const has = dotenv ? (stems: string[]) => stems.some((s) => normal.includes(s)) : (stems: string[]) => endsWithAny(normal, stems);
-  if (has(SECRET_KEYS.password)) return "password";
-  return has(SECRET_KEYS.secret) ? "secret" : null;
+  const names = (stems: string[], atEnd: RegExp) => (dotenv ? stems.some((s) => normal.includes(s)) : atEnd.test(normal));
+  if (names(SECRET_KEYS.password, PASSWORD_KEY)) return "password";
+  return names(SECRET_KEYS.secret, SECRET_KEY) ? "secret" : null;
 }
 
 export type ProposalKeyFinding = { reason: "forbidden"; path: string } | { reason: "too_deep"; path: string };

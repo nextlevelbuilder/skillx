@@ -88,6 +88,11 @@ describe("secret key names of the content rules", () => {
     expect(secretKeyKind("PASSWORD_FILE", true)).toBe("password");
   });
 
+  it("allows at most two qualifiers after a stem", () => {
+    for (const key of ["secret_key_base", "api_key_prod", "private_key_id", "client_secret_v2", "passwordValue", "API_KEY_PROD_V2"]) expect(secretKeyKind(key)).not.toBeNull();
+    for (const key of ["secretName", "secretsManager", "passwordless", "passwordPolicy", "token_count", "api_key_prod_v2_old"]) expect(secretKeyKind(key)).toBeNull();
+  });
+
   it("treats a key that cannot be normalized as a secret key", () => {
     expect(secretKeyKind("pаssword")).toBe("secret");
     expect(secretKeyKind("k".repeat(65))).toBe("secret");

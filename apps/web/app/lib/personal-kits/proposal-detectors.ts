@@ -22,17 +22,21 @@ export { hasLocalPath } from "./proposal-path-detector";
  * a whole `$VAR`. Any other value, also one that starts with `$`, is real.
  */
 const PLACEHOLDER = String.raw`(?:[<%{*]|\$\{|\$[A-Z_][A-Z0-9_]*(?![^\s"'<>]))`;
-/** An optional YAML anchor or tag before the value (`&a`, `!secret`). */
-const ANCHOR = String.raw`(?:[&!][^\s"'<>]{0,64}[ \t]+)?`;
-/** The same before a block value, where the anchor or tag may end the key line. */
-const BLOCK_ANCHOR = String.raw`(?:[&!][^\s"'<>]{0,64}[ \t]*)?`;
+/** Up to two YAML anchors or tags before the value (`&a`, `!secret`, `&a !s`). */
+const ANCHOR = String.raw`(?:[&!][^\s"'<>]{0,64}[ \t]+){0,2}`;
+/** The same before a block value, where an anchor or tag may end the key line. */
+const BLOCK_ANCHOR = String.raw`(?:[&!][^\s"'<>]{0,64}[ \t]*){0,2}`;
 /**
- * `key <sep> value` on one line: a key of at most 128 characters, optionally
- * quoted, at a key boundary; group 1 is the key, 2 the separator, 3 the
- * value. A key past the 64-character policy limit counts as a secret key.
+ * `key <sep> value` on one line (`:`, `=`, `:=`, `=>`): a key of at most 128
+ * characters, optionally quoted or in brackets (`cfg["password"]`), at a key
+ * boundary (also after `--` of a flag); group 1 is the key, 2 the separator,
+ * 3 the value. The value (at most 256 characters) is read in a lookahead, so
+ * the scan resumes right after the separator and finds a key inside a value
+ * (`Server=db;Password=...`, `?user=a&password=...`), and each start reads a
+ * bounded window. A key past the 64-character policy limit counts as a secret key.
  */
 const ASSIGNMENT = new RegExp(
-  String.raw`(?<![A-Za-z0-9_.-])["']?([A-Za-z_][A-Za-z0-9_.-]{0,127})["']?[ \t]*([:=])[ \t]*${ANCHOR}["']?(?!${PLACEHOLDER})([^\s"'<>]+)`,
+  String.raw`(?<![A-Za-z0-9_.])["']?([A-Za-z_][A-Za-z0-9_.-]{0,127})["']?\]?[ \t]*(:=|=>|[:=])[ \t]*${ANCHOR}["']?(?=(?!${PLACEHOLDER})([^\s"'<>]{1,256}))`,
   "g",
 );
 /** A `KEY=value` (or `export KEY=value`) line start before the key at the end of this window. */
