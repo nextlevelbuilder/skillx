@@ -7,10 +7,14 @@
  *
  * Raw session data is never accepted: a key that names a transcript,
  * prompt, message list, environment, secret, working directory or history
- * anywhere in the proposal is refused with `proposal.forbidden_field`
- * naming the key path, never its value. Unknown fields are refused too.
+ * anywhere in the proposal (in any case, separator or encoding, also inside
+ * a string that holds JSON) is refused with `proposal.forbidden_field`
+ * naming the key path, never its value; so is a key that cannot be checked
+ * (non-ASCII or overlong). The rules are the shared, versioned
+ * `skillx.kit-proposal-policy/v1` that AgentKit applies before upload.
+ * Unknown fields are refused too.
  */
-import { validateOverlay } from "@skillx/contracts";
+import { findForbiddenProposalKey, validateOverlay } from "@skillx/contracts";
 import type { KitSkillEntry, SkillOverlay } from "@skillx/contracts";
 import { releaseError } from "~/lib/releases/release-http";
 import { MAX_JSON_DEPTH, requireId } from "./kit-http";
@@ -25,29 +29,20 @@ export interface KitProposal {
   evidence: { summary: string; signals: Record<string, number> } | null;
 }
 
-const FORBIDDEN_KEYS = new Set([
-  "transcript", "transcripts", "session", "sessions", "sessionid", "sessionlog", "prompt", "prompts", "systemprompt",
-  "messages", "conversation", "chat", "env", "environment", "envvars", "secret", "secrets", "token", "tokens", "apikey",
-  "credentials", "password", "cwd", "workdir", "homedir", "history", "toolcalls", "tooloutput", "stdout", "stderr", "logs", "raw",
-]);
-
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
 export const proposalError = (code: string, message: string) => releaseError(422, code, message);
 const invalid = (message: string) => proposalError("proposal.invalid", message);
 
-/** Refuses raw session data by key name at any depth; reports the key path only. */
-export function assertNoForbiddenKeys(value: unknown, at = "proposal", depth = 0): void {
-  if (typeof value === "object" && value !== null && depth >= MAX_JSON_DEPTH) throw invalid(`${at} nests deeper than ${MAX_JSON_DEPTH} levels`);
-  if (Array.isArray(value)) return value.forEach((v, i) => assertNoForbiddenKeys(v, `${at}[${i}]`, depth + 1));
-  if (!isRecord(value)) return;
-  for (const [key, child] of Object.entries(value)) {
-    const path = `${at}.${key}`;
-    // A number (an evidence signal such as `sessions: 3`) cannot carry session content.
-    if (typeof child !== "number" && FORBIDDEN_KEYS.has(key.toLowerCase().replace(/[-_]/g, ""))) {
-      throw proposalError("proposal.forbidden_field", `${path} is not accepted: proposals carry reviewed overlays only, never raw session data`);
-    }
-    assertNoForbiddenKeys(child, path, depth + 1);
-  }
+/**
+ * Refuses raw session data by key name at any depth, with the shared
+ * `skillx.kit-proposal-policy/v1` rules (see `@skillx/contracts`); reports
+ * the key path only.
+ */
+export function assertNoForbiddenKeys(value: unknown): void {
+  const found = findForbiddenProposalKey(value, MAX_JSON_DEPTH);
+  if (found === null) return;
+  if (found.reason === "too_deep") throw invalid(`${found.path} nests deeper than ${MAX_JSON_DEPTH} levels`);
+  throw proposalError("proposal.forbidden_field", `${found.path} is not accepted: proposals carry reviewed overlays only, never raw session data`);
 }
 
 function only(raw: Record<string, unknown>, at: string, fields: string[]): void {

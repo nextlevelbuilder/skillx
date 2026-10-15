@@ -90,7 +90,10 @@ without an explicit user approval.
   `ak:` (any case) is always shared, whether or not
   `SKILLX_SHARED_SKILL_ALIASES` is set. That variable (comma or whitespace
   separated identities) adds further shared skills to this default. Other
-  `@agentkit/*` skills may be overlaid.
+  `@agentkit/*` skills may be overlaid. AgentKit kit composition owns the
+  canonical list: the non-`ak-` skills that `kits/core` or more than one
+  official kit ships. Operators set the variable from that list; SkillX never
+  derives it.
 - A fork alias that starts with `ak-` or `ak:` is refused with 422
   `identity.reserved_alias` (AgentKit code).
 - Kit names, identities and fork identities pass the full identity rules
@@ -264,7 +267,11 @@ Nothing activates implicitly.
 - **A human approves**: review (approve or reject) and activation of a
   session-derived revision need an interactive web session. An API key, such
   as the one AgentKit submits with, gets 403
-  `kit.interactive_approval_required`. The proofs record `credential`.
+  `kit.interactive_approval_required`. The proofs record `credential`. A
+  rebase or conflict-resolution draft that carries a session-derived revision
+  forward (through any chain of rebases and resolutions) inherits the same
+  gate: it activates only from a web session and only on a private kit. A
+  manual revision in the chain ends the inheritance.
 - **No chaining on unreviewed proposals**: a from-revision that is `proposed`
   (or any session-derived revision that is not `reviewed`) fails with 409
   `kit.review_required`, and an unreviewed proposal is never usable as a
@@ -310,8 +317,17 @@ verifies the result like any revision.
   messages, conversation, environment, secret or token, working directory,
   history, tool output or logs, at any depth, fails with 422
   `proposal.forbidden_field`. The message names the key path, never its value.
-  A key with a numeric value (an evidence signal) is allowed. Unknown fields
-  are refused. An unknown top-level body field is 400 `invalid_request`.
+  Keys are compared after percent-decoding, NFKC and lowercasing, with
+  separators removed (`Session_Log`, `api-key`, `%70assword`, full-width
+  letters). A key longer than 64 code points or with a character outside
+  printable ASCII is refused. A string that holds a JSON object or array
+  (outside `contentBase64` and `patch`) is checked as nested keys. A key with
+  a numeric value (an evidence signal) is allowed. Unknown fields are refused.
+  An unknown top-level body field is 400 `invalid_request`. The key lists and
+  the content rules are the shared policy `skillx.kit-proposal-policy/v1` in
+  `packages/contracts/src/fixtures/kit-proposal-policy-v1.json`; AgentKit
+  applies the same file before upload, and both sides test against
+  `kit-proposal-policy-vectors-v1.json` next to it.
 - **Visibility**: anything but `"private"` fails with 422
   `proposal.private_only`.
 - **Evidence**: optional. `summary` is at most 2048 UTF-8 bytes
@@ -324,21 +340,28 @@ verifies the result like any revision.
   - Fails with 422 `proposal.content_refused`, nothing stored: a secret
     (vendor token formats, `password=`/`passwd:` assignments, a YAML
     `password:` key whose new value sits on the following indented lines or in
-    a `|` / `>` block scalar, even when the key line is kept from the base,
+    a `|` / `>` block scalar, also as a list item `- password:` or a quoted
+    key `"password":`, even when the key line is kept from the base,
     Bearer tokens, URLs with `user:pass@`, JWTs, private key blocks,
     dotenv-style secret keys), binary content, text with a byte order mark
     (UTF-8/16/32), and every absolute local path, matched case-insensitively
     and also JSON-escaped (`\/`, `\\`) or percent-encoded (`%2F`, `%5C`,
     `%3A`): any drive-letter path, UNC shares (`\\host\share` and
-    `//host/share`), `file:` and `smb:` URLs, a bare `/home`, `/Users`,
-    `/root`, `/mnt`, `/media`, `/Volumes`, `/var/folders`, `/tmp`, `/private`
-    or `/run/user`, and any other POSIX path of two or more segments (such as
-    `/opt/...`, `/srv/...`, `/var/www/...`, `/workspaces/...`). Only these
-    system paths are allowed: `/usr/`, `/bin/`, `/sbin/`, `/etc/`, `/proc/`,
-    `/dev/null`, `/dev/stdin`, `/dev/stdout` and `/dev/stderr` (a `..` segment
-    that climbs out of them is refused). Web URLs (`https://host/path`) are not
-    local paths. `error.findings` lists `danger:<rule>:<path>` codes, never
-    the matched text.
+    `//host/share`), `file:` and `smb:` URLs, editor links to a file
+    (`vscode://file/...`), a bare `/home`, `/Users`, `/root`, `/mnt`,
+    `/media`, `/Volumes`, `/var/folders`, `/tmp`, `/private` or `/run/user`,
+    a path glued to a flag (`-I/opt/x`, `--include=/opt/x`), and any other
+    POSIX path of two or more segments in any script (such as `/opt/...`,
+    `/srv/...`, `/var/www/...`, `/Usuários/...`). Only these system paths are
+    allowed: `/bin/`, `/sbin/`, `/etc/`, `/proc/`, the system directories of
+    `/usr/` and `/usr/local/` (`bin`, `lib`, `share`, `include` and the others
+    listed in the policy; `/usr/home` and `/usr/local/<org>` are refused),
+    `/dev/null`, `/dev/stdin`, `/dev/stdout` and `/dev/stderr` (a `..`
+    segment that climbs out of them is refused). URLs of network schemes
+    (`https://host/path`, `ssh://`, `s3://`, ...) are not local paths.
+    `error.findings` lists `danger:<rule>:<path>` codes, never the matched
+    text. Every detector runs in time linear in its input, so a hostile
+    request body cannot exhaust the Worker CPU.
   - Any other `danger` finding, such as prompt injection or a
     `javascript:` URL, stores the proposal as `quarantined`. A quarantined
     proposal cannot be reviewed or activated.
