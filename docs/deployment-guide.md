@@ -175,6 +175,33 @@ wrangler d1 migrations apply skillx-db --remote
 wrangler d1 execute skillx-db --remote --command "SELECT COUNT(*) FROM skills"
 ```
 
+#### `skills.compatibility_json` (migration `0010_greedy_famine.sql`)
+
+The nullable `skills.compatibility_json` column (a listing's publisher-declared
+runtime map, read by `/api/mcp`, `/skills/<slug>.md`, `/llms*.txt` and the
+`compatible` search filter) is created by `drizzle/migrations/0010_greedy_famine.sql`.
+The file sorts between `0009` and `0010_sour_runaways` but is the newest entry
+(`idx` 17) in `meta/_journal.json`; it depends only on `0000`.
+
+The name is deliberate. Production D1 already has the column and already records
+`0010_greedy_famine.sql` in `d1_migrations` (applied 2026-09-22 from an earlier
+branch). `wrangler d1 migrations apply` decides what is pending by file name, so:
+
+- production: nothing to apply and no manual step; `migrations list --remote`
+  shows no pending entry for it. Do not rename the file — a new name would be
+  re-applied and fail with `duplicate column name: compatibility_json`;
+- a fresh or local database applies it with the rest of the chain.
+
+Check before a deploy that relies on it (read-only):
+
+```bash
+wrangler d1 execute skillx-db --remote --command "PRAGMA table_info(skills)"
+wrangler d1 migrations list skillx-db --remote
+```
+
+Nothing writes the column yet; it is `NULL` (compatibility `unknown`) until a
+publisher write path exists.
+
 #### Seed Production Data
 
 ```bash

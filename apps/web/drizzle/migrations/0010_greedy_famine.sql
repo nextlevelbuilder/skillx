@@ -1,0 +1,1 @@
+ALTER TABLE `skills` ADD `compatibility_json` text;

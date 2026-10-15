@@ -120,6 +120,13 @@
       "when": 1791994326116,
       "tag": "0016_personal_kit_proposals",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "6",
+      "when": 1792066514896,
+      "tag": "0010_greedy_famine",
+      "breakpoints": true
     }
   ]
 }

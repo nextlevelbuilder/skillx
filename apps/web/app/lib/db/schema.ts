@@ -33,6 +33,9 @@ export const skills = sqliteTable(
     downvote_count: integer("downvote_count").default(0),
     net_votes: integer("net_votes").default(0),
     scripts: text("scripts"), // JSON: [{name, command, url}]
+    // JSON: publisher-declared runtime compatibility map. A listing has no artifact
+    // digest, so a declaration here can reach `declared` but never `verified`.
+    compatibility_json: text("compatibility_json"),
     fts_content: text("fts_content"), // Computed: content + ref titles (for FTS5)
     risk_label: text("risk_label").default("unknown"),
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
