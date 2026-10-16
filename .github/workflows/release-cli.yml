@@ -25,6 +25,11 @@ jobs:
     needs: release-please
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
+    # npm trusted publishing: the registry exchanges this job's OIDC token for
+    # a short-lived publish credential, so no long-lived NPM_TOKEN is needed.
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -34,6 +39,10 @@ jobs:
         with:
           node-version: 22
           registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs npm 11.5.1 or newer; Node 22 bundles npm 10.
+      - name: Upgrade npm
+        run: npm install -g npm@11
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -51,7 +60,10 @@ jobs:
       - name: Test built CLI
         run: pnpm exec vitest run packages/cli/src/built-cli.test.ts
 
+      # pnpm pack rewrites workspace: ranges; npm publish then authenticates
+      # through OIDC and attaches provenance automatically.
       - name: Publish to NPM
-        run: pnpm --filter skillx-sh publish --no-git-checks --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        working-directory: packages/cli
+        run: |
+          pnpm pack --pack-destination "$RUNNER_TEMP"
+          npm publish "$RUNNER_TEMP"/skillx-sh-*.tgz --access public
