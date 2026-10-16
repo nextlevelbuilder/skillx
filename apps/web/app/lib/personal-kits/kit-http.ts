@@ -86,6 +86,25 @@ export function requireGeneration(raw: unknown): number {
   return raw;
 }
 
+/** `If-Match: "g<n>"` (the kit's ETag), `"<n>"` or `<n>`. */
+const IF_MATCH = /^(?:"g?(\d{1,15})"|(\d{1,15}))$/;
+
+/**
+ * The expected generation of a write, from `If-Match` or the body's
+ * `expectedGeneration` (kept for compatibility). Both may be sent only when
+ * they agree. A stale generation is 412 when it came with `If-Match` (see
+ * `serveKit`), 409 `kit.generation_conflict` otherwise.
+ */
+export function withIfMatch(request: Request, body: Record<string, unknown>): Record<string, unknown> {
+  const raw = request.headers.get("If-Match");
+  if (raw === null) return body;
+  const m = IF_MATCH.exec(raw.trim());
+  if (m === null) throw badRequest('If-Match must be one kit generation, as its ETag "g<n>" or <n>');
+  const generation = Number(m[1] ?? m[2]);
+  if (body.expectedGeneration !== undefined && body.expectedGeneration !== generation) throw badRequest("If-Match and expectedGeneration name different generations");
+  return { ...body, expectedGeneration: generation };
+}
+
 const IDEMPOTENCY = /^[A-Za-z0-9._:-]{8,128}$/;
 export function requireIdempotencyKey(raw: unknown): string {
   if (typeof raw !== "string" || !IDEMPOTENCY.test(raw)) throw badRequest("idempotencyKey must be 8 to 128 characters of [A-Za-z0-9._:-]");
@@ -160,6 +179,9 @@ export async function serveKit(
     if (error instanceof PersonalKitError) return errorResponse(contractError(error));
     if (error instanceof DetailedKitError) {
       return json({ error: { code: error.code, message: error.message, ...error.details } }, error.status);
+    }
+    if (error instanceof ReleaseHttpError && error.code === "kit.generation_conflict" && request.headers.has("If-Match")) {
+      return errorResponse(releaseError(412, error.code, error.message));
     }
     if (error instanceof ReleaseHttpError) {
       const retry = (error as { retryAfter?: number }).retryAfter;

@@ -3,7 +3,7 @@
  * GETs are reads; POSTs are writes (write limiter, fail closed). An unknown
  * sub-path is the JSON 404; a known path with the wrong method is 405.
  */
-import { json, parseKitName, readKitBody, requireGeneration, requireId, requireIdempotencyKey, serveKit } from "./kit-http";
+import { json, parseKitName, readKitBody, requireGeneration, requireId, requireIdempotencyKey, serveKit, withIfMatch } from "./kit-http";
 import type { KitCaller, KitEnv } from "./kit-http";
 import { readConflict, readConflicts, resolveConflict } from "./kit-conflicts";
 import { activateRevision, readLock, rejectRevision } from "./kit-lifecycle";
@@ -23,7 +23,11 @@ interface RouteDef {
   admin?: true;
 }
 
-const body = (c: KitCaller, fields: string[]) => readKitBody(c.request, fields);
+/** The request body; on a generation-guarded write, `If-Match` supplies or confirms `expectedGeneration`. */
+const body = async (c: KitCaller, fields: string[]) => {
+  const raw = await readKitBody(c.request, fields);
+  return fields.includes("expectedGeneration") ? withIfMatch(c.request, raw) : raw;
+};
 const query = (c: KitCaller, name: string) => new URL(c.request.url).searchParams.get(name);
 
 const ROUTES: RouteDef[] = [
