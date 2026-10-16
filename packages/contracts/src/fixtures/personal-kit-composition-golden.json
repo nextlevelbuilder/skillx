@@ -1,0 +1,83 @@
+{
+  "description": "skillx.personal-kit/v1 document with the optional composition (AgentKit extends, include and resolution records). The composition is part of the canonical JSON, so it is part of revisionDigest; the same document without it keeps the digest of personal-kit-golden.json.",
+  "document": {
+    "schema": "skillx.personal-kit/v1",
+    "kit": "@alpha/my-kit",
+    "localId": "local/my-kit",
+    "visibility": "private",
+    "skills": [
+      {
+        "identity": "@alpha/demo",
+        "mode": "override",
+        "base": {
+          "package": "@alpha/demo",
+          "version": "1.0.0",
+          "releaseDigest": "sha256:ae50cd6e75cafa22f9159941ca54df9e367f8b78120776af31eb32ca54d4891e"
+        },
+        "overlay": {
+          "schema": "agentkit.skill-overlay/v1",
+          "baseTreeDigest": "sha256:ae50cd6e75cafa22f9159941ca54df9e367f8b78120776af31eb32ca54d4891e",
+          "ops": [
+            {
+              "op": "patch",
+              "path": "SKILL.md",
+              "expectSha256": "9217ecd6d4a97f5905dfdfc65f9adb76ede2edbf81b4e3d032dfb82924c88fb8",
+              "patch": "@@ -5,5 +5,5 @@\n ---\n # Demo\n one\n-two\n+two (mine)\n three\n"
+            },
+            {
+              "op": "add",
+              "path": "notes.md",
+              "contentBase64": "bXkgbm90ZXMK"
+            },
+            {
+              "op": "delete",
+              "path": "references/guide.md",
+              "expectSha256": "03f7c4651afebc005736e55d23fd22574ed332a34e54f74a4ad8aeef384aeef5"
+            }
+          ]
+        },
+        "compositionDigest": "sha256:69d62891c257dee43830c4ea37e826d232e439dfe856473b3be55bc38537056b"
+      }
+    ],
+    "exclude": [],
+    "runtimes": {},
+    "composition": {
+      "extends": [
+        {
+          "kit": "engineer",
+          "version": "3.1.0"
+        },
+        {
+          "skillx": "@alpha/foundation",
+          "version": "1.0.0",
+          "releaseDigest": "sha256:1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "include": [
+        "@alpha/demo"
+      ],
+      "resolutions": [
+        {
+          "identity": "@alpha/demo",
+          "path": "SKILL.md",
+          "category": "conflict.same_hunk",
+          "baseFrom": "sha256:2222222222222222222222222222222222222222222222222222222222222222",
+          "baseTo": "absent",
+          "baseTreeFrom": "sha256:ae50cd6e75cafa22f9159941ca54df9e367f8b78120776af31eb32ca54d4891e",
+          "baseTreeTo": "sha256:3333333333333333333333333333333333333333333333333333333333333333",
+          "choice": "keep-old",
+          "overlayDigestAfter": "sha256:4444444444444444444444444444444444444444444444444444444444444444",
+          "kit": "engineer",
+          "fromVersion": "3.0.0",
+          "toVersion": "3.1.0",
+          "planToken": "plan-0123456789abcdef",
+          "approvedBy": "user"
+        }
+      ]
+    }
+  },
+  "expected": {
+    "revisionDigest": "sha256:212249165bebd186d44ae930bbaaed2a2c0d607f7362084d942ba540488bb4a4",
+    "withoutCompositionDigest": "sha256:c1411cc295cd403a18c46a238bd74706caccf50c445722bb7f65009bb30cfd1a"
+  }
+}

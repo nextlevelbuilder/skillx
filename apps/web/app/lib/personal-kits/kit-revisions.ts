@@ -45,6 +45,13 @@ export interface StoreRequest {
   action?: string;
 }
 
+/**
+ * A server-built revision (rebase, conflict resolution) moves pins the
+ * client's composition records describe, so it never carries them over; the
+ * client re-attaches fresh records in its next manual revision.
+ */
+export const withoutComposition = ({ composition, ...doc }: PersonalKitDocument): PersonalKitDocument => doc;
+
 export const generationConflict = () => conflict("kit.generation_conflict", "the kit changed; reload it and retry with its current generation");
 
 export function kitView(kit: KitRow, effective: RevisionRow | null, openConflicts: number) {
@@ -153,7 +160,7 @@ export async function readDiff(caller: KitCaller, kitName: string, fromId: strin
   const b = JSON.parse(to.document_json) as PersonalKitDocument;
   const byId = (d: PersonalKitDocument) => new Map(d.skills.map((s) => [s.identity, s]));
   const [x, y] = [byId(a), byId(b)];
-  const top = (["visibility", "parent", "exclude", "profile", "runtimes"] as const).filter((k) => canonicalJson(a[k] ?? null) !== canonicalJson(b[k] ?? null));
+  const top = (["visibility", "parent", "exclude", "profile", "runtimes", "composition"] as const).filter((k) => canonicalJson(a[k] ?? null) !== canonicalJson(b[k] ?? null));
   return json({
     from: from.id,
     to: to.id,

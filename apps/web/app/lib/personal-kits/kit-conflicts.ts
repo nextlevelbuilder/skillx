@@ -17,7 +17,7 @@ import type { KitSkillEntry, PersonalKitDocument } from "@skillx/contracts";
 import { badRequest, conflict, json, kitNotFound } from "./kit-http";
 import type { KitCaller } from "./kit-http";
 import { assertSeedRevision, commitKitMutation, documentOf, getRevision, ownedKit, revisionView, writableKit } from "./kit-store";
-import { generationConflict, storeRevision, storedResponse } from "./kit-revisions";
+import { generationConflict, storeRevision, storedResponse, withoutComposition } from "./kit-revisions";
 import type { RebaseReport } from "./kit-rebase";
 
 const CHOICES = ["keep-old", "use-upstream", "edit-overlay", "fork"] as const;
@@ -130,7 +130,7 @@ export async function resolveConflict(caller: KitCaller, kitName: string, id: st
     if (to === null && d.choice !== "keep-old") throw conflict("kit.base_unavailable", `${entry.identity}: the upstream release is not available; keep-old is the only choice`);
     return applyDecision(entry, d, to ?? entry.base);
   });
-  const doc: PersonalKitDocument = { ...from, skills: skills.sort((a, b) => compareUtf8(a.identity, b.identity)) };
+  const doc: PersonalKitDocument = { ...withoutComposition(from), skills: skills.sort((a, b) => compareUtf8(a.identity, b.identity)) };
   const reeval = decisions.some((d) => d.choice !== "keep-old");
   const resolution = {
     schema: RESOLUTION_SCHEMA,

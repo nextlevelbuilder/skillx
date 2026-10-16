@@ -105,8 +105,47 @@ without an explicit user approval.
 - `compositionDigest` is the tree digest of the base with the overlay applied.
   The server recomputes it from the pinned release bytes and refuses a
   mismatch with 409 `kit.composition_digest_mismatch`.
+- `base` may pin any release of the package the owner can read, not only the
+  newest one. A yanked pin still resolves and adds a warning; an unknown
+  version, or a digest that is not that version's, is `kit.base_unavailable`.
 - The revision digest is the SHA-256 of the canonical JSON bytes of the
   validated document.
+
+#### Optional `composition` (AgentKit metadata)
+
+```json
+"composition": {
+  "extends": [ { "kit": "engineer", "version": "3.1.0" },
+               { "skillx": "@alpha/base", "version": "1.0.0", "releaseDigest": "sha256:…" } ],
+  "include": [ "@alpha/demo" ],
+  "resolutions": [ { "identity": "@alpha/demo", "path": "SKILL.md", "category": "conflict.same_hunk",
+    "baseFrom": "sha256:…", "baseTo": "absent", "baseTreeFrom": "sha256:…", "baseTreeTo": "sha256:…",
+    "choice": "keep-old", "overlayDigestAfter": "sha256:…", "kit": "engineer",
+    "fromVersion": "3.0.0", "toVersion": "3.1.0", "planToken": "…", "approvedBy": "user" } ]
+}
+```
+
+It carries the AgentKit manifest's `extends` and `include` and the user's
+resolution records (`agentkit.skill-overlay-resolution/v1` records), so a kit
+synced from SkillX can be rebased or edited from that copy.
+
+- It is optional. A document without it is unchanged and keeps its revision
+  digest; with it, the composition is part of the canonical JSON and so of
+  the digest (vector: `packages/contracts/src/fixtures/personal-kit-composition-golden.json`).
+- Validation is strict (`kit.invalid` at the offending path) and nothing is
+  normalized or reordered: `extends` has 1 to 16 unique entries, each `kit`
+  (an AgentKit kit ID) or `skillx` (an identity, with `releaseDigest`), with
+  an exact `version`; `include` has at most 256 unique identities;
+  `resolutions` has at most 1,000 records, unique by identity, path and
+  category, with `choice` one of `keep-old`, `use-upstream`, `edit-overlay`
+  or `fork` (a fork record names `fork: {identity, alias}` with the record's
+  identity) and `approvedBy: "user"`.
+- SkillX stores it verbatim and never resolves `extends` or applies a record:
+  the entries' pins, overlays and composition digests stay the only truth.
+- A server-built revision (rebase, conflict resolution) drops it, because it
+  moves the pins the records describe; the client attaches fresh records in
+  its next revision. A session-derived proposal keeps the from revision's
+  composition (it never moves a pin).
 
 ### Lock: `skillx.personal-kit-lock/v1`
 
@@ -130,8 +169,16 @@ ancestor appears as `{kit, revisionDigest, foreign: true}`.
 
 Every kit has a `generation`. `GET` returns it, with an `ETag` of `"g<n>"`.
 
-- Every write carries `expectedGeneration`. A stale value fails with 409
-  `kit.generation_conflict` and writes nothing. The kit row, the revision or
+- Every write carries the expected generation, as `If-Match: "g<n>"` (the
+  ETag; a bare `<n>` is also accepted) or as `expectedGeneration` in the body
+  (kept for compatibility). Both may be sent when they agree; a disagreement,
+  a list, `*` or a weak tag is 400 `invalid_request`. A stale generation
+  writes nothing and fails with 412 `kit.generation_conflict` when it came
+  with `If-Match`, or 409 `kit.generation_conflict` when it came in the body.
+  A first write (a kit that does not exist yet) expects generation 0.
+  `proposals/validate` takes `If-Match` too and reports `generationConflict`
+  instead of failing.
+- The kit row, the revision or The kit row, the revision or
   conflict, and the audit row commit in one D1 batch under the generation
   guard.
 - Creating writes (`revisions`, `rebase`, `conflicts/:id/resolve`) also carry an
@@ -485,9 +532,10 @@ or file content. Its rollback SQL is in its header.
 | Code | Status |
 |---|---|
 | `kit.generation_conflict`, `kit.idempotency_conflict`, `kit.revision_exists`, `kit.composition_digest_mismatch`, `overlay.conflict`, `kit.approval_required`, `kit.review_required`, `kit.revision_unusable`, `kit.revision_effective`, `kit.discard_unconfirmed`, `kit.conflict_closed`, `kit.locked_incompatible`, `kit.not_a_proposal`, `proposal.private_kit_required` | 409 |
+| `kit.generation_conflict` when the stale generation came with `If-Match` | 412 |
 | `proposal.invalid`, `proposal.forbidden_field`, `proposal.private_only`, `proposal.evidence_too_large`, `proposal.unknown_skill`, `proposal.base_mismatch`, `proposal.content_refused` (`findings`), `proposal.undeclared_permission` (`required`, `missing`), `proposal.excess_permission` (`required`, `extra`) | 422 |
 | `kit.admin_only`, `kit.interactive_approval_required` | 403 |
 | `kit.invalid`, `overlay.invalid`, `schema.unsupported_version`, `kit.duplicate_identity`, `kit.mode_violation`, `kit.alias_collision`, `overlay.shared_alias`, `identity.reserved_alias`, `kit.request_too_large`, `kit.cycle`, `kit.multi_parent`, `kit.public_derivative_forbidden`, `kit.base_unavailable` (409 when resolving a conflict) | 422 |
 | `kit.publisher_not_owned` | 403 |
-| `invalid_request` (malformed body, ids or updates) | 400 |
+| `invalid_request` (malformed body, ids, updates or `If-Match`) | 400 |
 | `not_found` (flag off, not the owner, unknown id) | 404 |

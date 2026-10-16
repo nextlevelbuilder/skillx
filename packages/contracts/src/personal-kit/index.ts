@@ -12,6 +12,7 @@ export type { TreeFacts } from "./frontmatter-facts";
 export { overlayBetween, rebaseOverlay } from "./rebase";
 export type { RebaseFinding, RebaseResult } from "./rebase";
 export * from "./kit-document";
+export * from "./kit-composition";
 export * from "./kit-lock";
 export * from "./proposal-policy";
 

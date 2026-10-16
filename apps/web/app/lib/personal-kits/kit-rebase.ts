@@ -26,7 +26,7 @@ import {
   writableKit,
 } from "./kit-store";
 import type { KitRow, RevisionRow } from "./kit-store";
-import { generationConflict, storeRevision, storedResponse } from "./kit-revisions";
+import { generationConflict, storeRevision, storedResponse, withoutComposition } from "./kit-revisions";
 
 export const REBASE_REPORT_SCHEMA = "skillx.kit-rebase-report/v1";
 const MAX_UPDATES = 128;
@@ -108,7 +108,7 @@ export async function computeRebase(caller: KitCaller, from: RevisionRow, update
   }
   if (entries.length === 0) throw badRequest("no kit entry uses a package named in updates");
   const report: RebaseReport = { schema: REBASE_REPORT_SCHEMA, fromRevisionId: from.id, status: entries.some((e) => e.status === "needs-review") ? "needs-review" : "clean", entries };
-  const candidate: PersonalKitDocument = { ...doc, skills: doc.skills.map((s) => candidates[s.identity] ?? s) };
+  const candidate: PersonalKitDocument = { ...withoutComposition(doc), skills: doc.skills.map((s) => candidates[s.identity] ?? s) };
   return { report, candidates, candidate };
 }
 

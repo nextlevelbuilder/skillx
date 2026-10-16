@@ -18,6 +18,8 @@ import { RELEASE_VERSION_PATTERN } from "../release-manifest";
 import { satisfiesRange } from "../semver-range";
 import { KIT_CODES, PERSONAL_KIT_SCHEMA, PersonalKitError, kitError } from "./codes";
 import { sha256Hex } from "./bytes";
+import { validateComposition } from "./kit-composition";
+import type { KitComposition } from "./kit-composition";
 import { DIGEST_PATTERN, validateOverlay } from "./overlay-envelope";
 import type { SkillOverlay } from "./overlay-envelope";
 
@@ -45,6 +47,8 @@ export interface PersonalKitDocument {
   exclude: string[];
   profile?: string;
   runtimes: Record<string, string>;
+  /** AgentKit composition metadata; absent on older documents, whose digests are unchanged. */
+  composition?: KitComposition;
 }
 
 export const KIT_DOCUMENT_LIMITS = { maxBytes: 1024 * 1024, maxSkills: 128, maxExclude: 256, maxRuntimes: 16 } as const;
@@ -149,7 +153,7 @@ export function validateKitDocument(input: unknown): PersonalKitDocument {
     throw kitError(KIT_CODES.unsupportedVersion, "schema", `unsupported document schema ${input.schema}`);
   }
   if (input.schema !== PERSONAL_KIT_SCHEMA) throw invalid("schema", `must be ${PERSONAL_KIT_SCHEMA}`);
-  only(input, "", ["schema", "kit", "localId", "visibility", "parent", "skills", "exclude", "profile", "runtimes"]);
+  only(input, "", ["schema", "kit", "localId", "visibility", "parent", "skills", "exclude", "profile", "runtimes", "composition"]);
   const kit = identity(input.kit, "kit");
   if (input.localId !== undefined) {
     if (input.localId !== `local/${nameOf(kit)}`) throw invalid("localId", `must be local/${nameOf(kit)}`);
@@ -172,6 +176,7 @@ export function validateKitDocument(input: unknown): PersonalKitDocument {
   // Sorted and unique, so equivalent documents have one digest.
   const excluded = [...new Set(exclude as string[])].sort(compareUtf8);
   if (input.profile !== undefined && (typeof input.profile !== "string" || !PROFILE.test(input.profile))) throw invalid("profile", "must be lowercase [a-z0-9-], at most 64 characters");
+  if (input.composition !== undefined) validateComposition(input.composition);
   const doc = { ...(input as unknown as PersonalKitDocument), skills, exclude: excluded, runtimes: checkRuntimes(input.runtimes) };
   if (canonicalJsonBytes(doc).length > KIT_DOCUMENT_LIMITS.maxBytes) throw invalid("", "document exceeds 1 MiB");
   return doc;
