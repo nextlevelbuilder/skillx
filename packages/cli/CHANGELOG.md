@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.5.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.4.1...skillx-sh-v0.5.0) (2026-10-16)
+
+
+### Features
+
+* agent-native discovery and compatibility ([#90](https://github.com/nextlevelbuilder/skillx/issues/90)) ([40217d4](https://github.com/nextlevelbuilder/skillx/commit/40217d42e4c8c0459f4d629b40cec35adf3ab546))
+* **kits:** accept reviewed session-derived overlay proposals ([#83](https://github.com/nextlevelbuilder/skillx/issues/83)) ([acfb24f](https://github.com/nextlevelbuilder/skillx/commit/acfb24faf8f8c77dfee07cf21077b920a65b39aa))
+* **kits:** add personal kits with lineage, overlays and foundation rebase ([#82](https://github.com/nextlevelbuilder/skillx/issues/82)) ([3828417](https://github.com/nextlevelbuilder/skillx/commit/3828417b72d6dd55e7f55e4b9e1bfdea04e65818))
+* **registry:** audited release state transitions and full-tree E2E (SX-5) ([#66](https://github.com/nextlevelbuilder/skillx/issues/66)) ([6c5557a](https://github.com/nextlevelbuilder/skillx/commit/6c5557a75947564893e4add1fd313408e0312996))
+* **registry:** release pack, upload and signed manifests (SX-3) ([#59](https://github.com/nextlevelbuilder/skillx/issues/59)) ([ec8e143](https://github.com/nextlevelbuilder/skillx/commit/ec8e1431265de9666cc2db290a1d2c9215b7e9c6))
+
+
+### Bug Fixes
+
+* **cli:** keep yaml external so the built bundle starts ([#75](https://github.com/nextlevelbuilder/skillx/issues/75)) ([da98c9f](https://github.com/nextlevelbuilder/skillx/commit/da98c9f9ff108ec0a50a3be89259523f3f867267)), closes [#73](https://github.com/nextlevelbuilder/skillx/issues/73) [#63](https://github.com/nextlevelbuilder/skillx/issues/63)
+
 ## [0.4.1](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.4.0...skillx-sh-v0.4.1) (2026-09-22)
 
 
