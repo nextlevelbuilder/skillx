@@ -124,6 +124,32 @@ describe("identity rules beyond the vectors", () => {
     }
   });
 
+  it("never derives publisher-signed from a skillx row, whatever its origin or verified flag", () => {
+    const origins: Array<string | undefined> = [undefined, "", " ", "	", "remote-signed", "local-dev", "null"];
+    for (const origin of origins) {
+      for (const verified of [true, false, undefined]) {
+        for (const overlay of [true, false, undefined]) {
+          const p = { provider: "skillx", origin, verified, overlay } as Parameters<typeof trustOf>[1];
+          expect(trustOf("@acme/plan", p), JSON.stringify(p)).toBe("local-unverified");
+        }
+      }
+    }
+    // A JSON null origin from an untyped caller is also fail-closed.
+    const nullOrigin = { provider: "skillx", origin: null, verified: true } as unknown as Parameters<typeof trustOf>[1];
+    expect(trustOf("@acme/plan", nullOrigin)).toBe("local-unverified");
+  });
+
+  it("only a remote-signed kit without overlay reaches a signed trust tier", () => {
+    for (const provider of ["local", "git", "skillx"]) {
+      for (const verified of [true, false]) {
+        expect(trustOf("@acme/plan", { provider, origin: "remote-signed", verified }), `${provider} ${verified}`).toBe("local-unverified");
+      }
+    }
+    for (const origin of [undefined, "", " ", "mirror"]) {
+      expect(codeOf(() => trustOf("@agentkit/plan", { provider: "kit", origin })), String(origin)).toBe("identity.invalid");
+    }
+  });
+
   it("checks the provider before the reserved publisher", () => {
     expect(codeOf(() => trustOf("@agentkit/plan", { provider: "npm" }))).toBe("identity.invalid");
     expect(codeOf(() => trustOf("@agentkit/plan", { provider: "skillx", verified: true }))).toBe("identity.reserved_publisher");

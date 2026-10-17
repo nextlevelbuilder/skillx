@@ -12,7 +12,7 @@ import { fixtureBytes, sha256 } from "./vector-helpers";
 
 const PINS: Record<string, string> = {
   "vectors/skill-tree-v1-vectors.json": "8eb46f1b8bec49cace740b75614f28f8fb4a6fc266fecfcd7e3d6892f28f3172",
-  "vectors/identity-v1-vectors.json": "1ab9e013c229d78871abd60e3cd3bf26fcfd0e6067d98dcdd79b4f6bcc1daefb",
+  "vectors/identity-v1-vectors.json": "7981d0f324c4771cf48e4a2aaec1f5e01030cbc063c537f2e1493470cc8e9024",
   "ucd/CaseFolding-15.0.0.txt": "cdd49e55eae3bbf1f0a3f6580c974a0263cb86a6a08daa10fbf705b4808a56f7",
 };
 const GO_TABLES_SHA256 = "0d0155948ceea434fa241b59937db1a41689fa2ccb8231d35d96a2c56f57b52b";

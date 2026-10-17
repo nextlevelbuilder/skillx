@@ -7,7 +7,7 @@ update by copying the new upstream file and its new hash, never by editing a vec
 | File | Source | Commit | sha256 |
 |---|---|---|---|
 | `vectors/skill-tree-v1-vectors.json` | `bestagentkits/agentkit` `docs/conformance/skill-lifecycle/skill-tree-v1-vectors.json` | `dev` @ `479483bfe8ff022063f7bff21e75df17fabf0997` (git blob `ecb6722af896f41b176e5f5a5e1ba367c58449aa`) | `8eb46f1b8bec49cace740b75614f28f8fb4a6fc266fecfcd7e3d6892f28f3172` |
-| `vectors/identity-v1-vectors.json` | `bestagentkits/agentkit` `docs/conformance/skill-lifecycle/identity-v1-vectors.json` | `dev` @ `479483bfe8ff022063f7bff21e75df17fabf0997` (git blob `d532820a500e792eef6445b0e54ba49554ab3fa6`) | `1ab9e013c229d78871abd60e3cd3bf26fcfd0e6067d98dcdd79b4f6bcc1daefb` |
+| `vectors/identity-v1-vectors.json` | `bestagentkits/agentkit` `docs/conformance/skill-lifecycle/identity-v1-vectors.json` | `dev` @ `5a7578bad0136fa12b598175319bd749e3727a87` (git blob `ab366dc4c3e894436ef2a6ca9e28d582e69dbab3`) | `7981d0f324c4771cf48e4a2aaec1f5e01030cbc063c537f2e1493470cc8e9024` |
 | `ucd/CaseFolding-15.0.0.txt` | Unicode 15.0.0 `CaseFolding.txt`, as vendored by AgentKit at `apps/cli/internal/core/skilltree/testdata/CaseFolding-15.0.0.txt` | `840d924a7` (branch `mrgoonie/feat/skilltree-canonical-digest`) | `cdd49e55eae3bbf1f0a3f6580c974a0263cb86a6a08daa10fbf705b4808a56f7` |
 
 The contract: AgentKit `docs/specs/skill-lifecycle-contract.md` sections 2, 4 and 10.2, and

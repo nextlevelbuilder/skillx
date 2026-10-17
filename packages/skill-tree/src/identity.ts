@@ -75,7 +75,7 @@ export interface Provenance {
   provider: string;
   /** Kit sources only. */
   origin?: string;
-  /** SkillX releases only: whether publisher provenance verified. */
+  /** SkillX releases only: whether the registry signature verified. It never raises trust. */
   verified?: boolean;
   /** Whether the composition has a non-empty overlay. */
   overlay?: boolean;
@@ -90,7 +90,8 @@ export function trustOf(identity: string, p: Provenance): Trust {
   checkPublisherFor(identity, p.provider);
   if (p.overlay === true) return "local-unverified";
   if (p.provider === "kit" && p.origin === "remote-signed") return "signed-kit";
-  if (p.provider === "skillx" && p.verified === true) return "publisher-signed";
+  // A SkillX registry signature is not a publisher signature, so no skillx input
+  // (verified, any origin) can reach publisher-signed; only a remote-signed kit is signed.
   return "local-unverified";
 }
 

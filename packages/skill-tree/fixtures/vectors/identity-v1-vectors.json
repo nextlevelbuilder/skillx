@@ -5,7 +5,7 @@
   "notes": [
     "Each identity segment must also pass the canonical-tree segment rules and be at most 64 bytes.",
     "kitMapping rows without an error give the identity and portable alias of a kit skill directory.",
-    "provenance rows give the trust recorded for an accepted identity, or the rejection code. An unknown provider, a kit row without a known origin, an invalid identity, or a kit row whose identity is not @agentkit fails with identity.invalid; these checks run before the reserved-publisher check. verified on a skillx row says whether the release provenance verified.",
+    "provenance rows give the trust recorded for an accepted identity, or the rejection code. An unknown provider, a kit row without a known origin, an invalid identity, or a kit row whose identity is not @agentkit fails with identity.invalid; these checks run before the reserved-publisher check. verified on a skillx row says whether the release manifest's registry signature verified; a SkillX registry signature is not a publisher signature, so a skillx row is local-unverified either way.",
     "aliases rows are invocation aliases. An alias is 1 to 128 characters from [A-Za-z0-9._:/$-]; '$' may appear anywhere. A leading '/' is allowed only in the native slash form '/<namespace>:<command>', a single segment after the '/'. Split on '/', the alias has no empty, '.' or '..' segment, so no trailing '/'; every ':' in a segment has non-empty text on both sides; and every segment, and every ':'-separated part of one, holds at least one ASCII letter or digit, so '$', '$$' and '/$:x' are invalid. Any other alias, including a non-ASCII one, fails with identity.invalid.",
     "Reserved prefixes: after removing every leading '/' of the alias and every leading '$' of each '/'-separated segment, if any segment starts with ak- or ak:, compared after mapping only ASCII A-Z to a-z, the alias is reserved for @agentkit identities; any other identity fails with identity.reserved_alias. Shape errors are checked first.",
     "directoryAliases rows are projection directory names (the portable runtime alias): an alias that is one segment, passes the canonical-tree segment rules (so it never starts with .ak-tmp.) and contains no ':' or '$'; otherwise identity.invalid, then the reserved-prefix check. groupKey is the alias with only ASCII A-Z mapped to a-z; collision and co-ownership grouping use it on every host. directoryAliasCollisions pairs collide exactly when their groupKeys are equal.",
@@ -198,7 +198,7 @@
       "provider": "skillx",
       "verified": true,
       "expect": {
-        "trust": "publisher-signed"
+        "trust": "local-unverified"
       }
     },
     {
