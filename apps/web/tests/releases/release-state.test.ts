@@ -72,6 +72,25 @@ describe("release state: owner and admin transitions", () => {
     expect(audit()[0]).toMatchObject({ actor_kind: "user", actor_id: "user-a", reason: null, outcome: "applied" });
   });
 
+  it("refuses a cross-origin web-session request before the session or limiter decides", async () => {
+    await publish();
+    session.user = { id: "user-a" };
+    const yank = { from: "published", to: "yanked" };
+    for (const headers of [{ Origin: "https://evil.example" }, { Origin: "https://sub.skillx.test" }, { "Sec-Fetch-Site": "cross-site" }]) {
+      expectError(await change("@alpha/demo", "1.0.0", yank, { headers }), 403, "cross_origin");
+    }
+    expect(audit()).toEqual([]);
+    // An API key or the admin secret is not ambient, so a foreign Origin does not matter there.
+    expect((await change("@alpha/demo", "1.0.0", yank, { key: ownerKey, headers: { Origin: "https://evil.example" } })).status).toBe(200);
+    expect((await change("@alpha/demo", "1.0.0", { from: "yanked", to: "quarantined" }, { admin: ADMIN, headers: { Origin: "https://evil.example" } })).status).toBe(200);
+  });
+
+  it("accepts a same-origin web-session request", async () => {
+    await publish();
+    session.user = { id: "user-a" };
+    expect((await change("@alpha/demo", "1.0.0", { from: "published", to: "yanked" }, { headers: { Origin: "https://skillx.test" } })).status).toBe(200);
+  });
+
   it("lets an admin quarantine and lift the quarantine in two steps, bytes unchanged throughout", async () => {
     const digest = await publish();
     const before = immutableSnapshot();

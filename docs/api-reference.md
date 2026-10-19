@@ -179,7 +179,9 @@ Fetch full skill details with reviews and rating summary.
 
 Rate a skill (0-10 scale). Upserts — re-rating updates existing score.
 
-**Auth**: Required (session)
+**Auth**: Required (session). Same-origin only: a request whose `Origin` differs
+from the site (or, without `Origin`, whose `Sec-Fetch-Site` is not
+`same-origin`/`none`) gets `403` before the session is read.
 
 **URL Params**: `slug` — skill URL slug
 
@@ -211,6 +213,7 @@ Rate a skill (0-10 scale). Upserts — re-rating updates existing score.
 |--------|------|-------|
 | 400 | `{ "error": "Score must be a number between 0 and 10" }` | Invalid score |
 | 401 | `{ "error": "Authentication required" }` | Not logged in |
+| 403 | `{ "error": "Cross-origin request refused" }` | `Origin` is not this site |
 | 404 | `{ "error": "Skill not found" }` | Invalid slug |
 
 ---
@@ -219,9 +222,11 @@ Rate a skill (0-10 scale). Upserts — re-rating updates existing score.
 
 #### `POST /api/skills/:slug/vote`
 
-Upvote or downvote a skill. Vote is toggled off if same direction already exists.
+Upvote, downvote, or clear your vote on a skill. Sending the same type again keeps the vote; send `"none"` to remove it.
 
-**Auth**: Required (session)
+**Auth**: Required (session). Same-origin only: a request whose `Origin` differs
+from the site (or, without `Origin`, whose `Sec-Fetch-Site` is not
+`same-origin`/`none`) gets `403` before the session is read.
 
 **URL Params**: `slug` — skill URL slug
 
@@ -229,33 +234,34 @@ Upvote or downvote a skill. Vote is toggled off if same direction already exists
 
 ```json
 {
-  "direction": "up"
+  "type": "up"
 }
 ```
 
 | Field | Type | Required | Validation |
 |-------|------|----------|------------|
-| `direction` | string | Yes | `"up"` or `"down"` |
+| `type` | string | Yes | `"up"`, `"down"`, or `"none"` (clears the vote) |
 
 **Response** `200`:
 
 ```json
 {
-  "success": true,
-  "direction": "up",
-  "upvote_count": 42,
-  "downvote_count": 3,
+  "vote_type": "up",
   "net_votes": 39
 }
 ```
+
+`vote_type` is `null` after `"none"`. `net_votes` is upvotes minus downvotes.
 
 **Errors**:
 
 | Status | Body | Cause |
 |--------|------|-------|
-| 400 | `{ "error": "Invalid direction" }` | Direction not `up` or `down` |
+| 400 | `{ "error": "type must be 'up', 'down', or 'none'" }` | Invalid `type` |
 | 401 | `{ "error": "Authentication required" }` | Not logged in |
+| 403 | `{ "error": "Cross-origin request refused" }` | `Origin` is not this site |
 | 404 | `{ "error": "Skill not found" }` | Invalid slug |
+| 429 | `{ "error": "Rate limit exceeded. Max 10 votes per minute." }` | More than 10 votes in 60 s |
 
 ---
 
@@ -288,7 +294,9 @@ List reviews for a skill, newest first (max 100).
 
 Submit a text review for a skill.
 
-**Auth**: Required (session)
+**Auth**: Required (session). Same-origin only: a request whose `Origin` differs
+from the site (or, without `Origin`, whose `Sec-Fetch-Site` is not
+`same-origin`/`none`) gets `403` before the session is read.
 
 **Request Body**:
 
@@ -325,6 +333,7 @@ Submit a text review for a skill.
 | 400 | `{ "error": "Review content cannot be empty" }` | Empty content |
 | 400 | `{ "error": "Review content cannot exceed 2000 characters" }` | Too long |
 | 401 | `{ "error": "Authentication required" }` | Not logged in |
+| 403 | `{ "error": "Cross-origin request refused" }` | `Origin` is not this site |
 | 404 | `{ "error": "Skill not found" }` | Invalid slug |
 
 ---
@@ -335,7 +344,9 @@ Submit a text review for a skill.
 
 Toggle favorite status for a skill. Adds if not favorited, removes if already favorited.
 
-**Auth**: Required (session)
+**Auth**: Required (session). Same-origin only: a request whose `Origin` differs
+from the site (or, without `Origin`, whose `Sec-Fetch-Site` is not
+`same-origin`/`none`) gets `403` before the session is read.
 
 **Request Body**: None (empty body OK)
 
@@ -354,6 +365,7 @@ Toggle favorite status for a skill. Adds if not favorited, removes if already fa
 | Status | Body | Cause |
 |--------|------|-------|
 | 401 | `{ "error": "Authentication required" }` | Not logged in |
+| 403 | `{ "error": "Cross-origin request refused" }` | `Origin` is not this site |
 | 404 | `{ "error": "Skill not found" }` | Invalid slug |
 
 ---
@@ -599,7 +611,9 @@ Revoke an API key (soft delete — sets `revoked_at` timestamp).
 
 Register and publish skills from a GitHub repository. Scans for SKILL.md files, validates ownership, and stores with content security scanning.
 
-**Auth**: Required (session or API key)
+**Auth**: Required (session or API key). A session-cookie request must come from
+the site's own origin (same rule as the rate/vote/review/favorite routes) or it
+gets `403`; API-key requests are not checked.
 
 **Request Body**:
 
@@ -1316,7 +1330,9 @@ pattern; a present but wrong or unconfigured secret is `401
 invalid_admin_secret`, never a fall back). Otherwise the caller is the read
 API viewer: `Authorization: Bearer sx_...` with an unscoped account key, or
 the web session. Scoped `releases:publish:@handle` keys are publish-only and
-answer `401 invalid_api_key`, so a leaked CI publish key cannot yank.
+answer `401 invalid_api_key`, so a leaked CI publish key cannot yank. A
+web-session request (no `Authorization`, no `X-Admin-Secret`) must come from the
+site's own origin, or it is `403 cross_origin` before the session is read.
 
 **Rate limit**: writes count against their own binding,
 `RELEASE_WRITE_LIMITER`, 30 per 60 seconds per caller. A request carrying
@@ -1421,7 +1437,7 @@ The publisher route answers `{"handle", "from", "to", "state", "changedAt"}`.
 |--------|-------|
 | 400 | `invalid_request` (body, states, reason), `identity.invalid`, `invalid_version` |
 | 401 | `auth.required`, `invalid_api_key`, `invalid_admin_secret` (with `WWW-Authenticate: Bearer`) |
-| 403 | `transition.not_owner` (public package), `transition.admin_only`, `publisher_revoked` |
+| 403 | `cross_origin` (web session from another origin), `transition.not_owner` (public package), `transition.admin_only`, `publisher_revoked` |
 | 404 | `not_found` (unknown release or publisher; a private package of another owner; API disabled) |
 | 409 | `state_conflict` |
 | 413 | `request_too_large` |

@@ -98,7 +98,27 @@ export const SKILL_ENDPOINTS: EndpointProps[] = [
     errors: [
       { status: 400, body: "Score must be a number between 0 and 10", cause: "Invalid score value" },
       { status: 401, body: "Authentication required", cause: "Not logged in" },
+      { status: 403, body: "Cross-origin request refused", cause: "Origin is not this site" },
       { status: 404, body: "Skill not found", cause: "Invalid slug" },
+    ],
+  },
+  {
+    id: "skill-vote",
+    method: "POST",
+    path: "/api/skills/:slug/vote",
+    auth: "Session required",
+    description: "Upvote, downvote, or clear your vote. Rate limited to 10 votes per minute.",
+    params: [
+      { name: "type", type: "string", required: true, description: '"up", "down", or "none" (clears the vote)' },
+    ],
+    requestExample: `{ "type": "up" }`,
+    responseExample: `{ "vote_type": "up", "net_votes": 39 }`,
+    errors: [
+      { status: 400, body: "type must be 'up', 'down', or 'none'", cause: "Invalid type" },
+      { status: 401, body: "Authentication required", cause: "Not logged in" },
+      { status: 403, body: "Cross-origin request refused", cause: "Origin is not this site" },
+      { status: 404, body: "Skill not found", cause: "Invalid slug" },
+      { status: 429, body: "Rate limit exceeded. Max 10 votes per minute.", cause: "Too many votes" },
     ],
   },
   {
@@ -134,6 +154,7 @@ export const SKILL_ENDPOINTS: EndpointProps[] = [
       { status: 400, body: "Review content cannot be empty", cause: "Empty content" },
       { status: 400, body: "Cannot exceed 2000 characters", cause: "Too long" },
       { status: 401, body: "Authentication required", cause: "Not logged in" },
+      { status: 403, body: "Cross-origin request refused", cause: "Origin is not this site" },
       { status: 404, body: "Skill not found", cause: "Invalid slug" },
     ],
   },
@@ -147,6 +168,7 @@ export const SKILL_ENDPOINTS: EndpointProps[] = [
     notes: ["favorited: true = added, false = removed. No request body needed."],
     errors: [
       { status: 401, body: "Authentication required", cause: "Not logged in" },
+      { status: 403, body: "Cross-origin request refused", cause: "Origin is not this site" },
       { status: 404, body: "Skill not found", cause: "Invalid slug" },
     ],
   },

@@ -4,6 +4,7 @@ import { resolveSkillBySlug } from "~/lib/db/skill-aliases";
 import { skills, votes } from "~/lib/db/schema";
 import { eq, and, sql, gt } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
+import { crossOriginRefusal } from "~/lib/auth/same-origin";
 import { recomputeSkillScores } from "~/lib/leaderboard/recompute-skill-scores";
 
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -16,6 +17,9 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
 
     const env = context.cloudflare.env as Env;
     const db = getDb(env.DB);
+
+    const crossOrigin = crossOriginRefusal(request);
+    if (crossOrigin) return crossOrigin;
 
     // Auth required
     const session = await getSession(request, env);

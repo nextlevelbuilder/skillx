@@ -21,7 +21,9 @@ without an explicit user approval.
 
 - Callers authenticate with a session or an **unscoped** API key. Scoped keys,
   such as `releases:publish:@h`, get 401. The admin secret is not accepted
-  (404).
+  (404). A write in a web session (no `Authorization` header) must come from
+  the site's own origin; otherwise it gets 403 `cross_origin` before the
+  session is read.
 - A kit is visible only to its owner. Every other caller gets the JSON 404,
   never 403, so a kit's existence is not revealed.
 - Every write (create, store, rebase, resolve, activate, reject) requires
@@ -534,7 +536,7 @@ or file content. Its rollback SQL is in its header.
 | `kit.generation_conflict`, `kit.idempotency_conflict`, `kit.revision_exists`, `kit.composition_digest_mismatch`, `overlay.conflict`, `kit.approval_required`, `kit.review_required`, `kit.revision_unusable`, `kit.revision_effective`, `kit.discard_unconfirmed`, `kit.conflict_closed`, `kit.locked_incompatible`, `kit.not_a_proposal`, `proposal.private_kit_required` | 409 |
 | `kit.generation_conflict` when the stale generation came with `If-Match` | 412 |
 | `proposal.invalid`, `proposal.forbidden_field`, `proposal.private_only`, `proposal.evidence_too_large`, `proposal.unknown_skill`, `proposal.base_mismatch`, `proposal.content_refused` (`findings`), `proposal.undeclared_permission` (`required`, `missing`), `proposal.excess_permission` (`required`, `extra`) | 422 |
-| `kit.admin_only`, `kit.interactive_approval_required` | 403 |
+| `kit.admin_only`, `kit.interactive_approval_required`, `cross_origin` | 403 |
 | `kit.invalid`, `overlay.invalid`, `schema.unsupported_version`, `kit.duplicate_identity`, `kit.mode_violation`, `kit.alias_collision`, `overlay.shared_alias`, `identity.reserved_alias`, `kit.request_too_large`, `kit.cycle`, `kit.multi_parent`, `kit.public_derivative_forbidden`, `kit.base_unavailable` (409 when resolving a conflict) | 422 |
 | `kit.publisher_not_owned` | 403 |
 | `invalid_request` (malformed body, ids, updates or `If-Match`) | 400 |

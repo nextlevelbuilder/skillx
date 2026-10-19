@@ -16,6 +16,7 @@
 import type { ActionFunctionArgs } from "react-router";
 import { getDb } from "~/lib/db";
 import { authenticateRequest } from "~/lib/auth/authenticate-request";
+import { crossOriginRefusal } from "~/lib/auth/same-origin";
 import { validateRepoOwnership } from "~/lib/github/validate-repo-ownership";
 import { handleRegisterError, runImport } from "~/lib/github/skill-import";
 import type { RegisterMode } from "~/lib/github/skill-import";
@@ -59,6 +60,11 @@ export async function action({ request, context }: ActionFunctionArgs) {
         { error: "Authentication required. Use API key (Authorization: Bearer) or sign in." },
         { status: 401 },
       );
+    }
+    // Only a session cookie rides along ambiently; API-key clients send no Origin.
+    if (auth.method === "session") {
+      const crossOrigin = crossOriginRefusal(request);
+      if (crossOrigin) return crossOrigin;
     }
 
     // SAFETY: request bodies are untrusted; every field is validated below.

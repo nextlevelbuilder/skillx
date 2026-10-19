@@ -25,6 +25,7 @@ import { ReleaseHttpError, errorResponse, notFoundResponse, releaseError } from 
 import { releasesApiEnabled } from "./release-limits";
 import { RELEASE_WRITE_RATE_WINDOW_SECONDS, checkReleaseRateLimit, rateLimitCaller } from "./release-rate-limit";
 import { resolveViewer } from "./release-read";
+import { crossOriginRefusal } from "~/lib/auth/same-origin";
 import { PUBLISHER_STATES, transitionPublisher, transitionRelease } from "./release-transitions";
 import type { PublisherState, TransitionActor } from "./release-transitions";
 
@@ -184,7 +185,12 @@ async function enforceWriteLimit(env: ReleaseStateEnv, caller: string, failClose
  * than the limit allows.
  */
 export async function resolveLimitedActor(request: Request, env: ReleaseStateEnv): Promise<TransitionActor> {
-  if (request.headers.get("X-Admin-Secret") !== null) await enforceWriteLimit(env, rateLimitCaller(request, null), false);
+  const admin = request.headers.get("X-Admin-Secret") !== null;
+  // Without a key or secret the session cookie decides, and it rides along ambiently.
+  if (!admin && request.headers.get("Authorization") === null && crossOriginRefusal(request) !== null) {
+    throw releaseError(403, "cross_origin", "cross-origin request refused");
+  }
+  if (admin) await enforceWriteLimit(env, rateLimitCaller(request, null), false);
   const actor = await resolveActor(request, env);
   await enforceWriteLimit(env, rateLimitCaller(request, actor.id), actor.kind !== "admin");
   return actor;

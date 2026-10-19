@@ -4,6 +4,7 @@ import { resolveSkillBySlug } from "~/lib/db/skill-aliases";
 import { reviews } from "~/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
+import { crossOriginRefusal } from "~/lib/auth/same-origin";
 
 export async function loader({ params, context }: LoaderFunctionArgs) {
   try {
@@ -46,6 +47,9 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
 
     const env = context.cloudflare.env as Env;
     const db = getDb(env.DB);
+
+    const crossOrigin = crossOriginRefusal(request);
+    if (crossOrigin) return crossOrigin;
 
     // Require authentication
     const session = await getSession(request, env);
