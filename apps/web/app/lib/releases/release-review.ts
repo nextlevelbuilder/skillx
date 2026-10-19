@@ -7,15 +7,17 @@
  *   `{"decision": "approve" | "reject", "reason"?}`.
  *
  * `approve` lifts the quarantine and restores the state the release had
- * before it (the last applied `release_state_audit` edge into
- * `quarantined`): a release quarantined while yanked goes back to `yanked`
- * only, so an owner's yank is never undone; `{"restoreTo": "published"}`
- * publishes it explicitly. Publishing runs `quarantined -> yanked ->
- * published` (the v1 status graph has no direct edge, so the signed status
- * sequence advances by 2). One batch writes one audit row per edge and one
- * `release_reviews` row, all or nothing, guarded on that audit edge still
- * being the latest, so a concurrent change is `409`. `reject` confirms the quarantine:
- * the release stays `quarantined` (its bytes stay blocked in every package)
+ * before it, read from the last two applied `release_state_audit` edges in
+ * write order (rowid): a release quarantined while yanked (the composite
+ * `yanked -> published -> quarantined` batch) goes back to `yanked` only, so
+ * an owner's yank is never undone; `{"restoreTo": "published"}` publishes it
+ * explicitly. Publishing runs `quarantined -> yanked -> published` (the v1
+ * status graph has no direct edge, so the signed status sequence advances by
+ * 2). One batch writes one audit row per edge and one `release_reviews` row,
+ * all or nothing, guarded on `quarantined_at` being the value the approval
+ * read, so a re-quarantine in between is `409`. `reject` confirms the
+ * quarantine: the release stays `quarantined` (its bytes stay blocked in
+ * every package)
  * and only a `release_reviews` row is written. Both are compare-and-set on
  * `quarantined`: a release that is no longer quarantined is `409
  * state_conflict`. Accounts get 403. Requests are counted on

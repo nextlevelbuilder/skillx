@@ -63,9 +63,10 @@ records a decision with `POST .../releases/{version}/review`:
 - **approve** (false positive): restores the state the release had before
   it was quarantined, read from the last two `release_state_audit` edges in
   write order (quarantining a yanked release writes `yanked` → `published` →
-  `quarantined` in one batch), in one atomic, audited batch. A release quarantined while `published` goes `quarantined` →
-  `yanked` → `published` and serves again everywhere. A release quarantined
-  while `yanked` returns to `yanked` only: an approval never undoes a yank.
+  `quarantined` in one batch), in one atomic, audited batch. A release
+  quarantined while `published` goes `quarantined` → `yanked` → `published`
+  and serves again everywhere. A release quarantined while `yanked` returns
+  to `yanked` only: an approval never undoes a yank.
   To publish it anyway the admin sends
   `{"decision":"approve","restoreTo":"published"}` (`restoreTo` is
   `published` or `yanked`, valid only with `approve`). The approval answers
