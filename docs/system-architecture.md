@@ -573,7 +573,7 @@ skillx release pack (git commit -> deterministic tar, tree digest via @skillx/sk
 POST /api/v1/packages/@h/s/releases ── scoped key ── tar read + digest ── scan
         │                                            (published | quarantined)
         ▼
-R2 (create-only): artifacts/  blobs/  manifests/ (signed skillx.release/v1)
+R2 (create-only): artifacts/  blobs/  manifests/ (signed skillx.release/v1; kit releases v2)
 D1: packages, package_releases (row written last)
         │
         ▼

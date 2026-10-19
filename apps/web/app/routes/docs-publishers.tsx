@@ -154,6 +154,14 @@ export default function DocsPublishers() {
             publishing a skill registers and scans it without inventing a release history it
             cannot prove.
           </p>
+          <p className="mt-4 text-sm text-sx-fg-muted">
+            The <span className="text-sx-fg">@agentkit</span> publisher and the{" "}
+            <span className="text-sx-fg">ak-</span> slug prefix are reserved for AgentKit kit
+            content. Those releases carry kit provenance and are signed as{" "}
+            <span className="text-sx-fg">skillx.release/v2</span>. The registry signature never
+            makes them signed-kit content. Every other release is signed as{" "}
+            <span className="text-sx-fg">skillx.release/v1</span>.
+          </p>
         </div>
       </section>
     </PageContainer>
