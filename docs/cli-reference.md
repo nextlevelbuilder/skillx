@@ -268,7 +268,10 @@ CI: `.github/workflows/publish-release.yml` (manual dispatch or
 CLI version, in the `skillx-publish` environment, with its
 `SKILLX_PUBLISH_KEY` secret. `.github/workflows/publish-agentkit-foundation.yml`
 publishes an AgentKit foundation skill from `bestagentkits/agentkit` at a
-pinned commit with OIDC (fallback `SKILLX_AGENTKIT_PUBLISH_KEY`).
+pinned commit with OIDC (fallback `SKILLX_AGENTKIT_PUBLISH_KEY`): the kit
+directory `kits/<kit>/skills/ak-<x>` becomes `@bestagentkits/<x>` at the
+kit's `kit.yaml` version (see the deployment guide for why `@agentkit/*` stays
+reserved).
 
 ### `skillx promote <@publisher/slug@version>`
 

@@ -8,6 +8,12 @@
 # commit; pass `expected-digest` to make a mismatch fail the job before any
 # upload.
 #
+# Naming: a kit skill directory kits/<kit>/skills/ak-<x> is published as
+# @bestagentkits/<x> at the version of kits/<kit>/kit.yaml. @agentkit/* and
+# ak-/ak: slugs are reserved by the skillx.release/v1 contract, and the packed
+# file set is exactly the skill directory at the pinned commit (the tree
+# AgentKit digests), so the releaseDigest matches AgentKit's own digest.
+#
 # Authentication, in order:
 #   1. GitHub OIDC trusted publishing (`skillx publish --oidc`): the registry
 #      must hold a trusted publisher of @bestagentkits for repository
@@ -31,11 +37,11 @@ on:
         required: true
         type: string
       skill-path:
-        description: "Skill directory inside the agentkit repository, e.g. skills/foo"
+        description: "Skill directory inside the agentkit repository, e.g. kits/engineer/skills/ak-plan"
         required: true
         type: string
       version:
-        description: "SemVer release version (no build metadata)"
+        description: "SemVer release version; for kits/<kit>/skills/* it must equal kits/<kit>/kit.yaml version"
         required: true
         type: string
       channel:
@@ -45,7 +51,7 @@ on:
         type: choice
         options: [stable, beta, alpha]
       name:
-        description: "Package identity; default @bestagentkits/<basename of skill-path>"
+        description: "Package identity; default @bestagentkits/<directory name without ak->"
         required: false
         type: string
       expected-digest:
@@ -83,8 +89,12 @@ jobs:
           [[ "$SKILL_PATH" =~ ^[A-Za-z0-9._/-]+$ && "$SKILL_PATH" != -* && "$SKILL_PATH" != /* && "$SKILL_PATH" != *..* ]] || { echo "::error::invalid skill-path"; exit 1; }
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::invalid version"; exit 1; }
           [[ "$CHANNEL" =~ ^(stable|beta|alpha)$ ]] || { echo "::error::invalid channel"; exit 1; }
-          name="${NAME_INPUT:-@bestagentkits/$(basename "$SKILL_PATH")}"
+          # Kit skill directories are ak-<x>; SkillX reserves ak-/ak: names, so <x> is the slug.
+          dir="$(basename "$SKILL_PATH")"
+          name="${NAME_INPUT:-@bestagentkits/${dir#ak-}}"
           [[ "$name" =~ ^@bestagentkits/[a-z0-9][a-z0-9._-]*$ ]] || { echo "::error::name must be @bestagentkits/<slug> (lowercase)"; exit 1; }
+          slug="${name#@bestagentkits/}"
+          [[ "$slug" != ak-* && "$slug" != ak:* ]] || { echo "::error::slugs starting with ak- or ak: are reserved; publish ak-<x> as @bestagentkits/<x>"; exit 1; }
           [[ -z "$EXPECTED" || "$EXPECTED" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "::error::expected-digest must be sha256:<64 hex>"; exit 1; }
           echo "name=$name" >> "$GITHUB_OUTPUT"
           echo "idempotency-key=agentkit-foundation:$SHA:$name@$VERSION" >> "$GITHUB_OUTPUT"
@@ -132,6 +142,11 @@ jobs:
         run: |
           set -euo pipefail
           [[ "$(git rev-parse HEAD)" == "$SHA" ]] || { echo "::error::checked out $(git rev-parse HEAD), expected $SHA"; exit 1; }
+          # A kit skill (kits/<kit>/skills/ak-<x>) is released at its kit's version.
+          if [[ "$SKILL_PATH" =~ ^kits/([^/]+)/skills/[^/]+$ ]]; then
+            kit_version="$(sed -n 's/^version:[[:space:]]*["'\'']\{0,1\}\([^"'\'' ]*\).*$/\1/p' "kits/${BASH_REMATCH[1]}/kit.yaml" | head -n 1)"
+            [[ "$kit_version" == "$VERSION" ]] || { echo "::error::version $VERSION differs from kits/${BASH_REMATCH[1]}/kit.yaml version ${kit_version:-<none>}"; exit 1; }
+          fi
           cli="$GITHUB_WORKSPACE/skillx/packages/cli/bin/skillx.js"
           node "$cli" validate HEAD --path "$SKILL_PATH" --name "$NAME" --release-version "$VERSION" --channel "$CHANNEL" --json
           node "$cli" pack HEAD --path "$SKILL_PATH" --out "$RUNNER_TEMP/release.tar" --json > "$RUNNER_TEMP/pack.json"

@@ -335,6 +335,16 @@ GitHub OIDC trusted publishing ship behind the same `SKILLX_RELEASES_API` flag.
    `SKILLX_AGENTKIT_PUBLISH_KEY` (fallback key scoped to
    `releases:publish:@bestagentkits`) and, while `bestagentkits/agentkit` is
    private, `AGENTKIT_READ_TOKEN` (read-only contents).
+5. Naming of AgentKit foundation releases: the kit skill directory
+   `kits/<kit>/skills/ak-<x>` is published as `@bestagentkits/<x>` (the `ak-`
+   prefix is dropped), at the `version` of `kits/<kit>/kit.yaml`; the workflow
+   refuses a different version. `@agentkit/*` and `ak-`/`ak:` slugs stay
+   reserved (`403 identity.reserved_publisher` / `identity.reserved_alias`):
+   the signed `skillx.release/v1` manifest cannot carry kit provenance, and
+   AgentKit refuses SkillX releases under `@agentkit`. AgentKit references
+   these releases as `skillx:bestagentkits/<x>`. The release is the skill
+   directory byte for byte, so its `releaseDigest` equals the
+   `agentkit.skill-tree/v1` digest AgentKit computes for that directory.
 
 Rollback: revoke trusted publishers (`POST .../trusted-publishers/{id}/revoke`),
 unset `SKILLX_TOKEN_SECRET` (all outstanding `sxo_` and download tokens stop
