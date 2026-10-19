@@ -82,7 +82,8 @@ afterAll(() => {
   if (root) rmSync(root, { recursive: true, force: true });
 });
 
-describe("built cli", () => {
+// Each case spawns Node one or more times; under a full parallel run that can pass the 5s default.
+describe("built cli", { timeout: 30_000 }, () => {
   it("keeps the runtime dependencies of bundled workspace packages external", () => {
     const bundledDeps = Object.keys(readJson(join(CLI_DIR, "..", "skill-tree", "package.json")).dependencies ?? {});
     expect(Object.keys(MANIFEST.dependencies)).toEqual(expect.arrayContaining(bundledDeps));
