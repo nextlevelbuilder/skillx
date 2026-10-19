@@ -5,7 +5,7 @@ vi.mock('../utils/config-store.js', () => ({
   getBaseUrl: () => 'https://skillx.test',
 }));
 
-import { kitApi } from './kit-api.js';
+import { KitApiDisabledError, kitApi } from './kit-api.js';
 import { ApiError } from './api-client.js';
 
 let calls: Array<{ url: string; method: string; body: unknown; auth: string | null }>;
@@ -53,6 +53,24 @@ describe('kit API client', () => {
     expect(() => kitApi.get('../etc')).toThrow(/invalid kit name/);
     reply = () => new Response(JSON.stringify({ error: { code: 'kit.generation_conflict' } }), { status: 409 });
     await expect(kitApi.get('@alpha/my-kit')).rejects.toBeInstanceOf(ApiError);
-    expect(calls).toHaveLength(1);
+    await expect(kitApi.get('@alpha/my-kit')).rejects.not.toBeInstanceOf(KitApiDisabledError);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('reports a deployment with the kit API off as unsupported, not as a missing kit', async () => {
+    reply = () => new Response(JSON.stringify({ error: { code: 'kit.api_disabled', message: 'personal kits are not enabled' } }), { status: 404 });
+    const err = await kitApi.storeRevision('@alpha/my-kit', {}, 0, 'idem-key-0005').catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(KitApiDisabledError);
+    expect(err).toBeInstanceOf(ApiError);
+    expect(err).toMatchObject({ status: 404, code: 'kit.api_disabled' });
+    expect((err as Error).message).toMatch(/does not offer personal kits yet/);
+    expect((err as Error).message).toMatch(/local kits are unaffected/);
+
+    // A plain 404 (an unknown or foreign kit) stays an ordinary API error.
+    reply = () => new Response(JSON.stringify({ error: { code: 'not_found' } }), { status: 404 });
+    const missing = await kitApi.get('@alpha/my-kit').catch((e: unknown) => e);
+    expect(missing).toBeInstanceOf(ApiError);
+    expect(missing).not.toBeInstanceOf(KitApiDisabledError);
+    expect(missing).toMatchObject({ status: 404, code: 'not_found' });
   });
 });
