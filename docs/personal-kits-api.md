@@ -11,8 +11,11 @@ without an explicit user approval.
 - Mount: `/api/v1/kits/@{handle}/{name}[/...]`. Source:
   `apps/web/app/routes/api.v1.kits.ts` and `apps/web/app/lib/personal-kits/`.
 - Feature flag: `SKILLX_PERSONAL_KITS_API` (`"1"` enables it). While it is off,
-  every path returns the JSON 404. Reading base releases also needs the release
-  stack (`SKILLX_RELEASES_API`, D1, R2).
+  every path returns the JSON 404 `kit.api_disabled`, before any
+  authentication or lookup, so a client can say "this deployment does not offer
+  personal kits" instead of "no such kit". Reading base releases also needs the
+  release stack (`SKILLX_RELEASES_API`, D1, R2). Enabling and rolling back are
+  in [Enablement and rollback](#enablement-and-rollback).
 - Wire formats: `packages/contracts/src/personal-kit/`. The golden vector
   `packages/contracts/src/fixtures/personal-kit-golden.json` must re-derive byte for byte on both the
   SkillX (TypeScript) and AgentKit (Go) sides.
@@ -527,6 +530,31 @@ quarantined), `reviewed` moves only to `quarantined`, nothing returns to
 with the owner's consent proof in `approval_json`, which is never cleared. It never holds transcripts, prompts, environment
 or file content. Its rollback SQL is in its header.
 
+## Enablement and rollback
+
+The flag is the only switch; enabling it runs no migration (`0015` and `0016`
+are applied with the rest) and touches no existing data. The production value
+in `apps/web/wrangler.jsonc` stays `"0"` until an operator turns it on.
+
+1. Turn it on for one environment (`SKILLX_PERSONAL_KITS_API` = `"1"`) and
+   deploy that environment.
+2. Run the enablement smoke against it with a throwaway owner account that
+   holds a published base skill:
+   `SKILLX_SMOKE_OWNER_KEY=... SKILLX_SMOKE_OTHER_KEY=... node scripts/smoke-personal-kits.mjs --base <url> --allow-remote --handle <owner handle> --base-skill @pub/slug@version`.
+   It stores one private kit `@handle/smoke-<random>`, checks 401 for
+   anonymous, idempotent replay, 412 on a stale `If-Match`, activation, the lock
+   read-back and 404 for another account, and prints a JSON receipt (no keys).
+   Exit 2 means the deployment still answers `kit.api_disabled`.
+3. Roll back by setting the flag to `"0"` and redeploying. Every kit path then
+   answers 404 `kit.api_disabled` again; stored revisions, locks and audit rows
+   stay in D1 untouched and come back unchanged when the flag returns. Clients
+   keep their local kits: AgentKit maps `kit.api_disabled` to "unsupported"
+   (exit 2) and never treats it as a deleted kit.
+
+`apps/web/tests/personal-kits/kit-enablement-smoke.test.ts` runs the same
+smoke against the real route modules over the in-memory test D1/R2; it proves
+the smoke and the flag-off answer, not a deployment.
+
 ## Error codes
 
 | Code | Status |
@@ -538,4 +566,5 @@ or file content. Its rollback SQL is in its header.
 | `kit.invalid`, `overlay.invalid`, `schema.unsupported_version`, `kit.duplicate_identity`, `kit.mode_violation`, `kit.alias_collision`, `overlay.shared_alias`, `identity.reserved_alias`, `kit.request_too_large`, `kit.cycle`, `kit.multi_parent`, `kit.public_derivative_forbidden`, `kit.base_unavailable` (409 when resolving a conflict) | 422 |
 | `kit.publisher_not_owned` | 403 |
 | `invalid_request` (malformed body, ids, updates or `If-Match`) | 400 |
-| `not_found` (flag off, not the owner, unknown id) | 404 |
+| `kit.api_disabled` (flag off, on every path) | 404 |
+| `not_found` (not the owner, unknown id) | 404 |
