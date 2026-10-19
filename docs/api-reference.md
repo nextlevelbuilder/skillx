@@ -1454,7 +1454,9 @@ not_found` while off; other methods `405 method_not_allowed`), same admin
 secret check and same `RELEASE_WRITE_LIMITER` counting as a state change
 (client IP first, then `user:admin`, before the body is read). Without
 `X-Admin-Secret` an account (unscoped key or session) is `403
-publisher.admin_only`; no credentials at all is `401 auth.required`.
+publisher.admin_only`; no credentials at all is `401 auth.required`. A
+request with neither `Authorization` nor `X-Admin-Secret` from another origin
+is `403 cross_origin` before either check.
 
 **Request**: `Content-Type: application/json`, at most 4 KiB:
 
@@ -1488,7 +1490,7 @@ the same batch: `subject_kind` `publisher`, actor `admin`, `from_state`
 `none`, `to_state` `active`, outcome `applied`.
 
 **Errors**: `400 invalid_request`, `401 auth.required` / `invalid_api_key` /
-`invalid_admin_secret`, `403 publisher.admin_only`, `404 not_found` (API
+`invalid_admin_secret`, `403 publisher.admin_only` / `cross_origin`, `404 not_found` (API
 disabled) / `user.not_found`, `409 publisher.conflict`, `413
 request_too_large`, `415 unsupported_media_type`, `429 rate_limited`, `500
 release.internal_error`, `503 rate_limit_unavailable` (an account request

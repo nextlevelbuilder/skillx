@@ -25,6 +25,7 @@ import { ReleaseHttpError, errorResponse, notFoundResponse, releaseError } from 
 import { releasesApiEnabled } from "./release-limits";
 import { RELEASE_WRITE_RATE_WINDOW_SECONDS, checkReleaseRateLimit, rateLimitCaller } from "./release-rate-limit";
 import { resolveViewer } from "./release-read";
+import { invalidRequest, readJsonObject } from "./release-json-body";
 import { crossOriginRefusal } from "~/lib/auth/same-origin";
 import { PUBLISHER_STATES, transitionPublisher, transitionRelease } from "./release-transitions";
 import type { PublisherState, TransitionActor } from "./release-transitions";
@@ -32,8 +33,6 @@ import type { PublisherState, TransitionActor } from "./release-transitions";
 /** `ADMIN_SECRET` is typed as set (workers/app.ts) but may be missing at runtime; then no admin exists. */
 export type ReleaseStateEnv = Env;
 
-/** Largest accepted request body; a reason is at most 512 UTF-8 bytes. */
-export const MAX_STATE_BODY_BYTES = 4096;
 const BODY_FIELDS: ReadonlySet<string> = new Set(["from", "to", "reason"]);
 /** A publisher handle as stored in `publishers.handle`: lowercase, without the `@`. */
 const HANDLE_SOURCE = "[a-z0-9][a-z0-9._-]{0,63}";
@@ -43,8 +42,7 @@ export const BARE_PUBLISHER_HANDLE = new RegExp(`^${HANDLE_SOURCE}$`);
 /** Control, format (bidi included), line/paragraph separator and lone surrogate characters. */
 const FORBIDDEN_REASON = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}\p{Cs}]/u;
 export const NO_STORE = { "Cache-Control": "no-store" };
-
-export const invalidRequest = (message: string) => releaseError(400, "invalid_request", message);
+export { MAX_STATE_BODY_BYTES, invalidRequest, readJsonObject } from "./release-json-body";
 
 async function sha256(text: string): Promise<Uint8Array> {
   return new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
@@ -70,36 +68,6 @@ export async function resolveActor(request: Request, env: ReleaseStateEnv): Prom
   return { kind: "user", id: userId };
 }
 
-async function readCappedText(request: Request, maxBytes: number): Promise<string> {
-  const type = (request.headers.get("Content-Type") ?? "").split(";")[0]!.trim().toLowerCase();
-  if (type !== "application/json") throw releaseError(415, "unsupported_media_type", "body must be application/json");
-  const tooLarge = () => releaseError(413, "request_too_large", `body exceeds ${maxBytes} bytes`);
-  if (Number(request.headers.get("Content-Length") ?? "0") > maxBytes) throw tooLarge();
-  if (request.body === null) throw invalidRequest("body is required");
-  const reader = request.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (let next = await reader.read(); !next.done; next = await reader.read()) {
-    total += next.value.length;
-    if (total > maxBytes) {
-      await reader.cancel().catch(() => undefined);
-      throw tooLarge();
-    }
-    chunks.push(next.value);
-  }
-  const bytes = new Uint8Array(total);
-  let at = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, at);
-    at += chunk.length;
-  }
-  try {
-    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
-  } catch {
-    throw invalidRequest("body must be UTF-8 JSON");
-  }
-}
-
 /** An optional audit reason: 1 to 512 UTF-8 bytes without control, format or separator characters. */
 export function parseReason(raw: unknown): string | null {
   if (raw === undefined || raw === null) return null;
@@ -108,26 +76,6 @@ export function parseReason(raw: unknown): string | null {
   if (size === 0 || size > RELEASE_STATUS_REASON_MAX_BYTES) throw invalidRequest(`reason must be 1 to ${RELEASE_STATUS_REASON_MAX_BYTES} UTF-8 bytes`);
   if (FORBIDDEN_REASON.test(raw)) throw invalidRequest("reason must not contain control, format or line separator characters");
   return raw;
-}
-
-/**
- * Reads a capped `application/json` body that must be a JSON object holding
- * only `fields` (an unknown field is 400). Values are not checked here.
- * `maxBytes` defaults to the state API cap; other write APIs pass their own.
- */
-export async function readJsonObject(request: Request, fields: ReadonlySet<string>, maxBytes = MAX_STATE_BODY_BYTES): Promise<Record<string, unknown>> {
-  let body: unknown;
-  try {
-    body = JSON.parse(await readCappedText(request, maxBytes));
-  } catch (error) {
-    if (error instanceof ReleaseHttpError) throw error;
-    throw invalidRequest("body must be a JSON object");
-  }
-  if (typeof body !== "object" || body === null || Array.isArray(body)) throw invalidRequest("body must be a JSON object");
-  const record = body as Record<string, unknown>;
-  const unknown = Object.keys(record).filter((key) => !fields.has(key));
-  if (unknown.length > 0) throw invalidRequest(`unknown field: ${unknown.join(", ")}`);
-  return record;
 }
 
 /** Reads `{from, to, reason?}`; `from` and `to` must be states of the subject. */
