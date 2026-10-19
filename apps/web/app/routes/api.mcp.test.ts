@@ -31,6 +31,8 @@ import { MCP_PROTOCOL_VERSION, RPC } from "~/lib/mcp/protocol";
 import { MAX_MCP_BODY_BYTES } from "~/lib/mcp/request-body";
 
 const CTX = { cloudflare: { env: {} } };
+const KITS_ON = { SKILLX_PERSONAL_KITS_API: "1" };
+const GET_KIT = JSON.stringify({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "get_kit", arguments: { kit: "@a/k" } } });
 
 async function post(body: BodyInit, env: Record<string, unknown> = {}, headers: Record<string, string> = {}) {
   const response = (await action({
@@ -77,31 +79,38 @@ describe("POST /api/mcp", () => {
 
   it("resolves the caller for get_kit only, from the session or an unscoped key", async () => {
     callToolSpy.ctx.length = 0;
-    const call = JSON.stringify({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "get_kit", arguments: { kit: "@a/k" } } });
-    await post(call, {}, { Cookie: "session=abc" });
-    await post(call, {}, { Authorization: "Bearer sx_good" });
+    await post(GET_KIT, KITS_ON, { Cookie: "session=abc" });
+    await post(GET_KIT, KITS_ON, { Authorization: "Bearer sx_good" });
     expect(callToolSpy.ctx.map((ctx) => ctx.userId)).toEqual(["user-with-session", "user-with-key"]);
   });
 
   it("reports a rejected API key on get_kit as a tool error, never as anonymous", async () => {
     callToolSpy.ctx.length = 0;
-    const { response, json } = await post(
-      JSON.stringify({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "get_kit", arguments: { kit: "@a/k" } } }),
-      {},
-      { Authorization: "Bearer sx_bad" },
-    );
+    const { response, json } = await post(GET_KIT, KITS_ON, { Authorization: "Bearer sx_bad" });
     expect(response.status).toBe(200);
     expect(json.result.isError).toBe(true);
     expect(JSON.parse(json.result.content[0].text).details.code).toBe("invalid_api_key");
     expect(callToolSpy.ctx).toHaveLength(0);
   });
 
-  it("answers get_kit with feature_disabled while personal kits are off", async () => {
-    const { json } = await post(
-      JSON.stringify({ jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "get_kit", arguments: { kit: "@a/k" } } }),
-    );
+  it("answers get_kit with feature_disabled while personal kits are off, without reading credentials", async () => {
+    keySpy.mockClear();
+    const { json } = await post(GET_KIT, {}, { Authorization: "Bearer sx_bad" });
     expect(json.result.isError).toBe(true);
     expect(JSON.parse(json.result.content[0].text).details.code).toBe("feature_disabled");
+    expect(keySpy).not.toHaveBeenCalled();
+  });
+
+  it("reports an unexpected viewer failure on get_kit as internal_error, without the cause", async () => {
+    keySpy.mockImplementationOnce(async () => {
+      throw new Error("D1 exploded: secret detail");
+    });
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const { response, json } = await post(GET_KIT, KITS_ON, { Authorization: "Bearer sx_good" });
+    error.mockRestore();
+    expect(response.status).toBe(200);
+    expect(json.result.isError).toBe(true);
+    expect(JSON.parse(json.result.content[0].text)).toEqual({ error: "get_kit failed", details: { code: "internal_error" } });
   });
 
   it("returns an unknown tool as a JSON-RPC success with isError, not a transport error", async () => {

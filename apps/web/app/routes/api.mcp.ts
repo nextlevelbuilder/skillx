@@ -27,9 +27,10 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { checkReleaseRateLimit, rateLimitCaller } from "~/lib/releases/release-rate-limit";
 import { readBoundedBody, MAX_MCP_BODY_BYTES } from "~/lib/mcp/request-body";
-import { callTool, TOOL_DEFINITIONS } from "~/lib/mcp/tools";
+import { callTool, TOOL_DEFINITIONS, TOOL_INTERNAL_ERROR } from "~/lib/mcp/tools";
 import { resolveViewer } from "~/lib/releases/release-read";
 import { ReleaseHttpError } from "~/lib/releases/release-http";
+import { personalKitsApiEnabled } from "~/lib/personal-kits/kit-http";
 import {
   MCP_PROTOCOL_VERSION,
   RPC,
@@ -121,12 +122,17 @@ export async function action({ request, context }: ActionFunctionArgs) {
       // Only `get_kit` reads the caller, and only to show an owner their own kit. Every
       // other tool stays anonymous, so a credential never widens what they return.
       let userId: string | null = null;
-      if (params.name === "get_kit") {
+      // With personal kits off the tool answers `feature_disabled` without touching credentials.
+      if (params.name === "get_kit" && personalKitsApiEnabled(env as { SKILLX_PERSONAL_KITS_API?: string })) {
         try {
           userId = await resolveViewer(request, env);
         } catch (error) {
-          if (!(error instanceof ReleaseHttpError)) throw error;
-          return Response.json(rpcResult(id, errorResult(error.message, { code: error.code })), { headers: JSON_HEADERS });
+          if (error instanceof ReleaseHttpError) {
+            return Response.json(rpcResult(id, errorResult(error.message, { code: error.code })), { headers: JSON_HEADERS });
+          }
+          // Same shape as any other unexpected tool failure; the cause is only logged.
+          console.error("[mcp] get_kit viewer resolution failed", error);
+          return Response.json(rpcResult(id, errorResult("get_kit failed", { code: TOOL_INTERNAL_ERROR })), { headers: JSON_HEADERS });
         }
       }
       const result = await callTool(params.name, params.arguments, { env, userId });

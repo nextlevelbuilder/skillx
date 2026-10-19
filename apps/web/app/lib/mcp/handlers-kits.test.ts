@@ -7,7 +7,11 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const h = vi.hoisted(() => ({ kit: null as Record<string, unknown> | null, revision: null as Record<string, unknown> | null }));
+const h = vi.hoisted(() => ({
+  kit: null as Record<string, unknown> | null,
+  revision: null as Record<string, unknown> | null,
+  publisherState: "active",
+}));
 
 vi.mock("~/lib/personal-kits/kit-store", async (importOriginal) => {
   const actual = await importOriginal<typeof import("~/lib/personal-kits/kit-store")>();
@@ -20,7 +24,11 @@ vi.mock("~/lib/personal-kits/kit-store", async (importOriginal) => {
 
 import { callTool } from "./tools";
 
-const ENV = { SKILLX_PERSONAL_KITS_API: "1", DB: {} } as never;
+/** Only the publisher-state read reaches the database; kit rows come from the mocked store. */
+const DB = {
+  prepare: () => ({ bind: () => ({ first: async () => ({ state: h.publisherState }) }) }),
+};
+const ENV = { SKILLX_PERSONAL_KITS_API: "1", DB } as never;
 const OWNER = "user_owner";
 
 function kitRow(visibility: string, effective: string | null = "rev_1") {
@@ -68,6 +76,7 @@ async function getKit(userId: string | null, env = ENV, kit: unknown = "@alpha/k
 beforeEach(() => {
   h.kit = null;
   h.revision = null;
+  h.publisherState = "active";
 });
 
 describe("get_kit", () => {
@@ -83,13 +92,46 @@ describe("get_kit", () => {
     expect(body.details.code).toBe("invalid_arguments");
   });
 
-  it("returns a public, activated kit to anyone, with its document but without owner bookkeeping", async () => {
+  it.each([
+    ["an anonymous caller", null],
+    ["a signed-in stranger", "someone_else"],
+  ])("shows %s a public, activated kit as metadata and digest only", async (_label, userId) => {
     h.kit = kitRow("public");
     h.revision = revisionRow("reviewed", "public");
-    const { body } = await getKit(null);
-    expect(body).toMatchObject({ found: true, viewer: "public", kit: { kit: "@alpha/kit", visibility: "public" } });
-    expect(body.kit).not.toHaveProperty("localId");
-    expect(body.effectiveRevision.document.visibility).toBe("public");
+    const { body } = await getKit(userId);
+    expect(body).toEqual({
+      found: true,
+      viewer: "public",
+      kit: { kit: "@alpha/kit", visibility: "public" },
+      effectiveRevision: { digest: "sha256:abc", number: 1, activatedAt: new Date(0).toISOString() },
+    });
+  });
+
+  it("gives the owner of a public kit the full document", async () => {
+    h.kit = kitRow("public");
+    h.revision = revisionRow("reviewed", "public");
+    const { body } = await getKit(OWNER);
+    expect(body.viewer).toBe("owner");
+    expect(body.effectiveRevision.document).toMatchObject({ kit: "@alpha/kit", visibility: "public" });
+  });
+
+  it.each([
+    ["a stranger", "someone_else"],
+    ["the owner", OWNER],
+  ])("answers publisher_revoked to %s when the publisher is not active", async (_label, userId) => {
+    h.kit = kitRow("public");
+    h.revision = revisionRow("reviewed", "public");
+    h.publisherState = "revoked";
+    const { isError, body } = await getKit(userId);
+    expect(isError).toBe(false);
+    expect(body).toEqual({ found: false, code: "publisher_revoked", kit: "@alpha/kit" });
+  });
+
+  it("still hides a private kit of a revoked publisher from a stranger as not_found", async () => {
+    h.kit = kitRow("private");
+    h.revision = revisionRow("reviewed", "private");
+    h.publisherState = "suspended";
+    expect((await getKit("someone_else")).body.code).toBe("not_found");
   });
 
   it.each([

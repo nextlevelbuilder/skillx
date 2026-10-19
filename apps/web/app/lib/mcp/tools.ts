@@ -93,12 +93,13 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
     name: "get_kit",
     title: "Get kit",
     description:
-      "Read one personal kit (`kit` is `@handle/name`) and its effective revision document. " +
-      "Anyone can read a public kit whose effective revision was authored public and activated by " +
-      "its owner; the owner, authenticated with a web session or an unscoped API key, can also read " +
-      "their own private kit. Every other kit, drafts and proposals included, answers `found: false` " +
-      "with code `not_found`. When personal kits are turned off on this server the call fails with " +
-      "code `feature_disabled`.",
+      "Read one personal kit (`kit` is `@handle/name`) and its effective revision. The owner, " +
+      "authenticated with a web session or an unscoped API key, reads their own kit (private too) " +
+      "with the full revision document. Anyone else sees a public kit whose effective revision was " +
+      "authored public and activated by its owner as metadata and revision digest only. Every other " +
+      "kit, drafts and proposals included, answers `found: false` with code `not_found`; a suspended " +
+      "or revoked publisher answers `publisher_revoked`. When personal kits are turned off on this " +
+      "server the call fails with code `feature_disabled`.",
     inputSchema: {
       type: "object",
       properties: { kit: STRING },
