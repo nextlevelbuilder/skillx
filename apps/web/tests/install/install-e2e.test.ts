@@ -2,7 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lockDigest } from "@skillx/contracts";
-import { installRefs, listInstalled, uninstallRef } from "../../../../packages/cli/src/lib/install/install-operations";
+import { installRefs, listInstalled, uninstallRef, updateInstalled } from "../../../../packages/cli/src/lib/install/install-operations";
 import { readLockFile, writeLockFile } from "../../../../packages/cli/src/lib/install/lock-file";
 import { readReceipt, scanDir } from "../../../../packages/cli/src/lib/install/install-state";
 import { syncLocked } from "../../../../packages/cli/src/lib/install/sync-locked";
@@ -125,18 +125,34 @@ describe("installer end to end", () => {
     await installRefs(ctx, ["@alpha/tools@1.0.0"]);
     expect(readReceipt(ctx.home, "claude-code", "tools")!.requiredBy).toEqual(["kit:@alpha/my-kit", "packages:@alpha/tools"]);
 
-    const kitGone = await uninstallRef(ctx, ["kit:@alpha/my-kit"]);
-    expect(kitGone.removed.map((r) => r.alias)).toEqual(["demo"]);
+    const [kitGone] = await uninstallRef(ctx, ["kit:@alpha/my-kit"]);
+    expect(kitGone!.removed.map((r) => r.alias)).toEqual(["demo"]);
     expect(existsSync(join(ctx.skillsDir, "demo"))).toBe(false);
     expect(readReceipt(ctx.home, "claude-code", "tools")!.requiredBy).toEqual(["packages:@alpha/tools"]);
 
     const tools = join(ctx.skillsDir, "tools");
     writeFileSync(join(tools, "SKILL.md"), "edited\n");
     writeFileSync(join(tools, "notes.txt"), "mine\n");
-    const gone = await uninstallRef(ctx, ["@alpha/tools"]);
-    expect(gone.removed[0]).toMatchObject({ alias: "tools", removed: ["scripts/run.sh"], keptModified: ["SKILL.md"], keptUnknown: ["notes.txt"] });
+    const [gone] = await uninstallRef(ctx, ["@alpha/tools"]);
+    expect(gone!.removed[0]).toMatchObject({ alias: "tools", removed: ["scripts/run.sh"], keptModified: ["SKILL.md"], keptUnknown: ["notes.txt"] });
     expect(scanDir(tools).map((f) => f.path)).toEqual(["SKILL.md", "notes.txt"]);
     expect(readReceipt(ctx.home, "claude-code", "tools")).toBeNull();
     await expect(uninstallRef(ctx, ["@alpha/tools"])).rejects.toMatchObject({ code: "not_found" });
+  });
+
+  it("gives each package of a multi-package install or a packages-lock sync its own owner", async () => {
+    const a = s.machine("a");
+    const ctx = a.context();
+    const installed = await installRefs(ctx, ["@alpha/demo@1.0.0", "@alpha/tools"]);
+    for (const alias of ["demo", "tools"]) expect(readReceipt(ctx.home, "claude-code", alias)!.requiredBy).toEqual([`packages:@alpha/${alias}`]);
+
+    const b = s.machine("b").context();
+    await syncLocked(b, installed.lock);
+    expect(readReceipt(b.home, "claude-code", "tools")!.requiredBy).toEqual(["packages:@alpha/tools"]);
+    const [updated] = await updateInstalled(b, ["@alpha/demo"]);
+    expect(updated!.items.map((i) => i.owner)).toEqual(["packages:@alpha/demo"]);
+    const gone = await uninstallRef(b, ["@alpha/demo", "@alpha/tools"]);
+    expect(gone.map((g) => g.owner)).toEqual(["packages:@alpha/demo", "packages:@alpha/tools"]);
+    expect(scanDir(b.skillsDir)).toEqual([]);
   });
 });

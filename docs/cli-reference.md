@@ -404,11 +404,16 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
   scope is a `usage_error` (pass `--lock other.json` or `--no-lock`).
 - **update** re-resolves installed sources (all, or those named) and applies the
   difference, then refreshes the lock file when its scope was updated.
-- **uninstall** drops one source (and its package from a packages lock). A skill
-  another source still needs stays. Only regular files whose SHA-256 still
-  matches the receipt are deleted; edited and unknown files are kept and
-  reported. Links are never followed: a file reached through a symlink or
-  junction is kept, and a skill directory that is itself a link is left alone.
+- **uninstall** drops a kit, a collection, or one or more packages; each
+  explicit package is its own source (`packages:@scope/name`), whether it was
+  installed alone, with others, or by `sync --locked` from a packages lock.
+  Packages are also dropped from a packages lock file. Uninstalling a kit or a
+  collection does not rewrite its lock file: the lock still describes that
+  revision and can restore it with `sync --locked`. A skill another source
+  still needs stays. Only regular files whose SHA-256 still matches the
+  receipt are deleted; edited and unknown files are kept and reported. Links
+  are never followed: a file reached through a symlink or junction is kept,
+  and a skill directory that is itself a link is left alone.
 - **sync --locked** restores exactly what a lock pins and refuses drift: a kit
   revision whose re-resolved lock digest differs, a collection revision whose
   content digest differs or whose members are not exactly the locked packages
@@ -418,7 +423,9 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
   `~/.skillx/backups/<runtime>/<alias>/<stamp>`) and installs into unowned
   directories, keeping unknown files. It never overrides a version conflict
   between two sources sharing a skill, and never installs over a skill path that
-  is a link or a file (`unowned_directory`).
+  is a link or a file (`unowned_directory`) or over a skill directory that
+  contains a symlink or junction (`contains_link`; links are never copied or
+  followed, so remove or replace them first).
 - Aliases match `^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9_-])?$` (no trailing `.`) and
   are never a Windows device name (`con`, `prn`, `aux`, `nul`, `com1`-`com9`,
   `lpt1`-`lpt9`, with or without an extension).
@@ -444,14 +451,22 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
    any file in it that neither the receipt, the new tree nor the backup
    accounts for (it appeared after the re-check) is copied to
    `~/.skillx/backups/<runtime>/<alias>/<stamp>` and reported as `displaced`
-   before the directory is deleted. A rename that Windows refuses
-   (`EPERM`/`EBUSY`) is retried with backoff, then rolled back to the old tree
-   and reported as a `conflict`. Each run first recovers interrupted journals
-   (roll back while the stage exists, roll forward once it is in place) and
-   drops `requiredBy` owners no source records any longer (removing a skill
-   left with none), so a killed run converges on rerun. One run at a time per
-   `SKILLX_HOME`: `install.lock` holds the pid, is created atomically, and is
-   taken over only when that process is gone.
+   before the directory is deleted; a link found there is removed itself (its
+   target path is saved as `<path>.link`), never followed. A rename that
+   Windows refuses (`EPERM`/`EBUSY`) is retried with backoff, then rolled back
+   to the old tree and reported as a `conflict`. If something else has taken
+   the skill path in the meantime, the old tree is not deleted: it is moved to
+   `~/.skillx/backups/<runtime>/<alias>/<stamp>-previous-tree` and listed in
+   the error's `parked` details. An old tree left in staging without a journal
+   is parked the same way. Each run first recovers interrupted journals (roll
+   back while the stage exists, roll forward once it is in place) and drops
+   `requiredBy` owners that `~/.skillx/owners/<runtime>.json` no longer
+   records, removing (with ownership proof) a skill left with none, so a
+   killed run converges on rerun. A missing owners file counts as "no owners":
+   every receipted skill is then removed on the next run, keeping edited and
+   unknown files. A corrupt owners file stops the run instead. One run at a
+   time per `SKILLX_HOME`: `install.lock` holds the pid, is created
+   atomically, and is taken over only when that process is gone.
 
 ### Trusted signing keys
 
@@ -535,7 +550,7 @@ Installer commands print a `{ok, data}` / `{ok, error}` envelope with `--json`.
 | 4 | `incompatible` | The release refuses the runtime |
 | 5 | `auth_error` | Credentials missing or rejected |
 | 6 | `network_error` | Registry unreachable |
-| 8 | `conflict` | Local edits, unowned directory, shared version, drift or stale plan |
+| 8 | `conflict` | Local edits, unowned directory, a link inside a skill, shared version, drift, stale plan, or a path in use |
 
 Code 7 is reserved for `rate_limited` in the shared CLI envelope.
 

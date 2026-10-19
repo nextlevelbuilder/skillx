@@ -59,7 +59,12 @@ export interface InstallLock {
   packages: InstallLockPackage[];
 }
 
-/** The owner key a source installs under, e.g. `kit:@alpha/my-kit`. Stable across revisions. */
+/**
+ * The owner key a source installs under, e.g. `kit:@alpha/my-kit`. Stable
+ * across revisions. Explicit packages are owned one per package
+ * (`packages:@alpha/demo`): callers split a packages lock and pass each
+ * package on its own.
+ */
 export function lockOwnerKey(source: InstallLockSource, packages: readonly InstallLockPackage[]): string {
   if (source.kind === "kit") return `kit:${source.kit}`;
   if (source.kind === "collection") return `collection:${source.collectionId}`;

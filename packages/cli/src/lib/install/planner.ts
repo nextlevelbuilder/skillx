@@ -20,6 +20,8 @@ import type { InstallReceipt, OwnersFile } from './install-state.js';
  * Files that are not owned (`unknown`) are always preserved and reported.
  * A file, symlink or junction where a skill directory belongs is always an
  * `unowned_directory` conflict: the installer never writes through a link.
+ * A symlink or junction inside the skill directory is a `contains_link`
+ * conflict, also with `--force`: links are never copied or followed.
  */
 
 export type PlanAction =
@@ -28,7 +30,7 @@ export type PlanAction =
   | { action: 'unchanged'; alias: string; package: string; version: string; compositionDigest: string; addOwner: boolean }
   | { action: 'release'; alias: string; remainingOwners: string[] }
   | { action: 'remove'; alias: string; package: string }
-  | { action: 'conflict'; alias: string; package: string; reason: 'local_modified' | 'unowned_directory' | 'shared_version'; files: string[]; owners: string[] };
+  | { action: 'conflict'; alias: string; package: string; reason: 'local_modified' | 'unowned_directory' | 'contains_link' | 'shared_version'; files: string[]; owners: string[] };
 
 export interface InstallPlan {
   runtime: string;
@@ -56,6 +58,8 @@ function planPackage(input: PlanInput, p: InstallLockPackage, receipt: InstallRe
   const base = { alias: p.alias, package: p.package, version: p.version, compositionDigest: p.compositionDigest };
   // A file, symlink or junction where the skill directory belongs is never replaced, not even with --force.
   if (local.unknown.includes('.')) return { action: 'conflict', alias: p.alias, package: p.package, reason: 'unowned_directory', files: ['.'], owners: receipt?.requiredBy ?? [] };
+  // Links inside it are never copied, carried or replaced: the user resolves them first.
+  if (local.links.length > 0) return { action: 'conflict', alias: p.alias, package: p.package, reason: 'contains_link', files: local.links, owners: receipt?.requiredBy ?? [] };
   if (receipt === null) {
     if (!local.exists) return { action: 'install', ...base, preserve: [] };
     if (!input.force) return { action: 'conflict', alias: p.alias, package: p.package, reason: 'unowned_directory', files: local.unknown, owners: [] };

@@ -1,13 +1,18 @@
 import { randomUUID } from 'node:crypto';
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { VerifiedTree } from './fetch-verify.js';
 import { conflictError } from './install-errors.js';
 import { writeJsonAtomic, writeReceipt } from './install-state.js';
+import { exists, journalDir, recoverJournals } from './journal-recovery.js';
+import type { Journal } from './journal-recovery.js';
 import type { InstallReceipt } from './install-state.js';
 import { containedPath, isRealDir, renameWithRetry } from './safe-fs.js';
 import type { RenameHooks } from './safe-fs.js';
 import { retireOld, unprovenFiles } from './tree-proof.js';
+
+export { recoverJournals } from './journal-recovery.js';
+export type { Recovery } from './journal-recovery.js';
 
 /**
  * Atomic replacement of one skill directory, recoverable after a crash at
@@ -22,11 +27,8 @@ import { retireOld, unprovenFiles } from './tree-proof.js';
  * then never deleted blindly: anything in it still unproven at retire time
  * is copied to the backup area first.
  *
- * `recoverJournals` runs before every change. While the stage still exists
- * the swap has not happened, so it rolls back (restores the old tree, drops
- * the stage); once the stage is gone the new tree is in place, so it rolls
- * forward (writes the receipt, retires the old tree). Staging entries no
- * journal names are leftovers of a crash before the journal was written.
+ * `recoverJournals` (journal-recovery.ts) runs before every change and when a
+ * rename is refused, and finishes or rolls back the transaction.
  */
 
 export type CrashPoint = 'staged' | 'journaled' | 'moved-old' | 'swapped' | 'receipt-written';
@@ -45,27 +47,17 @@ export interface TxContext {
   now: Date;
 }
 
-interface Journal {
-  schema: 'skillx.install-journal/v2';
-  alias: string;
-  target: string;
-  stage: string;
-  backup: string;
-  /** Backup area of this change: displaced files land here. */
-  saved: string;
-  previous: InstallReceipt | null;
-  receipt: InstallReceipt;
-}
-
-const journalDir = (ctx: Pick<TxContext, 'home' | 'runtime'>) => join(ctx.home, 'journal', ctx.runtime);
 const stamp = (now: Date) => now.toISOString().replace(/[:.]/g, '-');
 const savedRoot = (ctx: TxContext, alias: string) => join(ctx.home, 'backups', ctx.runtime, alias, stamp(ctx.now));
 
-function copyInto(fromRoot: string, toRoot: string, paths: readonly string[]): void {
+/** Copies regular files only: a link or other entry that appeared since the plan is a conflict, never followed. */
+function copyInto(alias: string, fromRoot: string, toRoot: string, paths: readonly string[]): void {
   for (const path of paths) {
+    const from = containedPath(fromRoot, path);
+    if (!lstatSync(from).isFile()) throw conflictError(`${alias}/${path} is a link or not a regular file; nothing was replaced`, { conflicts: [{ alias, reason: 'contains_link', files: [path] }] });
     const dest = containedPath(toRoot, path);
     mkdirSync(dirname(dest), { recursive: true });
-    cpSync(containedPath(fromRoot, path), dest, { verbatimSymlinks: true });
+    cpSync(from, dest);
   }
 }
 
@@ -81,14 +73,6 @@ export interface TreeChange {
   backup: readonly string[];
 }
 
-const exists = (path: string) => {
-  try {
-    lstatSync(path);
-    return true;
-  } catch {
-    return false;
-  }
-};
 
 export function applyTreeChange(ctx: TxContext, change: TreeChange): { backupDir: string | null; preserved: string[]; displaced: string[] } {
   const hit = (point: CrashPoint) => ctx.hooks?.at?.(point, change.alias);
@@ -108,8 +92,13 @@ export function applyTreeChange(ctx: TxContext, change: TreeChange): { backupDir
   const releasePaths = new Set(change.tree.files.map((f) => f.path));
   const preserved = change.preserve.filter((p) => !releasePaths.has(p));
   const toBackUp = [...change.backup, ...change.preserve.filter((p) => releasePaths.has(p))];
-  if (toBackUp.length > 0) copyInto(target, saved, toBackUp);
-  copyInto(target, stage, preserved);
+  try {
+    if (toBackUp.length > 0) copyInto(change.alias, target, saved, toBackUp);
+    copyInto(change.alias, target, stage, preserved);
+  } catch (error) {
+    rmSync(stage, { recursive: true, force: true });
+    throw error;
+  }
   hit('staged');
 
   const drift = unprovenFiles({ dir: target, previous: change.previous, carried: stage, saved });
@@ -123,13 +112,14 @@ export function applyTreeChange(ctx: TxContext, change: TreeChange): { backupDir
   writeJsonAtomic(journalPath, journal);
   hit('journaled');
   const busy = (error: unknown): never => {
+    let parked: Array<{ alias: string; savedTo: string }> = [];
     try {
-      recoverJournals(ctx);
+      parked = recoverJournals(ctx).parked;
     } catch {
       // The journal stays; the next run recovers.
     }
     const code = (error as NodeJS.ErrnoException).code ?? 'unknown';
-    throw conflictError(`${target} is in use (${code}); close programs using it and run again`, { alias: change.alias, code });
+    throw conflictError(`${target} is in use (${code}); close programs using it and run again`, { alias: change.alias, code, parked });
   };
   try {
     if (exists(target)) renameWithRetry(target, backup, ctx.hooks);
@@ -148,49 +138,4 @@ export function applyTreeChange(ctx: TxContext, change: TreeChange): { backupDir
   const displaced = retireOld({ dir: backup, previous: change.previous, carried: target, saved });
   rmSync(journalPath, { force: true });
   return { backupDir: existsSync(saved) ? saved : null, preserved, displaced };
-}
-
-export interface Recovery {
-  rolledBack: string[];
-  rolledForward: string[];
-  sweptStaging: number;
-}
-
-export function recoverJournals(ctx: Pick<TxContext, 'home' | 'runtime' | 'stagingDir' | 'hooks'>): Recovery {
-  const result: Recovery = { rolledBack: [], rolledForward: [], sweptStaging: 0 };
-  const dir = journalDir(ctx);
-  const referenced = new Set<string>();
-  for (const name of existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith('.json')) : []) {
-    const path = join(dir, name);
-    let journal: Journal;
-    try {
-      journal = JSON.parse(readFileSync(path, 'utf8')) as Journal;
-    } catch {
-      // A journal is written atomically, so an unreadable one is a temp leftover.
-      rmSync(path, { force: true });
-      continue;
-    }
-    if (exists(journal.stage)) {
-      if (!exists(journal.target) && exists(journal.backup)) renameWithRetry(journal.backup, journal.target, ctx.hooks);
-      rmSync(journal.stage, { recursive: true, force: true });
-      result.rolledBack.push(journal.alias);
-    } else if (exists(journal.target)) {
-      writeReceipt(ctx.home, journal.receipt);
-      retireOld({ dir: journal.backup, previous: journal.previous ?? null, carried: journal.target, saved: journal.saved });
-      result.rolledForward.push(journal.alias);
-    } else if (exists(journal.backup)) {
-      renameWithRetry(journal.backup, journal.target, ctx.hooks);
-      result.rolledBack.push(journal.alias);
-    }
-    referenced.add(journal.stage).add(journal.backup);
-    rmSync(path, { force: true });
-  }
-  for (const name of existsSync(ctx.stagingDir) ? readdirSync(ctx.stagingDir) : []) {
-    const path = join(ctx.stagingDir, name);
-    if (referenced.has(path)) continue;
-    rmSync(path, { recursive: true, force: true });
-    result.sweptStaging += 1;
-  }
-  for (const name of existsSync(dir) ? readdirSync(dir).filter((n) => n.endsWith('.tmp')) : []) rmSync(join(dir, name), { force: true });
-  return result;
 }

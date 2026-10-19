@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CrashPoint } from "../../../../packages/cli/src/lib/install/apply-transaction";
@@ -86,6 +86,63 @@ describe("a skill directory held open by another program", () => {
     expect(readReceipt(plain.home, "claude-code", "demo")!.version).toBe("1.0.0");
     expect(existsSync(join(plain.home, "journal", "claude-code", "demo.json"))).toBe(false);
     expect(readdirSync(plain.stagingDir)).toEqual([]);
+  });
+
+  it("parks the old tree in the backups when something else takes its place", async () => {
+    const m = s.machine("reappears");
+    const ctx = m.context();
+    await installRefs(ctx, ["@alpha/demo@1.0.0"]);
+    const target = join(ctx.skillsDir, "demo");
+    writeFileSync(join(target, "my-notes.md"), "mine\n");
+    const racing = m.context({
+      force: true,
+      hooks: {
+        rename: (from, to) => {
+          if (to !== target) return renameSync(from, to);
+          mkdirSync(target, { recursive: true });
+          writeFileSync(join(target, "editor.tmp"), "editor\n");
+          throw Object.assign(new Error("not permitted"), { code: "EPERM" });
+        },
+      },
+    });
+    const error = await installRefs(racing, ["@alpha/demo@2.0.0"]).catch((e) => e);
+    expect(error).toMatchObject({ code: "conflict" });
+    const [parked] = error.details.parked as Array<{ alias: string; savedTo: string }>;
+    expect(parked!.alias).toBe("demo");
+    expect(paths(parked!.savedTo)).toEqual(["SKILL.md", "my-notes.md", "old-only.md"]);
+    expect(paths(target)).toEqual(["editor.tmp"]);
+    expect(readdirSync(ctx.stagingDir)).toEqual([]);
+    expect(existsSync(join(ctx.home, "journal", "claude-code", "demo.json"))).toBe(false);
+  });
+});
+
+describe("links inside a skill directory", () => {
+  it("is a conflict even with --force, and nothing is copied through it", async () => {
+    const m = s.machine("inner-link");
+    const ctx = m.context();
+    await installRefs(ctx, ["@alpha/demo@1.0.0"]);
+    mkdirSync(join(m.root, "outside"));
+    writeFileSync(join(m.root, "outside", "private.md"), "private\n");
+    symlinkSync(join(m.root, "outside"), join(ctx.skillsDir, "demo", "refs"), "junction");
+    await expect(installRefs(m.context({ force: true }), ["@alpha/demo@2.0.0"])).rejects.toMatchObject({
+      code: "conflict",
+      details: { conflicts: [expect.objectContaining({ alias: "demo", reason: "contains_link", files: ["refs"] })] },
+    });
+    expect(readReceipt(ctx.home, "claude-code", "demo")!.version).toBe("1.0.0");
+  });
+
+  it("removes a link that appears after the final check without following it", async () => {
+    const m = s.machine("late-link");
+    const ctx = m.context();
+    await installRefs(ctx, ["@alpha/demo@1.0.0"]);
+    mkdirSync(join(m.root, "outside"));
+    writeFileSync(join(m.root, "outside", "private.md"), "private\n");
+    const late = m.context({ hooks: { at: at("journaled", () => symlinkSync(join(m.root, "outside"), join(ctx.skillsDir, "demo", "refs"), "junction")) } });
+    const change = (await installRefs(late, ["@alpha/demo@2.0.0"])).applied[0]!.changed[0]!;
+    expect(change.displaced).toEqual(["refs"]);
+    expect(readFileSync(join(change.backupDir!, "refs.link"), "utf8").trim()).not.toBe("");
+    expect(readFileSync(join(m.root, "outside", "private.md"), "utf8")).toBe("private\n");
+    expect(existsSync(join(ctx.home, "journal", "claude-code", "demo.json"))).toBe(false);
   });
 });
 

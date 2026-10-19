@@ -74,31 +74,40 @@ export async function applyPlanned(ctx: InstallContext, make: () => Promise<Sour
 
 export const installRefs = (ctx: InstallContext, refs: readonly string[], expectDigest?: string) => applyPlanned(ctx, () => planRefs(ctx, refs), expectDigest);
 
-/** The owner key a ref installs under. */
-export function ownerOfRef(refs: readonly string[]): string {
+/**
+ * The owner keys refs install under: one for a kit or a collection, one per
+ * package (`packages:@scope/name`) for explicit packages, as `ownedLocks`
+ * splits them, so each package is updated and uninstalled on its own.
+ */
+export function ownersOfRefs(refs: readonly string[]): string[] {
   const ref = parseRefs(refs);
-  if (ref.kind === 'kit') return `kit:${ref.kit}`;
-  if (ref.kind === 'collection') return `collection:${ref.id}`;
-  if (ref.packages.length !== 1) throw new InstallError('usage_error', 'uninstall one package at a time');
-  return `packages:${ref.packages[0]!.name}`;
+  if (ref.kind === 'kit') return [`kit:${ref.kit}`];
+  if (ref.kind === 'collection') return [`collection:${ref.id}`];
+  return ref.packages.map((p) => `packages:${p.name}`);
 }
 
-export async function uninstallRef(ctx: InstallContext, refs: readonly string[]): Promise<ApplyResult> {
-  const owner = ownerOfRef(refs);
+/** Uninstalls each owner the refs name; every one must be installed, or nothing is removed. */
+export async function uninstallRef(ctx: InstallContext, refs: readonly string[]): Promise<ApplyResult[]> {
+  const owners = ownersOfRefs(refs);
   return withInstallLock(ctx, async () => {
     recover(ctx);
-    const record = readOwners(ctx.home, ctx.runtime).owners[owner];
-    if (record === undefined) throw new InstallError('not_found', `${owner} is not installed for ${ctx.runtime}`, { owner });
-    const empty = { ...record.lock, packages: [] };
-    const owned = { owner, ref: record.ref, lock: empty, overlays: new Map() };
-    return applyOwned(ctx, owned, planOwned(ctx, owned), true);
+    const records = readOwners(ctx.home, ctx.runtime).owners;
+    const missing = owners.filter((o) => records[o] === undefined);
+    if (missing.length > 0) throw new InstallError('not_found', `${missing.join(', ')} not installed for ${ctx.runtime}`, { owners: missing });
+    const results: ApplyResult[] = [];
+    for (const owner of owners) {
+      const record = records[owner]!;
+      const owned = { owner, ref: record.ref, lock: { ...record.lock, packages: [] }, overlays: new Map() };
+      results.push(await applyOwned(ctx, owned, planOwned(ctx, owned), true));
+    }
+    return results;
   });
 }
 
 /** Re-resolves the named installed sources (all when none is named) and applies the changes. */
 export async function updateInstalled(ctx: InstallContext, refs: readonly string[]): Promise<ApplyOutcome[]> {
   const records = readOwners(ctx.home, ctx.runtime).owners;
-  const wanted = refs.length > 0 ? [ownerOfRef(refs)] : Object.keys(records).sort();
+  const wanted = refs.length > 0 ? ownersOfRefs(refs) : Object.keys(records).sort();
   const outcomes: ApplyOutcome[] = [];
   for (const owner of wanted) {
     const record = records[owner];

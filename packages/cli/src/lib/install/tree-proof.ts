@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, rmSync } from 'node:fs';
+import { cpSync, existsSync, lstatSync, mkdirSync, readlinkSync, rmdirSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { scanDir } from './install-state.js';
 import type { InstallReceipt } from './install-state.js';
@@ -31,20 +31,43 @@ export function unprovenFiles(input: ProofInput): string[] {
     .map((f) => f.path);
 }
 
+/** Removes a link (symlink or junction) itself, never what it points to. */
+function unlinkEntry(path: string): void {
+  try {
+    unlinkSync(path);
+  } catch {
+    rmdirSync(path); // a Windows junction or directory symlink
+  }
+}
+
 /**
  * Drops the old directory after a swap. Unproven files are first copied to
  * the backup root (next to any earlier copy of the same path, as
  * `<path>.displaced`), so a file that appeared after the last check is never
- * deleted. Returns the paths it saved.
+ * deleted. A link is never followed: its target path is saved as
+ * `<path>.link` and the link itself is removed. Returns the paths it saved.
  */
 export function retireOld(input: ProofInput): string[] {
   if (!existsSync(input.dir)) return [];
   const displaced = unprovenFiles(input);
   for (const path of displaced) {
-    let dest = containedPath(input.saved, path);
+    const from = containedPath(input.dir, path);
+    const isLink = !lstatSync(from).isFile();
+    let dest = containedPath(input.saved, path) + (isLink ? '.link' : '');
     if (existsSync(dest)) dest = `${dest}.displaced`;
     mkdirSync(dirname(dest), { recursive: true });
-    cpSync(containedPath(input.dir, path), dest, { verbatimSymlinks: true });
+    if (!isLink) {
+      cpSync(from, dest);
+      continue;
+    }
+    let pointsTo = '';
+    try {
+      pointsTo = readlinkSync(from);
+    } catch {
+      // another special entry: there is no target to record
+    }
+    writeFileSync(dest, `${pointsTo}\n`);
+    unlinkEntry(from);
   }
   rmSync(input.dir, { recursive: true, force: true });
   return displaced;

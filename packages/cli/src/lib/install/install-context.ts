@@ -85,7 +85,10 @@ export async function withInstallLock<T>(ctx: InstallContext, run: () => Promise
         if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
         if (attempt >= 2) throw busy('a process that keeps taking the lock');
       }
-      const holder = Number.parseInt(readText(path), 10);
+      const text = readText(path);
+      // Released between our link attempt and this read: try again.
+      if (text === '') continue;
+      const holder = Number.parseInt(text, 10);
       if (!Number.isSafeInteger(holder)) throw busy(`unknown; remove ${path} if no skillx command is running`);
       if (alive(holder)) throw busy(`pid ${holder}`);
       const stale = `${path}.stale.${randomUUID()}`;

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { INSTALL_LOCK_FILENAME } from '@skillx/contracts';
-import { installRefs, listInstalled, ownerOfRef, planRefs, uninstallRef, updateInstalled } from '../lib/install/install-operations.js';
+import { installRefs, listInstalled, ownersOfRefs, planRefs, uninstallRef, updateInstalled } from '../lib/install/install-operations.js';
 import type { ApplyOutcome } from '../lib/install/install-operations.js';
 import { usageError } from '../lib/install/install-errors.js';
 import { planLocked, syncLocked } from '../lib/install/sync-locked.js';
@@ -52,7 +52,7 @@ export const installCommand = withCommon(new Command('install'))
         const ctx = contextFrom(options);
         if (options.dryRun) return { dryRun: true as const, ...(await planRefs(ctx, refs)) };
         const path = options.lock === false ? null : (options.lock ?? INSTALL_LOCK_FILENAME);
-        if (path !== null) assertLockScope(path, parseRefs(refs).kind === 'packages' ? 'packages' : ownerOfRef(refs));
+        if (path !== null) assertLockScope(path, parseRefs(refs).kind === 'packages' ? 'packages' : ownersOfRefs(refs)[0]!);
         const outcome = await installRefs(ctx, refs);
         const lockPath = path === null ? null : writeLockFile(path, mergeLock(existingLock(path), outcome.lock));
         return { ...outcome, lockPath };
@@ -93,20 +93,25 @@ export const uninstallCommand = withCommon(new Command('uninstall'))
     runInstaller(
       options,
       async () => {
-        const result = await uninstallRef(contextFrom(options), refs);
+        const results = await uninstallRef(contextFrom(options), refs);
         const ref = parseRefs(refs);
-        const lockPath = options.lock === false || ref.kind !== 'packages' ? null : dropFromLockFile(options.lock ?? INSTALL_LOCK_FILENAME, ref.packages[0]!.name);
-        return { ...result, lockPath };
-      },
-      (result) => {
-        for (const c of result.changed) console.log(`  ${chalk.dim('released')} ${c.alias}`);
-        for (const r of result.removed) {
-          console.log(`  ${chalk.green('removed')}  ${r.alias}`);
-          const kept = [...r.keptModified, ...r.keptUnknown];
-          if (kept.length > 0) console.log(chalk.yellow(`    kept ${kept.join(', ')}`));
+        let lockPath: string | null = null;
+        if (options.lock !== false && ref.kind === 'packages') {
+          for (const p of ref.packages) lockPath = dropFromLockFile(options.lock ?? INSTALL_LOCK_FILENAME, p.name) ?? lockPath;
         }
-        if (result.lockPath) console.log(chalk.dim(`\nlock updated: ${result.lockPath}`));
-        console.log(chalk.green(`\n✓ ${result.owner} uninstalled`));
+        return { uninstalled: results, lockPath };
+      },
+      (data) => {
+        for (const result of data.uninstalled) {
+          for (const c of result.changed) console.log(`  ${chalk.dim('released')} ${c.alias}`);
+          for (const r of result.removed) {
+            console.log(`  ${chalk.green('removed')}  ${r.alias}`);
+            const kept = [...r.keptModified, ...r.keptUnknown];
+            if (kept.length > 0) console.log(chalk.yellow(`    kept ${kept.join(', ')}`));
+          }
+          console.log(chalk.green(`✓ ${result.owner} uninstalled`));
+        }
+        if (data.lockPath) console.log(chalk.dim(`\nlock updated: ${data.lockPath}`));
       },
     ),
   );

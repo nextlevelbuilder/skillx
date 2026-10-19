@@ -139,6 +139,8 @@ export interface LocalState {
   missing: string[];
   /** Files the receipt does not list (all files when there is no receipt). */
   unknown: string[];
+  /** Symlinks, junctions and other entries that are not regular files or directories. */
+  links: string[];
 }
 
 export function inspectLocal(dir: string, receipt: InstallReceipt | null): LocalState {
@@ -146,11 +148,13 @@ export function inspectLocal(dir: string, receipt: InstallReceipt | null): Local
   try {
     isDir = lstatSync(dir).isDirectory();
   } catch {
-    return { exists: false, modified: [], missing: receipt?.files.map((f) => f.path) ?? [], unknown: [] };
+    return { exists: false, modified: [], missing: receipt?.files.map((f) => f.path) ?? [], unknown: [], links: [] };
   }
   // A file or link where the skill directory belongs is never ours to replace.
-  if (!isDir) return { exists: true, modified: [], missing: [], unknown: ['.'] };
-  const local = new Map(scanDir(dir).map((f) => [f.path, f.sha256]));
+  if (!isDir) return { exists: true, modified: [], missing: [], unknown: ['.'], links: ['.'] };
+  const files = scanDir(dir);
+  const links = files.filter((f) => f.sha256 === '').map((f) => f.path);
+  const local = new Map(files.map((f) => [f.path, f.sha256]));
   const owned = new Map((receipt?.files ?? []).map((f) => [f.path, f.sha256]));
   const modified: string[] = [];
   const missing: string[] = [];
@@ -160,5 +164,5 @@ export function inspectLocal(dir: string, receipt: InstallReceipt | null): Local
     else if (now !== sha) modified.push(path);
   }
   const unknown = [...local.keys()].filter((p) => !owned.has(p));
-  return { exists: true, modified, missing, unknown };
+  return { exists: true, modified, missing, unknown, links };
 }
