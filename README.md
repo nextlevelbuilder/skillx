@@ -144,7 +144,7 @@ wrangler vectorize create skillx-skills
 # Deploy
 cd apps/web
 pnpm build
-wrangler deploy --env production
+wrangler deploy
 
 # Seed production data
 curl https://skillx.sh/api/admin/seed

@@ -4,7 +4,7 @@
  * Order (each step rejects before any later one runs):
  * name and reserved namespaces -> scoped key and publisher ownership ->
  * signing key -> metadata -> capped upload -> tar read with limits and tree
- * digest -> version conflict -> exec manifest -> scan -> signed manifest -> R2 artifact, blobs
+ * digest -> version conflict -> subrequest budget -> exec manifest -> scan -> signed manifest -> R2 artifact, blobs
  * and manifest (create-only) -> D1 row (last). Release bytes are stored
  * exactly as uploaded; nothing is sanitized.
  */
@@ -103,6 +103,10 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
   const existing = await findRelease(deps.db, name.identity, metadata.version);
   if (existing !== null) return existingOutcome(name.identity, metadata.version, existing, tree.digest);
 
+  // Budget first: an oversized publish is refused before the scan reads or the signer touches anything.
+  const blobs = [...new Map(tree.files.map((f) => [f.sha256, contents.get(f.path)!])).entries()];
+  assertSubrequestBudget(blobs.length, deps.subrequestBudget);
+
   const exec = await checkExecManifest(contents, metadata.declaredScripts);
   const scan = scanRelease(tree.files.map((f) => ({ path: f.path, bytes: contents.get(f.path)! })));
   const artifactHex = await sha256Hex(body);
@@ -135,9 +139,6 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
     throw releaseError(400, "release.invalid_metadata", `release metadata is invalid: ${detail}`);
   }
   const manifestHex = await sha256Hex(signed.bytes);
-  const blobs = [...new Map(tree.files.map((f) => [f.sha256, contents.get(f.path)!])).entries()];
-  assertSubrequestBudget(blobs.length, deps.subrequestBudget);
-
   await putCreateOnly(deps.bucket, artifactKey(artifactHex), body, {
     sha256Hex: artifactHex,
     contentType: "application/x-tar",
