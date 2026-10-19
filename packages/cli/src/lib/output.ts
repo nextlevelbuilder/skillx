@@ -25,6 +25,8 @@ export const EXIT_CODES = {
   auth: 5,
   /** The API could not be reached. */
   network: 6,
+  /** Local files block an install change (modified, unowned or shared). */
+  conflict: 7,
 } as const;
 
 export type ExitCode = (typeof EXIT_CODES)[keyof typeof EXIT_CODES];
@@ -36,6 +38,8 @@ export type CliErrorCode =
   | 'auth_error'
   | 'network_error'
   | 'api_error'
+  | 'integrity_error'
+  | 'conflict'
   | 'unexpected_error';
 
 const EXIT_BY_CODE: Record<CliErrorCode, ExitCode> = {
@@ -45,6 +49,8 @@ const EXIT_BY_CODE: Record<CliErrorCode, ExitCode> = {
   auth_error: EXIT_CODES.auth,
   network_error: EXIT_CODES.network,
   api_error: EXIT_CODES.error,
+  integrity_error: EXIT_CODES.error,
+  conflict: EXIT_CODES.conflict,
   unexpected_error: EXIT_CODES.error,
 };
 

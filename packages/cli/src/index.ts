@@ -13,6 +13,8 @@ import { validateCommand } from './commands/validate.js';
 import { createPackCommand } from './commands/pack.js';
 import { promoteCommand } from './commands/promote.js';
 import { releaseCommand } from './commands/release-publish.js';
+import { installCommand, listCommand, syncCommand, uninstallCommand, updateCommand } from './commands/install.js';
+import { mcpCommand } from './commands/mcp.js';
 
 /** Injected at build time from packages/cli/package.json by tsup (see tsup.config.ts). */
 declare const __SKILLX_VERSION__: string;
@@ -37,5 +39,6 @@ program.addCommand(createPackCommand());
 program.addCommand(publishCommand);
 program.addCommand(promoteCommand);
 program.addCommand(releaseCommand);
+for (const command of [installCommand, updateCommand, uninstallCommand, listCommand, syncCommand, mcpCommand]) program.addCommand(command);
 
 program.parse(process.argv);
