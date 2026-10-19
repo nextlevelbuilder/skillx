@@ -1131,7 +1131,7 @@ route (and to the promote route) for 15 minutes; no other route accepts it.
 The JWT must be RS256-signed by a key of
 `https://token.actions.githubusercontent.com/.well-known/jwks` (cached 10
 minutes, refetched for an unknown `kid` at most once a minute; when a refetch
-fails, keys fetched within the last 70 minutes keep verifying), have issuer
+fails, keys fetched within the last 70 minutes keep verifying and the fetch is retried at most once a minute), have issuer
 `https://token.actions.githubusercontent.com`, audience `SKILLX_OIDC_AUDIENCE`
 (default `skillx`), be unexpired (60 s skew, lifetime at most 1 hour) and carry
 `jti`, `sub`, `repository`, `repository_id`, `repository_owner_id`,

@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { action as reviewAction } from "~/routes/api.v1.release-review";
 import { loader as queueLoader } from "~/routes/api.v1.admin-quarantine";
-import { ADMIN, audit, change, envOf, expectError, publish, sql, stateOf, useStateHarness } from "./release-state-helpers";
+import { ADMIN, audit, change, envOf, expectError, holdBatches, publish, sql, stateOf, useStateHarness } from "./release-state-helpers";
 import type { Harness } from "./release-state-helpers";
 
 const session = vi.hoisted(() => ({ user: null as { id: string } | null }));
@@ -16,6 +16,10 @@ beforeEach(async () => {
   h = await useStateHarness();
   session.user = null;
   ownerKey = await h.createKey("user-a", null);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 const admin = { admin: ADMIN };
@@ -89,6 +93,25 @@ describe("quarantine review", () => {
     const published = await review({ decision: "approve", restoreTo: "published" });
     expect(published.body.state).toBe("published");
     expect(stateOf("1.0.0")).toBe("published");
+  });
+
+  it("keeps a yank when the yank and the quarantine land in the same millisecond", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-19T12:00:00Z"));
+    await publish();
+    expect((await change("@alpha/demo", "1.0.0", { from: "published", to: "yanked", reason: "owner yank" }, admin)).status).toBe(200);
+    expect((await change("@alpha/demo", "1.0.0", { from: "yanked", to: "quarantined", reason: "report" }, admin)).status).toBe(200);
+    const res = await review({ decision: "approve" });
+    expect(res.body.state).toBe("yanked");
+    expect(stateOf("1.0.0")).toBe("yanked");
+  });
+
+  it("refuses an approval when the release was quarantined again after it was read", async () => {
+    await quarantine();
+    holdBatches(1, () => sql("UPDATE package_releases SET quarantined_at = quarantined_at + 1"));
+    expectError(await review({ decision: "approve" }), 409, "state_conflict");
+    expect(stateOf("1.0.0")).toBe("quarantined");
+    expect(reviews()).toEqual([]);
   });
 
   it("answers 409 for a release that is not quarantined and writes no review", async () => {

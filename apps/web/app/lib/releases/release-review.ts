@@ -50,26 +50,26 @@ type Subject = { id: string; release_state: string; release_digest: string | nul
 type Edge = { from_state: string; to_state: string; created_at: number };
 
 /**
- * The state a quarantined release had before its latest quarantine: the start
- * of the last applied audit path into `quarantined` (one batch, so one
- * `created_at`; `yanked -> quarantined` runs through `published`). A release
- * quarantined at publish time has no such path and counts as `published`.
+ * The state a quarantined release had before its latest quarantine, read from
+ * the last two applied audit edges in write order (rowid; the table is
+ * append-only). Quarantining a yanked release is the one composite batch
+ * `yanked -> published -> quarantined`, so exactly that pair, written by one
+ * batch (same `created_at`), means `yanked`. Anything else counts as
+ * `published`, including a release quarantined at publish time.
  */
 async function stateBeforeQuarantine(db: D1Database, releaseId: string): Promise<RestoreState> {
   const { results } = await db
     .prepare(
       `SELECT from_state, to_state, created_at FROM release_state_audit
-        WHERE subject_kind = 'release' AND subject_id = ? AND outcome = 'applied' ORDER BY created_at DESC, rowid DESC LIMIT 4`,
+        WHERE subject_kind = 'release' AND subject_id = ? AND outcome = 'applied' ORDER BY rowid DESC LIMIT 2`,
     )
     .bind(releaseId)
     .all<Edge>();
-  if (results.length === 0 || results[0]!.to_state !== "quarantined") return "published";
-  let start = results[0]!;
-  for (const edge of results.slice(1)) {
-    if (edge.created_at !== start.created_at || edge.to_state !== start.from_state) break;
-    start = edge;
-  }
-  return start.from_state === "yanked" ? "yanked" : "published";
+  const [last, before] = results;
+  if (last === undefined || last.to_state !== "quarantined") return "published";
+  if (last.from_state === "yanked") return "yanked";
+  const composite = last.from_state === "published" && before?.from_state === "yanked" && before.to_state === "published" && before.created_at === last.created_at;
+  return composite ? "yanked" : "published";
 }
 
 export async function reviewRelease(

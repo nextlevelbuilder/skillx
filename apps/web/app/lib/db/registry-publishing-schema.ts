@@ -14,7 +14,10 @@ export const releasePublishIdempotency = sqliteTable(
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     expires_at: integer("expires_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (table) => [primaryKey({ columns: [table.publisher_id, table.idempotency_key] })]
+  (table) => [
+    primaryKey({ columns: [table.publisher_id, table.idempotency_key] }),
+    index("idx_release_publish_idempotency_expires").on(table.expires_at), // expired-row cleanup
+  ]
 );
 
 // Operator review decisions on quarantined releases. Append-only (triggers in the migration);
@@ -67,5 +70,8 @@ export const oidcTokenExchanges = sqliteTable(
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     token_expires_at: integer("token_expires_at", { mode: "timestamp_ms" }).notNull(),
   },
-  (table) => [index("idx_oidc_token_exchanges_trusted").on(table.trusted_publisher_id, table.created_at)]
+  (table) => [
+    index("idx_oidc_token_exchanges_trusted").on(table.trusted_publisher_id, table.created_at),
+    index("idx_oidc_token_exchanges_created").on(table.created_at), // retention cleanup
+  ]
 );

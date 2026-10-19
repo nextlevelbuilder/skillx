@@ -22,11 +22,13 @@ function base64url(bytes: Uint8Array): string {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
+/** Decodes canonical base64url only: a text whose unused trailing bits are set is refused, so one token has one spelling. */
 function fromBase64url(text: string): Uint8Array | null {
   if (!/^[A-Za-z0-9_-]*$/.test(text)) return null;
   try {
     const padded = text.replace(/-/g, "+").replace(/_/g, "/") + "=".repeat((4 - (text.length % 4)) % 4);
-    return Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+    const bytes = Uint8Array.from(atob(padded), (c) => c.charCodeAt(0));
+    return base64url(bytes) === text ? bytes : null;
   } catch {
     return null;
   }

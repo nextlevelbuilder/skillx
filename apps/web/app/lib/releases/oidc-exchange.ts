@@ -31,14 +31,13 @@ import { mintOidcPublishToken } from "./trusted-publish-token";
 
 const BODY_FIELDS: ReadonlySet<string> = new Set(["token", "publisher"]);
 const MAX_BODY_BYTES = 20 * 1024;
+/** How long an exchange row is kept; far beyond any JWT or publish token lifetime. */
+export const EXCHANGE_RETENTION_MS = 7 * 24 * 60 * 60_000;
 /**
  * Events whose workflow runs the trusted ref itself. Everything else
  * (`pull_request*`, `workflow_run`, `issue_comment`, `schedule`, ...) can run
  * a workflow on behalf of someone without write access, or on a stale ref.
  */
-/** How long an exchange row is kept; far beyond any JWT or publish token lifetime. */
-export const EXCHANGE_RETENTION_MS = 7 * 24 * 60 * 60_000;
-
 export const PUBLISH_EVENTS: ReadonlySet<string> = new Set(["push", "workflow_dispatch", "release"]);
 
 export interface OidcExchangeDeps {
@@ -81,8 +80,8 @@ export async function serveOidcExchange(request: Request, env: Env, deps: OidcEx
       fetchJwks: deps.fetchJwks,
     });
     if (!PUBLISH_EVENTS.has(claims.event_name)) {
-    throw releaseError(403, "oidc.event_forbidden", `only push, workflow_dispatch and release workflows can publish, not ${claims.event_name}`);
-  }
+      throw releaseError(403, "oidc.event_forbidden", `only push, workflow_dispatch and release workflows can publish, not ${claims.event_name}`);
+    }
 
     const publisher = await env.DB.prepare("SELECT id, state FROM publishers WHERE handle = ?").bind(handle).first<{ id: string; state: string }>();
     if (publisher === null) throw notTrusted();

@@ -60,8 +60,13 @@ describe("signed artifact download URLs", () => {
     const digest = await publish();
     const { url } = (await mint(digest)).body;
     expect((await redeem(url, new Date(Date.now() + DOWNLOAD_URL_TTL_MS + 1000))).status).toBe(404);
-    const tampered = url.replace(/.$/, (c: string) => (c === "A" ? "B" : "A"));
+    const at = url.lastIndexOf(".") + 10;
+    const tampered = url.slice(0, at) + (url[at] === "A" ? "B" : "A") + url.slice(at + 1);
     expect((await redeem(tampered)).status).toBe(404);
+    // The last of 43 MAC characters carries two unused bits; another spelling of the same MAC is refused too.
+    const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+    const respelled = url.slice(0, -1) + alphabet[alphabet.indexOf(url.at(-1)!) ^ 1];
+    expect((await redeem(respelled)).status).toBe(404);
     expect((await redeem(url, new Date(), { SKILLX_TOKEN_SECRET: "another-secret-0123456789abcdefghij" })).status).toBe(404);
     expect((await redeem(url, new Date(), {})).status).toBe(404);
   });

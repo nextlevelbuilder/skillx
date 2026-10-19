@@ -41,10 +41,12 @@ export type JwksFetcher = () => Promise<unknown>;
 const invalid = (message: string) => releaseError(401, "oidc.invalid_token", message);
 
 let cache: { keys: Map<string, CryptoKey>; fetchedAt: number } | null = null;
+let lastFailureAt: number | null = null;
 
 /** Test hook: forget the cached JWKS. */
 export function resetJwksCache(): void {
   cache = null;
+  lastFailureAt = null;
 }
 
 export const fetchGithubJwks: JwksFetcher = async () => {
@@ -72,12 +74,16 @@ async function importJwks(document: unknown): Promise<Map<string, CryptoKey>> {
 async function keyFor(kid: string, fetchJwks: JwksFetcher, now: number): Promise<CryptoKey | undefined> {
   const stale = cache === null || now - cache.fetchedAt > JWKS_TTL_MS;
   const unknownKid = cache !== null && !cache.keys.has(kid) && now - cache.fetchedAt > JWKS_MIN_REFRESH_MS;
-  if (stale || unknownKid) {
+  const usable = cache !== null && now - cache.fetchedAt <= JWKS_TTL_MS + JWKS_STALE_GRACE_MS;
+  // During a GitHub outage, retry at most once a minute and verify with the cached keys meanwhile.
+  const backingOff = usable && lastFailureAt !== null && now - lastFailureAt < JWKS_MIN_REFRESH_MS;
+  if ((stale || unknownKid) && !backingOff) {
     try {
       cache = { keys: await importJwks(await fetchJwks()), fetchedAt: now };
+      lastFailureAt = null;
     } catch (error) {
-      // A GitHub outage: keep verifying with keys fetched within the grace period.
-      if (cache === null || now - cache.fetchedAt > JWKS_TTL_MS + JWKS_STALE_GRACE_MS) throw error;
+      lastFailureAt = now;
+      if (!usable) throw error;
     }
   }
   return cache!.keys.get(kid);

@@ -144,11 +144,17 @@ describe("OIDC exchange", () => {
   it("keeps verifying with recently fetched keys while the JWKS endpoint fails", async () => {
     const at = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);
     const tokenAt = (when: Date) => jwt({ ...baseClaims(), iat: when.getTime() / 1000 - 10, nbf: when.getTime() / 1000 - 10, exp: when.getTime() / 1000 + 290 });
+    let attempts = 0;
     const down = async () => {
+      attempts += 1;
       throw new Error("GitHub is down");
     };
     await verifyGithubOidcToken(await tokenAt(NOW), { audience: "skillx", now: NOW, fetchJwks: async () => jwks });
     await expect(verifyGithubOidcToken(await tokenAt(at(30)), { audience: "skillx", now: at(30), fetchJwks: down })).resolves.toMatchObject({ repository_id: "42" });
+    await verifyGithubOidcToken(await tokenAt(at(30.5)), { audience: "skillx", now: at(30.5), fetchJwks: down });
+    expect(attempts).toBe(1);
+    await verifyGithubOidcToken(await tokenAt(at(31.5)), { audience: "skillx", now: at(31.5), fetchJwks: down });
+    expect(attempts).toBe(2);
     await expect(verifyGithubOidcToken(await tokenAt(at(120)), { audience: "skillx", now: at(120), fetchJwks: down })).rejects.toThrow("GitHub is down");
   });
 

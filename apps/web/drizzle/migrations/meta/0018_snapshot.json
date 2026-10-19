@@ -1902,6 +1902,13 @@
         }
       },
       "indexes": {
+        "idx_oidc_token_exchanges_created": {
+          "name": "idx_oidc_token_exchanges_created",
+          "columns": [
+            "created_at"
+          ],
+          "isUnique": false
+        },
         "idx_oidc_token_exchanges_trusted": {
           "name": "idx_oidc_token_exchanges_trusted",
           "columns": [
@@ -1976,7 +1983,15 @@
           "autoincrement": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "idx_release_publish_idempotency_expires": {
+          "name": "idx_release_publish_idempotency_expires",
+          "columns": [
+            "expires_at"
+          ],
+          "isUnique": false
+        }
+      },
       "foreignKeys": {},
       "compositePrimaryKeys": {
         "release_publish_idempotency_publisher_id_idempotency_key_pk": {

@@ -18,7 +18,9 @@
 --   DROP TABLE IF EXISTS trusted_publishers;
 --   DROP INDEX IF EXISTS idx_release_reviews_release;
 --   DROP TABLE IF EXISTS release_reviews;
+--   DROP INDEX IF EXISTS idx_release_publish_idempotency_expires;
 --   DROP TABLE IF EXISTS release_publish_idempotency;
+--   DROP INDEX IF EXISTS idx_oidc_token_exchanges_created;
 --   DROP INDEX IF EXISTS idx_oidc_token_exchanges_trusted;
 --   DROP TABLE IF EXISTS oidc_token_exchanges;
 --   DELETE FROM d1_migrations WHERE name = '0018_registry_publishing.sql';
@@ -33,6 +35,7 @@ CREATE TABLE `oidc_token_exchanges` (
 	`token_expires_at` integer NOT NULL
 );
 --> statement-breakpoint
+CREATE INDEX `idx_oidc_token_exchanges_created` ON `oidc_token_exchanges` (`created_at`);--> statement-breakpoint
 CREATE INDEX `idx_oidc_token_exchanges_trusted` ON `oidc_token_exchanges` (`trusted_publisher_id`,`created_at`);--> statement-breakpoint
 CREATE TABLE `release_publish_idempotency` (
 	`publisher_id` text NOT NULL,
@@ -46,6 +49,7 @@ CREATE TABLE `release_publish_idempotency` (
 	PRIMARY KEY(`publisher_id`, `idempotency_key`)
 );
 --> statement-breakpoint
+CREATE INDEX `idx_release_publish_idempotency_expires` ON `release_publish_idempotency` (`expires_at`);--> statement-breakpoint
 CREATE TABLE `release_reviews` (
 	`id` text PRIMARY KEY NOT NULL,
 	`release_id` text NOT NULL,
