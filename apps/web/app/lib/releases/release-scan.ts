@@ -48,21 +48,26 @@ function secretsInBytes(bytes: Uint8Array): Set<string> {
   for (let at = 0; at < bytes.length; at += SECRET_WINDOW) {
     // Start one byte early so a window never opens in the middle of a token and invents a `\b`.
     const start = Math.max(0, at - 1);
-    const window = byteText(bytes.subarray(start, Math.min(bytes.length, at + SECRET_WINDOW + SECRET_OVERLAP)));
+    const end = Math.min(bytes.length, at + SECRET_WINDOW + SECRET_OVERLAP);
+    const window = byteText(bytes.subarray(start, end));
     for (const { name, regex } of SECRET_PATTERNS) {
-      if (!found.has(name) && matchesBeyondLeadingByte(regex, window, start < at)) found.add(name);
+      if (!found.has(name) && matchesInsideWindow(regex, window, start < at, end < bytes.length)) found.add(name);
     }
   }
   return found;
 }
 
-/** Whether `regex` matches `window`, ignoring a match that starts at the extra leading byte. */
-function matchesBeyondLeadingByte(regex: RegExp, window: string, hasLeadingByte: boolean): boolean {
-  if (!hasLeadingByte) return regex.test(window);
+/**
+ * Whether `regex` matches `window` for real. The window edges are not file edges, so a match that
+ * starts at the extra leading byte or ends exactly at a non-final window's end could be an artifact
+ * of the cut (the edge acts as `\b`); the neighbouring window sees those bytes in context.
+ */
+function matchesInsideWindow(regex: RegExp, window: string, cutAtStart: boolean, cutAtEnd: boolean): boolean {
   const global = new RegExp(regex.source, "g");
   for (let m = global.exec(window); m !== null; m = global.exec(window)) {
-    if (m.index > 0) return true;
-    global.lastIndex = 1;
+    const artifact = (cutAtStart && m.index === 0) || (cutAtEnd && m.index + m[0].length === window.length);
+    if (!artifact) return true;
+    global.lastIndex = m.index + 1;
   }
   return false;
 }
@@ -181,8 +186,13 @@ function readText(path: string, bytes: Uint8Array): TextRead {
   }
   if (bytes.includes(0)) return { text: null, invalid: true };
   if (!isValidUtf8(bytes)) {
-    // Legacy codepage text (and licence files such as a latin-1 NOTICE) cannot be instruction-scanned, and is not hidden content.
-    return { text: null, invalid: !(LEGACY_CODEPAGE.test(path) || isLicenseFile(path, bytes)) };
+    if (LEGACY_CODEPAGE.test(path)) return { text: null, invalid: false };
+    // A latin-1 NOTICE is legitimate, but it is still scanned: decode it lossily. Markup never gets this allowance.
+    if (isLicenseFile(path, bytes) && !isMarkup(path)) {
+      const lossy = bytes.length <= MAX_SCANNED_TEXT_BYTES ? new TextDecoder("utf-8").decode(bytes) : null;
+      return { text: lossy, invalid: false };
+    }
+    return { text: null, invalid: true };
   }
   const needsText = isInstructionDocument(path, bytes) && bytes.length <= MAX_SCANNED_TEXT_BYTES;
   return { text: needsText ? new TextDecoder("utf-8").decode(bytes) : null, invalid: false };
@@ -209,8 +219,10 @@ function instructionFindings(path: string, text: string, skipSyntax: boolean): s
  * `.bat`/`.cmd`/`.csv` may use a legacy codepage, and recognizable binaries
  * under `scripts/` are not text. Instruction documents also go through the
  * SKILL.md scanner (prompt injection, invisible characters, terminal escapes,
- * shell injection); only licence files skip the shell/URL syntax rules (other
- * `.txt` files are read by agents as instructions). Instruction documents and
+ * shell injection); only licence files skip the shell/URL syntax rules, which
+ * includes licence markup such as `LICENSE.md` (other `.txt` files are read by
+ * agents as instructions). A latin-1 licence file is decoded lossily and still
+ * scanned; invalid UTF-8 in any markup file is quarantined. Instruction documents and
  * UTF-16 text above `MAX_SCANNED_TEXT_BYTES` are quarantined instead of
  * decoded whole. Any `danger` finding quarantines the release.
  */
