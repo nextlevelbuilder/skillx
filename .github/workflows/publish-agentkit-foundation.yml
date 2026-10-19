@@ -22,7 +22,13 @@
 #      and environment skillx-publish (see docs/deployment-guide.md).
 #   2. Fallback: SKILLX_AGENTKIT_PUBLISH_KEY, an API key scoped to
 #      releases:publish:@bestagentkits, stored as a skillx-publish environment
-#      secret. Used only when the OIDC exchange is refused (exit code 5).
+#      secret. Used only when the OIDC exchange is refused (exit code 5) or the
+#      registry answers oidc.unavailable.
+#
+# The CLI is built in a separate job without id-token or the environment and
+# installed here from its packed tarball with lifecycle scripts disabled.
+# Protect the skillx-publish environment: deployment branch main only and
+# required reviewers (docs/deployment-guide.md).
 # Both attempts send the same Idempotency-Key, so a retry never publishes twice.
 #
 # AGENTKIT_READ_TOKEN (optional, read-only contents access to
@@ -61,18 +67,56 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 concurrency:
   group: skillx-agentkit-foundation-${{ inputs.skill-path }}-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
-  publish:
+  # Installs and builds without id-token or the skillx-publish environment, so
+  # no dependency lifecycle script ever runs next to a publish credential.
+  build-cli:
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Build and pack the skillx CLI
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm --filter skillx-sh build
+          mkdir -p "$RUNNER_TEMP/cli"
+          pnpm --filter skillx-sh pack --pack-destination "$RUNNER_TEMP/cli"
+          mv "$RUNNER_TEMP"/cli/skillx-sh-*.tgz "$RUNNER_TEMP/cli/skillx-sh.tgz"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skillx-cli
+          path: ${{ runner.temp }}/cli/skillx-sh.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    needs: build-cli
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: skillx-publish
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - name: Validate inputs
         id: inputs
@@ -101,11 +145,6 @@ jobs:
 
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          path: skillx
-          persist-credentials: false
-
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        with:
           repository: bestagentkits/agentkit
           ref: ${{ inputs.agentkit-sha }}
           path: agentkit
@@ -113,21 +152,20 @@ jobs:
           persist-credentials: false
           token: ${{ secrets.AGENTKIT_READ_TOKEN || github.token }}
 
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
-        with:
-          package_json_file: skillx/package.json
-
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: skillx/pnpm-lock.yaml
 
-      - name: Build the skillx CLI
-        working-directory: skillx
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: skillx-cli
+          path: ${{ runner.temp }}/cli
+
+      - name: Install the skillx CLI (lifecycle scripts disabled)
         run: |
-          pnpm install --frozen-lockfile
-          pnpm --filter skillx-sh build
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/cli" --no-save --ignore-scripts --omit=dev --no-audit --no-fund "$RUNNER_TEMP/cli/skillx-sh.tgz"
+          node "$RUNNER_TEMP/cli/node_modules/skillx-sh/bin/skillx.js" --version
 
       - name: Validate and pack
         id: pack
@@ -147,7 +185,7 @@ jobs:
             kit_version="$(sed -n 's/^version:[[:space:]]*["'\'']\{0,1\}\([^"'\'' ]*\).*$/\1/p' "kits/${BASH_REMATCH[1]}/kit.yaml" | head -n 1)"
             [[ "$kit_version" == "$VERSION" ]] || { echo "::error::version $VERSION differs from kits/${BASH_REMATCH[1]}/kit.yaml version ${kit_version:-<none>}"; exit 1; }
           fi
-          cli="$GITHUB_WORKSPACE/skillx/packages/cli/bin/skillx.js"
+          cli="$RUNNER_TEMP/cli/node_modules/skillx-sh/bin/skillx.js"
           node "$cli" validate HEAD --path "$SKILL_PATH" --name "$NAME" --release-version "$VERSION" --channel "$CHANNEL" --json
           node "$cli" pack HEAD --path "$SKILL_PATH" --out "$RUNNER_TEMP/release.tar" --json > "$RUNNER_TEMP/pack.json"
           digest="$(node -e 'const r=require(process.argv[1]).data; if(!/^sha256:[0-9a-f]{64}$/.test(r.releaseDigest)) process.exit(1); process.stdout.write(r.releaseDigest)' "$RUNNER_TEMP/pack.json")"
@@ -170,21 +208,24 @@ jobs:
           PACK_DIGEST: ${{ steps.pack.outputs.release-digest }}
         run: |
           set -euo pipefail
-          cli="$GITHUB_WORKSPACE/skillx/packages/cli/bin/skillx.js"
+          cli="$RUNNER_TEMP/cli/node_modules/skillx-sh/bin/skillx.js"
           publish() {
             node "$cli" publish HEAD --path "$SKILL_PATH" --name "$NAME" --release-version "$VERSION" \
               --channel "$CHANNEL" --repo https://github.com/bestagentkits/agentkit \
               --registry https://skillx.sh --idempotency-key "$IDEMPOTENCY_KEY" --json "$@"
           }
+          registry_code() { node -e 'try { process.stdout.write(String(require(process.argv[1]).error?.details?.code ?? "")) } catch {}' "$RUNNER_TEMP/release.json"; }
           status=0
           SKILLX_API_KEY= publish --oidc > "$RUNNER_TEMP/release.json" || status=$?
-          if [[ $status -eq 5 && -n "$SKILLX_AGENTKIT_PUBLISH_KEY" ]]; then
-            echo "::warning::OIDC trusted publishing was refused; falling back to SKILLX_AGENTKIT_PUBLISH_KEY"
+          # Exit 5 is a refused exchange; a 503 oidc.unavailable (in error.details.code) is a registry without OIDC configured.
+          if [[ $status -ne 0 && -n "$SKILLX_AGENTKIT_PUBLISH_KEY" ]] && [[ $status -eq 5 || "$(registry_code)" == "oidc.unavailable" ]]; then
+            echo "::warning::OIDC trusted publishing was unavailable or refused; falling back to SKILLX_AGENTKIT_PUBLISH_KEY"
             status=0
             SKILLX_API_KEY="$SKILLX_AGENTKIT_PUBLISH_KEY" publish > "$RUNNER_TEMP/release.json" || status=$?
           fi
           if [[ $status -ne 0 ]]; then
-            node -e 'const j=require(process.argv[1]); console.log(`::error::${j.error?.code}: ${j.error?.message}`)' "$RUNNER_TEMP/release.json" || true
+            # Server text must not open or end a workflow command, so drop '::' and line breaks.
+            node -e 'const j=require(process.argv[1]); const clean=(v)=>String(v ?? "").replace(/[\r\n]+/g, " ").replace(/:{2,}/g, ":"); console.log(`::error::${clean(j.error?.details?.code ?? j.error?.code)}: ${clean(j.error?.message)}`)' "$RUNNER_TEMP/release.json" || true
             exit "$status"
           fi
           digest="$(node -e 'process.stdout.write(String(require(process.argv[1]).data.releaseDigest))' "$RUNNER_TEMP/release.json")"
