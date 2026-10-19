@@ -115,7 +115,7 @@ skillx/
 | `ratings` | id, skill_id, user_id, score, is_agent, timestamps | 0-10 scores |
 | `reviews` | id, skill_id, user_id, content, is_agent, created_at | Text feedback |
 | `favorites` | user_id, skill_id, created_at | Many-to-many bookmarks |
-| `votes` | id, skill_id, user_id, direction (up/down), created_at, updated_at | Upvote/downvote tracking (deduplicated per user) |
+| `votes` | id, skill_id, user_id, vote_type (up/down), created_at, updated_at | Upvote/downvote tracking (deduplicated per user) |
 | `installs` | id, skill_id, user_id, device_id, created_at | Install tracking (deduplicated per user/device) |
 | `usageStats` | id, skill_id, user_id, model, outcome, duration_ms, created_at | Execution tracking |
 | `apiKeys` | id, user_id, name, key_hash, key_prefix, last_used_at, revoked_at, created_at | API authentication |

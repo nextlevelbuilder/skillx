@@ -324,20 +324,22 @@ Response:
 | GET | `/api/search` | Session/Key | Search skills |
 | GET | `/api/leaderboard` | None | Leaderboard with sorting & category filter |
 | GET | `/api/skills/:slug` | None | Skill detail + references + scripts (public) |
-| GET | `/api/skills/:slug/references` | None | List skill references (NEW) |
 
-### Protected Endpoints (Session or API Key)
+### Protected Endpoints
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| POST | `/api/skills/:slug/rate` | Submit rating |
-| POST | `/api/skills/:slug/review` | Write review |
-| POST | `/api/skills/:slug/favorite` | Add/remove favorite |
-| POST | `/api/skills/:slug/vote` | Upvote/downvote skill |
-| POST | `/api/skills/:slug/install` | Track install (fire-and-forget) |
-| POST | `/api/skills/:slug/references` | Add reference to skill (NEW) |
-| POST | `/api/skills/register` | Register/publish skills from GitHub repo (validates write access) |
-| POST | `/api/report` | Report usage |
+Session-cookie mutations must come from the site's own origin
+(`crossOriginRefusal` in `app/lib/auth/same-origin.ts`); a foreign `Origin`
+gets `403` before the session is read. API-key requests are not checked.
+
+| Method | Path | Auth | Purpose |
+|--------|------|------|---------|
+| POST | `/api/skills/:slug/rate` | Session | Submit rating |
+| POST | `/api/skills/:slug/review` | Session | Write review |
+| POST | `/api/skills/:slug/favorite` | Session | Add/remove favorite |
+| POST | `/api/skills/:slug/vote` | Session | Upvote/downvote/clear vote |
+| POST | `/api/skills/:slug/install` | Optional key or `X-Device-Id` | Track install (fire-and-forget) |
+| POST | `/api/skills/register` | Session or key | Register/publish skills from GitHub repo (validates write access) |
+| POST | `/api/report` | API key | Report usage |
 
 ### User Endpoints (Session Only)
 
@@ -365,22 +367,22 @@ Response:
 ```
 User clicks up/down arrow on skill card/row
     ↓
-POST /api/skills/:slug/vote { direction: "up" | "down" }
+POST /api/skills/:slug/vote { type: "up" | "down" | "none" }
     ↓
-[Authenticate via session]
+[Same-origin check, then authenticate via session; 10 votes/min per user]
     ↓
 Check existing vote: SELECT * FROM votes WHERE user_id = ? AND skill_id = ?
     ↓
-    ├─ If exists & same direction → DELETE (toggle off)
+    ├─ type "none" → DELETE the vote if any
     │
-    └─ Otherwise → INSERT OR REPLACE vote
+    └─ Otherwise → UPDATE the existing vote_type, or INSERT a new vote
         ↓
         UPDATE skills SET
-          upvote_count = (SELECT COUNT(*) FROM votes WHERE skill_id = ? AND direction = 'up'),
-          downvote_count = (SELECT COUNT(*) FROM votes WHERE skill_id = ? AND direction = 'down'),
-          net_votes = upvote_count - downvote_count
+          upvote_count = (SELECT COUNT(*) FROM votes WHERE skill_id = ? AND vote_type = 'up'),
+          downvote_count = (SELECT COUNT(*) FROM votes WHERE skill_id = ? AND vote_type = 'down'),
+          net_votes = upvotes - downvotes
         ↓
-        Response: { direction, upvote_count, downvote_count, net_votes }
+        Response: { vote_type, net_votes }
 ```
 
 ### Scoring Impact
@@ -395,30 +397,9 @@ Check existing vote: SELECT * FROM votes WHERE user_id = ? AND skill_id = ?
 
 ### References Management (NEW)
 
-**Adding a Reference:**
-
-```
-POST /api/skills/:slug/references
-{ title, filename, url, type: "doc"|"link"|"example", content? }
-    ↓
-[Authenticate: session or API key]
-    ↓
-INSERT INTO skill_references (skill_id, title, filename, url, type, content, ...)
-    ↓
-[Optionally: index in Vectorize (title + first 100 tokens of content)]
-    ↓
-Response: { id, skill_id, title, url, type, created_at }
-```
-
-**Retrieving References:**
-
-```
-GET /api/skills/:slug/references
-    ↓
-SELECT * FROM skill_references WHERE skill_id = ? ORDER BY created_at DESC
-    ↓
-Response: [{ id, title, filename, url, type, created_at }, ...]
-```
+There is no references endpoint. References are written by admin seeding
+(`skill_references` rows) and read through `GET /api/skills/:slug`, whose
+response carries the `references` array (title, url, type).
 
 **On Skill Detail Page:**
 

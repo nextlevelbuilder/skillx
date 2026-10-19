@@ -90,16 +90,15 @@ pnpm db:migrate:remote    # Apply migrations to remote D1
 | `/api/auth/*` | auth-catchall.tsx | Better Auth |
 | `/api/search` | api.search.ts | None |
 | `/api/skills/:slug` | api.skill-detail.ts | None |
-| `/api/skills/:slug/references` | api.skill-references.ts | None (GET), Session/Key (POST) |
-| `/api/skills/:slug/rate` | api.skill-rate.ts | Session/Key |
-| `/api/skills/:slug/review` | api.skill-review.ts | Session/Key |
-| `/api/skills/:slug/favorite` | api.skill-favorite.ts | Session/Key |
+| `/api/skills/:slug/rate` | api.skill-rate.ts | Session, same-origin only |
+| `/api/skills/:slug/review` | api.skill-review.ts | None (GET), Session same-origin only (POST) |
+| `/api/skills/:slug/favorite` | api.skill-favorite.ts | Session, same-origin only |
 | `/api/skills/:slug/install` | api.skill-install.ts | Optional (API key or X-Device-Id) |
-| `/api/skills/:slug/vote` | api.skill-vote.ts | Session |
-| `/api/report` | api.usage-report.ts | Session/Key |
+| `/api/skills/:slug/vote` | api.skill-vote.ts | Session, same-origin only |
+| `/api/report` | api.usage-report.ts | API key |
 | `/api/user/api-keys` | api.user-api-keys.ts | Session |
 | `/api/user/interactions` | api.user-interactions.ts | Session (graceful fallback) |
-| `/api/skills/register` | api.skill-register.ts | Session/Key |
+| `/api/skills/register` | api.skill-register.ts | Session (same-origin only)/Key |
 | `/api/admin/seed` | api.admin.seed.ts | Admin secret |
 | `/api/v1/packages/:scope/:slug/releases` | api.v1.package-releases.ts (GET list); action re-exported from api.v1.release-publish.ts (POST publish) | GET: optional Key/Session; POST: scoped key `releases:publish:@handle` (404 unless `SKILLX_RELEASES_API` on) |
 | `/api/v1/packages/:scope/:slug/releases/:version`, `/api/v1/releases/:digest/manifest` | api.v1.release-manifest.ts | Optional Key/Session (404 unless `SKILLX_RELEASES_API` on) |
@@ -134,7 +133,7 @@ Search algorithm: `./docs/search-algorithm.md`
 
 **References & Scripts**: Stored separately — `skill_references` table for external docs/links/examples (title, filename, url, type enum, content). Scripts stored as JSON in `skills.scripts` (name, description, language, url). CLI flags: `skillx use --include-refs --include-scripts` to display.
 
-**Vote API**: POST `/api/skills/:slug/vote` with `{ direction: 'up'|'down' }`. Rate limited 10 votes/min per user. Atomic count update via SQL subquery. Bidirectional: same vote direction toggles off.
+**Vote API**: POST `/api/skills/:slug/vote` with `{ type: 'up'|'down'|'none' }` (`none` clears the vote). Rate limited 10 votes/min per user. Atomic count update via SQL subquery. Returns `{ vote_type, net_votes }`.
 
 **CLI `skillx use` resolution**: `author/skill` (two-part → DB slug `author-skill`) | `org/repo/skill` (three-part → DB slug `org-skill`, fallback register from GitHub) | `slug` (direct lookup, fallback search) | `"keywords"` (search mode). Flags: `--include-refs`, `--include-scripts` for extended content. Display logic split into `use-display.ts` module.
 
@@ -152,6 +151,7 @@ Search algorithm: `./docs/search-algorithm.md`
 - **Seed data** in `scripts/seed-data.json` (30 real skills from skills.sh). Seed via `ADMIN_SECRET=... pnpm seed`.
 - **Scoped API keys** — `api_keys.scopes` NULL = legacy key; scoped keys (`releases:publish:@handle`) work only on the release publish API. They are stored under `hashScopedApiKey` (domain-separated), so legacy routes (`authenticateApiKey`, by plain key hash) never accept them. Apply migration 0012 to remote D1 before deploying (`docs/deployment-guide.md`).
 - **Releases are byte-exact** — the release publish API (`app/lib/releases/`) never sanitizes; the scan only picks `published` vs `quarantined`. R2 writes are create-only, the D1 row is written last. See `docs/api-reference.md#publishing-releases`.
+- **Same-origin on cookie mutations** — `SameSite=Lax` alone lets a sibling subdomain ride the session cookie, so a mutation a session can authenticate must refuse a foreign origin with `crossOriginRefusal` (`app/lib/auth/same-origin.ts`) before it writes. Session-only routes (rate, review, favorite, vote, user API keys) check first; routes that also take a Bearer key check only on the session path (register after `authenticateRequest`; release state and personal kits in `resolveLimitedActor`, 403 `cross_origin`). Add the check to any new cookie-authenticated mutation.
 - **Content security scanning** — all SKILL.md content scanned for prompt injection, invisible chars, ANSI escapes, shell injection. `risk_label` column stores result ("safe"/"caution"/"danger"/"unknown"). Sanitization strips zero-width Unicode + ANSI escapes before storage.
 
 ## Deployment
@@ -173,3 +173,12 @@ Read here: `./docs/deployment-guide.md`
 ## Documentation
 
 All docs in `./docs/` — see design-guidelines.md for full UI/UX spec, code-standards.md for patterns, system-architecture.md for diagrams.
+
+## Issue Workflow
+
+Claim an issue before working on it so parallel contributors and agents do not
+collide: assign yourself and move it through the labels `in progress` → `in review`
+(code review running) → `done` (PR open) → `shipped` (merged to `main`). Search open
+and closed issues first; comment on a related or duplicate issue with a reference
+instead of starting parallel work. File an issue for an unrelated bug or gap you
+find instead of widening the current PR silently.
