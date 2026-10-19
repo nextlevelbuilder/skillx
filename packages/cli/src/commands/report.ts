@@ -1,12 +1,16 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import ora from 'ora';
-import { apiRequest, ApiError } from '../lib/api-client.js';
+import { apiRequest } from '../lib/api-client.js';
+import { CliError } from '../lib/output.js';
+import { runCommand } from '../lib/run-command.js';
 import { getApiKey } from '../utils/config-store.js';
+
+const OUTCOMES = ['success', 'failure', 'partial'] as const;
+type Outcome = (typeof OUTCOMES)[number];
 
 interface ReportPayload {
   skill_slug: string;
-  outcome: 'success' | 'failure' | 'partial';
+  outcome: Outcome;
   model?: string;
   duration_ms?: number;
 }
@@ -16,75 +20,61 @@ interface ReportResponse {
   message: string;
 }
 
+interface ReportOptions {
+  model?: string;
+  duration?: string;
+  json?: boolean;
+}
+
+/** Validates the arguments before any request, so a bad call is a usage error (exit 2). */
+export function buildReportPayload(slug: string, outcome: string, options: ReportOptions): ReportPayload {
+  if (!(OUTCOMES as readonly string[]).includes(outcome)) {
+    throw new CliError('usage_error', `Invalid outcome "${outcome}". Must be: ${OUTCOMES.join(', ')}.`, {
+      details: { outcome, allowed: OUTCOMES },
+    });
+  }
+  const payload: ReportPayload = { skill_slug: slug, outcome: outcome as Outcome };
+  if (options.model) payload.model = options.model;
+  if (options.duration !== undefined) {
+    const duration = Number(options.duration);
+    if (!Number.isFinite(duration) || duration < 0) {
+      throw new CliError('usage_error', `Invalid duration "${options.duration}". Pass milliseconds as a number.`);
+    }
+    payload.duration_ms = duration;
+  }
+  return payload;
+}
+
 export const reportCommand = new Command('report')
   .description('Report skill usage to SkillX (requires API key)')
   .argument('<slug>', 'Skill slug identifier')
   .argument('<outcome>', 'Outcome: success, failure, or partial')
   .option('-m, --model <model>', 'AI model used (e.g., claude-sonnet-4)')
-  .option('-d, --duration <ms>', 'Execution duration in milliseconds', parseFloat)
-  .action(
-    async (slug: string, outcome: string, options: { model?: string; duration?: number }) => {
-      const apiKey = getApiKey();
-      if (!apiKey) {
-        console.error(chalk.red('\n✗ API key required for reporting'));
-        console.error(
-          chalk.dim(`Configure your API key with: ${chalk.cyan('skillx config set-key')}`)
-        );
-        process.exit(1);
-      }
-
-      if (!['success', 'failure', 'partial'].includes(outcome)) {
-        console.error(chalk.red('\n✗ Invalid outcome. Must be: success, failure, or partial'));
-        process.exit(1);
-      }
-
-      const spinner = ora(`Reporting usage for ${slug}...`).start();
-
-      try {
-        const payload: ReportPayload = {
-          skill_slug: slug,
-          outcome: outcome as 'success' | 'failure' | 'partial',
-        };
-
-        if (options.model) {
-          payload.model = options.model;
+  .option('-d, --duration <ms>', 'Execution duration in milliseconds')
+  .option('--json', 'emit a machine-readable envelope instead of text')
+  .action((slug: string, outcome: string, options: ReportOptions) =>
+    runCommand(
+      {
+        json: options.json === true,
+        spinner: `Reporting usage for ${slug}...`,
+        errors: { notFoundMessage: `Skill not found: ${slug}` },
+      },
+      async () => {
+        const payload = buildReportPayload(slug, outcome, options);
+        if (!getApiKey()) {
+          throw new CliError('auth_error', 'API key required for reporting.', {
+            hint: 'Run `skillx config set-key` or set SKILLX_API_KEY.',
+          });
         }
-
-        if (options.duration !== undefined) {
-          payload.duration_ms = options.duration;
-        }
-
         const response = await apiRequest<ReportResponse>('/api/report', {
           method: 'POST',
           body: JSON.stringify(payload),
         });
-
-        spinner.stop();
-        console.log(chalk.green(`\n✓ ${response.message}`));
-        console.log(
-          chalk.dim(`Reported ${chalk.bold(outcome)} for skill: ${chalk.cyan(slug)}`)
-        );
-      } catch (error) {
-        spinner.stop();
-
-        if (error instanceof ApiError) {
-          if (error.status === 401) {
-            console.error(chalk.red('\n✗ Invalid API key'));
-            console.error(
-              chalk.dim(`Update your API key with: ${chalk.cyan('skillx config set-key')}`)
-            );
-          } else if (error.status === 404) {
-            console.error(chalk.red(`\n✗ Skill not found: ${slug}`));
-          } else {
-            console.error(chalk.red(`\n✗ API Error: ${error.message}`));
-          }
-        } else if (error instanceof Error) {
-          console.error(chalk.red(`\n✗ Network Error: ${error.message}`));
-          console.error(chalk.dim('Check your internet connection or try again later.'));
-        } else {
-          console.error(chalk.red('\n✗ An unexpected error occurred'));
-        }
-        process.exit(1);
-      }
-    }
+        return { ...payload, message: response.message };
+      },
+      (result) => {
+        console.log(chalk.green(`\n✓ ${result.message}`));
+        console.log(chalk.dim(`Reported ${chalk.bold(result.outcome)} for skill: ${chalk.cyan(result.skill_slug)}`));
+      },
+    ),
   );

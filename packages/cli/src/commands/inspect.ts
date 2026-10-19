@@ -1,9 +1,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import ora from 'ora';
 import { fetchSkillInspection } from '../lib/skill-lookup.js';
 import type { SkillInspection } from '../lib/skill-lookup.js';
-import { exitCodeFor, fromError, serialize, success } from '../lib/output.js';
+import { runCommand } from '../lib/run-command.js';
 
 interface InspectOptions {
   json?: boolean;
@@ -89,26 +88,20 @@ export const inspectCommand = new Command('inspect')
   .argument('<identifier>', 'slug, author/skill, or org/repo/skill')
   .option('--target <runtime[@version]>', 'also answer for one specific runtime')
   .option('--json', 'emit a machine-readable envelope instead of text')
-  .action(async (identifier: string, options: InspectOptions) => {
-    const useJson = options.json === true;
-    const spinner = useJson ? null : ora(`Inspecting ${identifier}...`).start();
-
-    try {
-      const { slug, inspection } = await fetchSkillInspection(identifier, options.target);
-      spinner?.stop();
-
-      const payload = { slug, skill: inspection.skill, compatibility: inspection.compatibility ?? { declared: [] } };
-      if (useJson) {
-        const envelope = success(payload);
-        console.log(serialize(envelope));
-        process.exit(exitCodeFor(envelope));
-      }
-      render(inspection, slug);
-    } catch (error) {
-      spinner?.stop();
-      const envelope = fromError(error);
-      if (useJson) console.log(serialize(envelope));
-      else console.error(chalk.red(`\n✗ ${envelope.error.message}`));
-      process.exit(exitCodeFor(envelope));
-    }
+  .action((identifier: string, options: InspectOptions) => {
+    // The envelope carries the summary payload; human text also lists references and scripts.
+    let fetched: SkillInspection | undefined;
+    return runCommand(
+      {
+        json: options.json === true,
+        spinner: `Inspecting ${identifier}...`,
+        errors: { notFoundMessage: `Skill not found: ${identifier}` },
+      },
+      async () => {
+        const { slug, inspection } = await fetchSkillInspection(identifier, options.target);
+        fetched = inspection;
+        return { slug, skill: inspection.skill, compatibility: inspection.compatibility ?? { declared: [] } };
+      },
+      (data) => render(fetched as SkillInspection, data.slug),
+    );
   });

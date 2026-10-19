@@ -8,6 +8,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
+import { COMPATIBILITY_STATUSES, isCompatibilityActionable } from "@skillx/contracts";
 
 /**
  * Smoke tests of the built CLI, run exactly the way the release ships it: `pnpm build` (tsup) and
@@ -33,6 +34,17 @@ let childEnv: NodeJS.ProcessEnv;
 /** Runs the built CLI asynchronously so an in-process stub registry can answer it. */
 async function cli(...args: string[]) {
   return execFileAsync(process.execPath, [BIN, ...args], { cwd: root, env: childEnv, encoding: "utf8" });
+}
+
+/** Runs the built CLI and keeps a non-zero exit as data, since exit codes are part of the contract. */
+async function cliExit(...args: string[]): Promise<{ code: number; stdout: string }> {
+  try {
+    const { stdout } = await cli(...args);
+    return { code: 0, stdout };
+  } catch (error) {
+    const failed = error as { code?: number; stdout?: string };
+    return { code: failed.code ?? -1, stdout: failed.stdout ?? "" };
+  }
 }
 
 beforeAll(() => {
@@ -163,5 +175,67 @@ describe("built cli", () => {
     const help = (await cli("--help")).stdout;
     for (const command of ["import", "validate", "pack", "publish", "promote", "release"]) expect(help).toContain(command);
     expect((await cli("promote", "--help")).stdout).toContain("--to <channel>");
+  });
+
+  it("inlines @skillx/contracts instead of leaving a workspace import", () => {
+    const bundle = readFileSync(BUNDLE, "utf8");
+    expect(bundle).not.toMatch(/["']@skillx\//);
+    expect(bundle).toContain("isCompatibilityActionable");
+  });
+
+  it("answers check --json for all five statuses with the contract's decision and exit code", async () => {
+    const server = createServer((req, res) => {
+      const url = new URL(String(req.url), "http://stub");
+      const status = url.pathname.replace("/api/skills/s-", "");
+      if (!(COMPATIBILITY_STATUSES as readonly string[]).includes(status)) {
+        res.writeHead(404, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ error: "not found" }));
+        return;
+      }
+      const target = { runtime: "agentkit", status, versions: null, scopes: [], requirements: [], evidence: null, reasons: [] };
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ skill: { slug: `s-${status}` }, compatibility: { declared: [], target } }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const setUrl = await cliExit("config", "set-url", `http://127.0.0.1:${port}`, "--json");
+      expect(setUrl.code).toBe(0);
+      expect(JSON.parse(setUrl.stdout)).toEqual({ ok: true, data: { baseUrl: `http://127.0.0.1:${port}` } });
+
+      for (const status of COMPATIBILITY_STATUSES) {
+        const { code, stdout } = await cliExit("check", `s-${status}`, "--target", "agentkit@1.2.0", "--json");
+        const envelope = JSON.parse(stdout) as { ok: boolean; data: { status: string; actionable: boolean } };
+        const actionable = isCompatibilityActionable(status);
+        expect(envelope).toMatchObject({ ok: true, data: { status, actionable } });
+        expect(code).toBe(actionable ? 0 : 4);
+      }
+
+      const missing = await cliExit("check", "s-nope", "--target", "agentkit", "--json");
+      expect(missing.code).toBe(3);
+      expect(JSON.parse(missing.stdout)).toMatchObject({ ok: false, error: { code: "not_found" } });
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("reports a parse error as usage_error with exit 2", async () => {
+    const { code, stdout } = await cliExit("check", "some-skill", "--json");
+    expect(code).toBe(2);
+    expect(JSON.parse(stdout)).toMatchObject({ ok: false, error: { code: "usage_error" } });
+  });
+
+  it("validates report arguments before any request", async () => {
+    const { code, stdout } = await cliExit("report", "some-skill", "maybe", "--json");
+    expect(code).toBe(2);
+    expect(JSON.parse(stdout)).toMatchObject({ ok: false, error: { code: "usage_error", details: { outcome: "maybe" } } });
+  });
+
+  it("shows config as an envelope without the full key", async () => {
+    const { code, stdout } = await cliExit("config", "show", "--json");
+    const envelope = JSON.parse(stdout) as { ok: boolean; data: { apiKey: { configured: boolean; source: string; masked: string } } };
+    expect(code).toBe(0);
+    expect(envelope.data.apiKey).toMatchObject({ configured: true, source: "env" });
+    expect(stdout).not.toContain("sx_test_smoke_key");
   });
 });

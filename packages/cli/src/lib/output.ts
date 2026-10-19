@@ -25,6 +25,8 @@ export const EXIT_CODES = {
   auth: 5,
   /** The API could not be reached. */
   network: 6,
+  /** The API asked the caller to slow down; retry later. */
+  rateLimited: 7,
   /** Local files block an install change (modified, unowned or shared). */
   conflict: 8,
 } as const;
@@ -37,6 +39,7 @@ export type CliErrorCode =
   | 'incompatible'
   | 'auth_error'
   | 'network_error'
+  | 'rate_limited'
   | 'api_error'
   | 'integrity_error'
   | 'conflict'
@@ -48,6 +51,7 @@ const EXIT_BY_CODE: Record<CliErrorCode, ExitCode> = {
   incompatible: EXIT_CODES.incompatible,
   auth_error: EXIT_CODES.auth,
   network_error: EXIT_CODES.network,
+  rate_limited: EXIT_CODES.rateLimited,
   api_error: EXIT_CODES.error,
   integrity_error: EXIT_CODES.error,
   conflict: EXIT_CODES.conflict,
@@ -73,6 +77,21 @@ export interface CliFailure {
 
 export type CliEnvelope<T> = CliSuccess<T> | CliFailure;
 
+/**
+ * A failure a command raises on purpose, already classified. Throwing one from
+ * inside `runCommand` produces exactly this code, message and hint.
+ */
+export class CliError extends Error {
+  constructor(
+    readonly code: CliErrorCode,
+    message: string,
+    readonly extra: { details?: unknown; hint?: string } = {},
+  ) {
+    super(message);
+    this.name = 'CliError';
+  }
+}
+
 export function success<T>(data: T): CliSuccess<T> {
   return { ok: true, data };
 }
@@ -97,28 +116,44 @@ export function exitCodeFor(envelope: CliEnvelope<unknown>): ExitCode {
   return envelope.ok ? EXIT_CODES.ok : EXIT_BY_CODE[envelope.error.code];
 }
 
+/** Per-command wording for errors whose class is fixed but whose subject varies. */
+export interface ErrorContext {
+  /** Replaces the generic 404 message, e.g. "Skill not found: foo". */
+  notFoundMessage?: string;
+}
+
 /**
  * Maps a thrown error onto the envelope vocabulary.
  *
- * A 404 is "the skill does not exist" and a 401/403 is "your credentials are
+ * A 404 is "the thing does not exist" and a 401/403 is "your credentials are
  * wrong"; both are decisions a caller makes differently, so they do not share a
  * code with a generic API failure.
  */
-export function fromError(error: unknown): CliFailure {
+export function fromError(error: unknown, context: ErrorContext = {}): CliFailure {
+  if (error instanceof CliError) return failure(error.code, error.message, error.extra);
+
   if (error instanceof ApiError) {
     if (error.status === 404) {
-      return failure('not_found', 'The requested skill was not found.', { details: { status: 404 } });
+      return failure('not_found', context.notFoundMessage ?? 'The requested resource was not found.', {
+        details: { status: 404 },
+      });
     }
     if (error.status === 401 || error.status === 403) {
       return failure('auth_error', 'The API rejected this request as unauthenticated.', {
         details: { status: error.status },
-        hint: 'Run `skillx config set apiKey <key>` or check the key has not been revoked.',
+        hint: 'Run `skillx config set-key` or set SKILLX_API_KEY, and check the key has not been revoked.',
+      });
+    }
+    if (error.status === 429) {
+      return failure('rate_limited', 'Rate limited by the API.', {
+        details: { status: 429 },
+        hint: 'Wait and retry.',
       });
     }
     return failure('api_error', error.message, { details: { status: error.status } });
   }
 
-  if (error instanceof TypeError) {
+  if (isFetchFailure(error)) {
     // `fetch` rejects with TypeError when the host cannot be reached.
     return failure('network_error', error.message, {
       hint: 'Check the network connection and the configured base URL.',
@@ -127,6 +162,14 @@ export function fromError(error: unknown): CliFailure {
 
   if (error instanceof Error) return failure('unexpected_error', error.message);
   return failure('unexpected_error', 'An unknown error occurred.');
+}
+
+/**
+ * Node's fetch rejects with `TypeError('fetch failed', { cause })`. Any other
+ * TypeError is a bug in the CLI and must not be reported as a network outage.
+ */
+function isFetchFailure(error: unknown): error is TypeError {
+  return error instanceof TypeError && (error.message === 'fetch failed' || error.cause !== undefined);
 }
 
 /** Serializes an envelope for stdout. */

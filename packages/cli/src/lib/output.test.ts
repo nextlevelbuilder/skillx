@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import { ApiError } from "./api-client.js";
 import {
+  CliError,
   EXIT_CODES,
   exitCodeFor,
   failure,
@@ -48,7 +49,7 @@ describe("fromError", () => {
   it.each([401, 403])("maps %s to auth_error with a hint", (status) => {
     const envelope = fromError(new ApiError(status, "denied"));
     expect(envelope.error.code).toBe("auth_error");
-    expect(envelope.error.hint).toContain("apiKey");
+    expect(envelope.error.hint).toContain("set-key");
     expect(exitCodeFor(envelope)).toBe(EXIT_CODES.auth);
   });
 
@@ -56,6 +57,28 @@ describe("fromError", () => {
     const envelope = fromError(new TypeError("fetch failed"));
     expect(envelope.error.code).toBe("network_error");
     expect(exitCodeFor(envelope)).toBe(EXIT_CODES.network);
+  });
+
+  it("does not mistake a CLI bug for a network outage", () => {
+    expect(fromError(new TypeError("x.toFixed is not a function")).error.code).toBe("unexpected_error");
+  });
+
+  it("maps a 429 to rate_limited, which a caller retries", () => {
+    const envelope = fromError(new ApiError(429, "slow down"));
+    expect(envelope.error.code).toBe("rate_limited");
+    expect(exitCodeFor(envelope)).toBe(EXIT_CODES.rateLimited);
+  });
+
+  it("uses the command's wording for a 404", () => {
+    expect(fromError(new ApiError(404, "x"), { notFoundMessage: "Skill not found: foo" }).error.message).toBe(
+      "Skill not found: foo",
+    );
+  });
+
+  it("keeps a CliError's own classification", () => {
+    const envelope = fromError(new CliError("usage_error", "bad outcome", { hint: "use success" }));
+    expect(envelope.error).toEqual({ code: "usage_error", message: "bad outcome", hint: "use success" });
+    expect(exitCodeFor(envelope)).toBe(EXIT_CODES.usage);
   });
 
   it("maps any other API status to api_error", () => {

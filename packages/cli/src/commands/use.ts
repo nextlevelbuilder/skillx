@@ -1,230 +1,67 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import ora from 'ora';
-import { apiRequest, ApiError } from '../lib/api-client.js';
-import { searchSkills } from '../lib/search-api.js';
-import { hasPublishedRelease } from '../lib/release-lookup.js';
-import {
-  displaySkill,
-  type SkillDetails,
-  type SkillDetailResponse,
-  type DisplayOptions,
-} from './use-display.js';
+import { runCommand } from '../lib/run-command.js';
+import { resolveSkill, type ResolvedSkill } from '../lib/skill-resolver.js';
+import { discoveryOnlyNotice, displaySkill, trackInstall, type DisplayOptions } from './use-display.js';
 
-interface RegisterResponse {
-  skill?: SkillDetails;
-  created?: boolean;
-  skills?: Array<{ slug: string; name: string; author: string }>;
-  registered?: number;
-  skipped?: number;
+export { buildSkillEndpoint, parseIdentifier, parseRepoPath, type SourceTarget } from '../lib/skill-resolver.js';
+
+interface UseOptions {
+  raw?: boolean;
+  search?: boolean;
+  includeRefs?: boolean;
+  includeScripts?: boolean;
+  json?: boolean;
 }
 
-type IdentifierType = 'search' | 'repo-path' | 'two-part' | 'slug';
+/** Human rendering of a resolution. */
+function renderResolved(resolved: ResolvedSkill, options: DisplayOptions): void {
+  // In raw mode stdout is the skill content only; the detours go to stderr.
+  const note = options.raw ? console.error : (text: string) => console.log(chalk.dim(text));
+  for (const text of resolved.notes) note(text);
 
-interface ParsedIdentifier {
-  type: IdentifierType;
-  parts: string[];
+  if (resolved.kind === 'skill') {
+    if (resolved.registered) console.log(chalk.green(`\nRegistered new skill from GitHub: ${resolved.displayId}`));
+    const { skill, references, scripts } = resolved.detail;
+    displaySkill(skill, resolved.displayId, options, references, scripts, resolved.releaseExists);
+    return;
+  }
+
+  if (resolved.kind === 'repo') {
+    console.log(chalk.bold.green(`\nFound ${resolved.skills.length} skill(s) in repo:\n`));
+    resolved.skills.forEach((s) => console.log(`  ${chalk.cyan(`${s.author}/${s.name}`)}`));
+    console.log(chalk.dim(`\nUse ${chalk.cyan(`skillx use ${resolved.displayId}/<skill-name>`)} to use a specific skill`));
+    if (resolved.registered) {
+      console.log(chalk.dim(`(${resolved.registered} newly registered, ${resolved.skipped} already existed)`));
+    }
+    return;
+  }
+
+  console.log(chalk.yellow(`\nNo skills found for ${resolved.displayId}`));
+  console.log(chalk.dim('Try different search terms or browse all skills at https://skillx.sh'));
 }
 
-/** Source identity of an `org/repo/<skill path...>` identifier. */
-export interface SourceTarget {
-  /** Slug guess, used only when the server has no skill for the identity yet. */
-  slug: string;
-  identity: { repo: string; path: string };
-}
-
-/** Parse identifier into type + parts */
-export function parseIdentifier(input: string): ParsedIdentifier {
-  if (input.includes(' ')) return { type: 'search', parts: [input] };
-
-  const slashParts = input.split('/');
-  // org/repo/<skill path...>: the skill path can be several segments deep, so none of it is dropped
-  if (slashParts.length >= 3) return { type: 'repo-path', parts: slashParts };
-  if (slashParts.length === 2) return { type: 'two-part', parts: slashParts };
-  return { type: 'slug', parts: [input] };
-}
-
-/**
- * Map `org/repo/<skill path...>` onto a full source identity. The last path segment is the
- * readable name; the whole path is kept so deep paths round-trip to the server.
- */
-export function parseRepoPath(parts: string[]): SourceTarget {
-  const [owner, repo, ...rest] = parts;
-  const path = rest.join('/');
-  const leaf = rest.length > 0 ? rest[rest.length - 1] : repo;
-
+/** The `use --json` payload: the resolution, with the discovery-only decision made explicit. */
+export function toUsePayload(resolved: ResolvedSkill) {
+  if (resolved.kind !== 'skill') return resolved;
+  const { skill, references = [], scripts = [] } = resolved.detail;
+  const notice = discoveryOnlyNotice(references, scripts, resolved.releaseExists);
   return {
-    slug: `${owner}-${leaf}`.toLowerCase(),
-    identity: { repo: `${owner}/${repo}`, path },
+    kind: resolved.kind,
+    displayId: resolved.displayId,
+    registered: resolved.registered,
+    skill,
+    references,
+    scripts,
+    discoveryOnly: notice !== null,
+    ...(notice ? { discoveryOnlyNotice: notice } : {}),
+    notes: resolved.notes,
   };
 }
 
-/** Skill detail endpoint, optionally pinned to a source identity. */
-export function buildSkillEndpoint(slug: string, identity?: { repo: string; path: string }): string {
-  const endpoint = `/api/skills/${encodeURIComponent(slug)}`;
-  if (!identity) return endpoint;
-
-  const query = new URLSearchParams({ repo: identity.repo, path: identity.path });
-  return `${endpoint}?${query.toString()}`;
-}
-
-/**
- * Resolve identifier and use the skill. Exported for use by search --use.
- *
- * Resolution chain:
- * - spaces → search mode
- * - x/y/z... (repo path) → identity lookup on repo + full path, fallback register from that path
- * - x/y (two-part) → DB lookup slug "x-y", fallback scan repo y for skills
- * - single word → DB lookup, fallback search
- */
-export async function resolveAndUseSkill(
-  identifier: string,
-  options: DisplayOptions,
-): Promise<void> {
-  const parsed = parseIdentifier(identifier);
-
-  switch (parsed.type) {
-    case 'search':
-      return searchAndUse(parsed.parts[0], options);
-
-    case 'repo-path': {
-      const [org, repo] = parsed.parts;
-      const { slug, identity } = parseRepoPath(parsed.parts);
-      return resolveBySlug(slug, identifier, options, {
-        identity,
-        registerFallback: { owner: org, repo, skill_path: identity.path },
-      });
-    }
-
-    case 'two-part': {
-      const [author, skillName] = parsed.parts;
-      const slug = `${author}-${skillName}`.toLowerCase();
-      return resolveBySlug(slug, identifier, options, {
-        registerFallback: { owner: author, repo: skillName, scan: true },
-      });
-    }
-
-    case 'slug':
-      return resolveBySlug(parsed.parts[0], identifier, options, {
-        searchFallback: true,
-      });
-  }
-}
-
-/** Core resolution: DB lookup with fallback to register or search */
-async function resolveBySlug(
-  slug: string,
-  displayId: string,
-  options: DisplayOptions,
-  fallback: {
-    registerFallback?: { owner: string; repo: string; skill_path?: string; scan?: boolean };
-    searchFallback?: boolean;
-    identity?: { repo: string; path: string };
-  },
-): Promise<void> {
-  const spinner = ora(`Fetching skill: ${displayId}...`).start();
-
-  try {
-    const res = await apiRequest<SkillDetailResponse>(buildSkillEndpoint(slug, fallback.identity));
-    spinner.stop();
-    await showSkill(res, displayId, options);
-  } catch (err) {
-    if (!(err instanceof ApiError && err.status === 404)) {
-      spinner.stop();
-      throw err;
-    }
-
-    if (fallback.registerFallback) {
-      spinner.text = 'Skill not found. Scanning GitHub...';
-      try {
-        const registerRes = await apiRequest<RegisterResponse>('/api/skills/register', {
-          method: 'POST',
-          body: JSON.stringify(fallback.registerFallback),
-        });
-        spinner.stop();
-        await handleRegisterResult(registerRes, displayId, options);
-      } catch (regErr) {
-        spinner.stop();
-        throw regErr;
-      }
-    } else if (fallback.searchFallback) {
-      spinner.stop();
-      console.log(chalk.dim(`Skill "${displayId}" not found, searching...`));
-      await searchAndUse(displayId, options);
-    } else {
-      spinner.stop();
-      throw err;
-    }
-  }
-}
-
-/**
- * Display a skill detail. Only a multi-file listing can be discovery-only, so
- * only then is the release listing asked whether a published release exists.
- */
-async function showSkill(detail: SkillDetailResponse, displayId: string, options: DisplayOptions): Promise<void> {
-  const multiFile = (detail.references?.length ?? 0) + (detail.scripts?.length ?? 0) > 0;
-  const releaseExists = multiFile ? await hasPublishedRelease(displayId) : false;
-  displaySkill(detail.skill, displayId, options, detail.references, detail.scripts, releaseExists);
-}
-
-/**
- * The register response carries the skill row only, so its references and
- * scripts come from the detail endpoint. If that read fails, the row is
- * shown without them (and so without the discovery-only label).
- */
-async function registeredDetail(skill: SkillDetails): Promise<SkillDetailResponse> {
-  try {
-    return await apiRequest<SkillDetailResponse>(buildSkillEndpoint(skill.slug));
-  } catch {
-    return { skill };
-  }
-}
-
-/** Handle register API response (single skill or multi-skill scan) */
-async function handleRegisterResult(
-  res: RegisterResponse,
-  displayId: string,
-  options: DisplayOptions,
-): Promise<void> {
-  if (res.skill) {
-    if (res.created) {
-      console.log(chalk.green(`\nRegistered new skill from GitHub: ${displayId}`));
-    }
-    await showSkill(await registeredDetail(res.skill), displayId, options);
-    return;
-  }
-
-  if (res.skills && res.skills.length > 0) {
-    console.log(chalk.bold.green(`\nFound ${res.skills.length} skill(s) in repo:\n`));
-    res.skills.forEach((s) => {
-      console.log(`  ${chalk.cyan(`${s.author}/${s.name}`)}`);
-    });
-    console.log(chalk.dim(`\nUse ${chalk.cyan(`skillx use ${displayId}/<skill-name>`)} to use a specific skill`));
-    if (res.registered) {
-      console.log(chalk.dim(`(${res.registered} newly registered, ${res.skipped || 0} already existed)`));
-    }
-    return;
-  }
-
-  console.log(chalk.yellow(`\nNo skills found in ${displayId}`));
-}
-
-/** Search for a keyword and use the top result */
-async function searchAndUse(query: string, options: DisplayOptions): Promise<void> {
-  const spinner = ora(`Searching for "${query}"...`).start();
-  const { results } = await searchSkills(query);
-  spinner.stop();
-
-  if (results.length === 0) {
-    console.log(chalk.yellow('\nNo skills found matching your query.'));
-    console.log(chalk.dim('Try different search terms or browse all skills at https://skillx.sh'));
-    return;
-  }
-
-  const top = results[0];
-  console.log(chalk.dim(`Top result for "${query}": ${chalk.cyan(`${top.author}/${top.name}`)}\n`));
-  await resolveAndUseSkill(`${top.author}/${top.name}`, options);
+/** Resolve identifier and display the skill. Exported for use by search --use. */
+export async function resolveAndUseSkill(identifier: string, options: DisplayOptions): Promise<void> {
+  renderResolved(await resolveSkill(identifier), options);
 }
 
 export const useCommand = new Command('use')
@@ -234,32 +71,29 @@ export const useCommand = new Command('use')
   .option('-s, --search', 'Force search mode')
   .option('--include-refs', 'Include references in output')
   .option('--include-scripts', 'Include scripts in output')
-  .action(async (identifier: string, options: { raw?: boolean; search?: boolean; includeRefs?: boolean; includeScripts?: boolean }) => {
-    const raw = options.raw ?? false;
-    const includeRefs = options.includeRefs ?? false;
-    const includeScripts = options.includeScripts ?? false;
-
-    try {
-      if (options.search) {
-        await searchAndUse(identifier, { raw, includeRefs, includeScripts });
-        return;
-      }
-      await resolveAndUseSkill(identifier, { raw, includeRefs, includeScripts });
-    } catch (error) {
-      if (error instanceof ApiError) {
-        if (error.status === 404) {
-          console.error(chalk.red(`\n✗ Skill not found: ${identifier}`));
-        } else if (error.status === 429) {
-          console.error(chalk.red('\n✗ Rate limited. Try again later.'));
-        } else {
-          console.error(chalk.red(`\n✗ API Error: ${error.message}`));
-        }
-      } else if (error instanceof Error) {
-        console.error(chalk.red(`\n✗ Network Error: ${error.message}`));
-        console.error(chalk.dim('Check your internet connection or try again later.'));
-      } else {
-        console.error(chalk.red('\n✗ An unexpected error occurred'));
-      }
-      process.exit(1);
-    }
+  .option('--json', 'emit a machine-readable envelope instead of text')
+  .action((identifier: string, options: UseOptions) => {
+    const json = options.json === true;
+    const display: DisplayOptions = {
+      raw: options.raw ?? false,
+      includeRefs: options.includeRefs ?? false,
+      includeScripts: options.includeScripts ?? false,
+    };
+    // The envelope flattens the skill; the human renderer needs the resolution itself.
+    let resolved: ResolvedSkill | undefined;
+    return runCommand(
+      {
+        json,
+        // A spinner would interleave with piped raw content.
+        ...(display.raw ? {} : { spinner: `Fetching skill: ${identifier}...` }),
+        errors: { notFoundMessage: `Skill not found: ${identifier}` },
+      },
+      async (progress) => {
+        resolved = await resolveSkill(identifier, { forceSearch: options.search, progress });
+        // Human display tracks the install itself; the envelope path counts the same use.
+        if (json && resolved.kind === 'skill') trackInstall(resolved.detail.skill.slug);
+        return toUsePayload(resolved);
+      },
+      () => renderResolved(resolved as ResolvedSkill, display),
+    );
   });

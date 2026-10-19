@@ -156,7 +156,7 @@ export function displaySkill(
 }
 
 /** Fire-and-forget install tracking */
-function trackInstall(slug: string): void {
+export function trackInstall(slug: string): void {
   const installHeaders: Record<string, string> = {
     'X-Device-Id': getDeviceId(),
   };
