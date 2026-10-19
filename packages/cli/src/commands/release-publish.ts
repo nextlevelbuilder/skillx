@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import { spawnSync } from 'node:child_process';
 import chalk from 'chalk';
+import { KIT_ORIGINS } from '@skillx/skill-tree';
 import { getApiKey, getBaseUrl } from '../utils/config-store.js';
 import { packRelease, packSummary, releasePackCommand, warnPackNotes } from './release-pack.js';
 
@@ -48,8 +49,6 @@ export function assertRegistryDigests(
   }
 }
 
-const KIT_ORIGINS = ['remote-signed', 'local-dev'] as const;
-
 /**
  * The `provenance` metadata of a publish: a kit release (`--kit-origin`) must
  * be `@agentkit/*` and is signed as `skillx.release/v2`; without the flag the
@@ -62,6 +61,12 @@ export function kitProvenance(publisher: string, kitOrigin: string | undefined):
   }
   if (publisher !== 'agentkit') throw new Error('--kit-origin is only for @agentkit/* kit releases');
   return { provider: 'kit', origin: kitOrigin };
+}
+
+/** The base64 `X-SkillX-Release` header; `provenance` is sent only for a kit release. */
+export function releaseMetadataHeader({ provenance, ...fields }: Record<string, unknown> & { provenance?: unknown }): string {
+  const metadata = provenance === undefined ? fields : { ...fields, provenance };
+  return Buffer.from(JSON.stringify(metadata), 'utf8').toString('base64');
 }
 
 function originUrl(repoRoot: string): string | null {
@@ -115,20 +120,20 @@ export const releasePublishCommand = new Command('publish')
       const repo = options.repo ?? originUrl(packed.source.repoRoot);
       if (repo === null) console.error(chalk.yellow('warning: no https origin remote; the release will record no source provenance'));
 
-      const metadata = {
+      const metadata = releaseMetadataHeader({
         version: options.releaseVersion,
         channel: options.channel,
         kind: options.kind,
         sourceProvenance: repo === null ? null : { repo, commit: packed.commit, path: packed.path },
         declaredScripts: [...options.script].sort(),
-        ...(provenance === undefined ? {} : { provenance }),
-      };
+        provenance,
+      });
       const res = await fetch(`${base}/api/v1/packages/@${name[1]}/${name[2]}/releases`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${apiKey}`,
           'Content-Type': 'application/x-tar',
-          'X-SkillX-Release': Buffer.from(JSON.stringify(metadata), 'utf8').toString('base64'),
+          'X-SkillX-Release': metadata,
         },
         body: packed.tar,
       });

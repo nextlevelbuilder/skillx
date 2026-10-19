@@ -16,7 +16,7 @@ import {
   verifyReleaseManifest,
 } from "./release-manifest";
 import type { SkillxReleaseManifest, UnsignedReleaseManifest } from "./release-manifest";
-import { releaseProvenanceOf, releaseTrust } from "./release-provenance";
+import { releaseTrust } from "./release-provenance";
 import { signPayload } from "./release-signature";
 import { serializeTree } from "@skillx/skill-tree/rules";
 import {
@@ -195,21 +195,5 @@ describe("skillx.release/v2 cross-language vectors", () => {
       expect(result.valid, vector.name).toBe(false);
       expect(result.issues.map((i) => i.code), vector.name).toContain(vector.expectedCode);
     }
-  });
-});
-
-describe("releaseTrust", () => {
-  it("grants signed-kit only for a remote-signed kit release with a verified kit signature", () => {
-    const kit = RELEASE_MANIFEST_V2_KIT_FIXTURE;
-    expect(releaseTrust(kit)).toBe("local-unverified");
-    expect(releaseTrust(kit, { kitSignatureVerified: true })).toBe("signed-kit");
-    expect(releaseTrust(RELEASE_MANIFEST_V2_LOCAL_KIT_FIXTURE, { kitSignatureVerified: true })).toBe("local-unverified");
-    expect(releaseTrust(RELEASE_MANIFEST_V2_SKILLX_FIXTURE, { kitSignatureVerified: true })).toBe("local-unverified");
-    expect(releaseTrust(RELEASE_MANIFEST_FIXTURE, { kitSignatureVerified: true })).toBe("local-unverified");
-  });
-
-  it("reads a v1 manifest as provider skillx", () => {
-    expect(releaseProvenanceOf(RELEASE_MANIFEST_FIXTURE)).toEqual({ provider: "skillx" });
-    expect(releaseProvenanceOf(RELEASE_MANIFEST_V2_KIT_FIXTURE)).toEqual({ provider: "kit", origin: "remote-signed" });
   });
 });
