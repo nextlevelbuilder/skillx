@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { IDEMPOTENCY_TTL_MS, publishRelease } from "~/lib/releases/release-idempotency";
+import { IDEMPOTENCY_TTL_MS, isReplayable, publishRelease } from "~/lib/releases/release-idempotency";
 import { NOW, createHarness, file, tarOf } from "./release-harness";
 import type { UploadOptions } from "./release-harness";
 
@@ -73,6 +73,37 @@ describe("release publish Idempotency-Key", () => {
     const noAuth = await send("v-anon", skill(), { key: null });
     expect(noAuth.status).toBe(401);
     expect(rows().map((r) => r.idempotency_key)).not.toContain("v-anon");
+  });
+
+  it("releases the key for an answer that depends on the environment, so the retry runs again", async () => {
+    const req = h.request("@alpha/demo", skill() as BodyInit);
+    req.headers.set("Idempotency-Key", "budget");
+    const refused = await publishRelease(req, { scope: "@alpha", slug: "demo" }, { ...h.deps, subrequestBudget: 1 });
+    expect(refused.status).toBe(413);
+    expect(rows()).toEqual([]);
+    const retried = await send("budget", skill());
+    expect(retried.status).toBe(200);
+    expect(JSON.parse(retried.text).created).toBe(true);
+  });
+
+  it("deletes expired keys of any publisher on the way", async () => {
+    await send("old", skill());
+    h.d1.raw.prepare("UPDATE release_publish_idempotency SET expires_at = ?").run(NOW.getTime() - 1);
+    await send("new", skill());
+    expect(rows().map((r) => r.idempotency_key)).toEqual(["new"]);
+  });
+
+  it("replays only answers that are a function of the request bytes", () => {
+    const code = (c: string) => JSON.stringify({ error: { code: c } });
+    expect(isReplayable(200, "{}")).toBe(true);
+    expect(isReplayable(400, code("release.invalid_metadata"))).toBe(true);
+    expect(isReplayable(415, code("release.unsupported_media_type"))).toBe(true);
+    expect(isReplayable(409, code("release.version_exists"))).toBe(true);
+    expect(isReplayable(409, code("release.kind_conflict"))).toBe(false);
+    expect(isReplayable(403, code("publisher.inactive"))).toBe(false);
+    expect(isReplayable(413, code("tree.limit_exceeded"))).toBe(false);
+    expect(isReplayable(422, code("tree.unsafe_path"))).toBe(false);
+    expect(isReplayable(503, code("release.signing_unavailable"))).toBe(false);
   });
 
   it("rejects a malformed key (400) and keeps the keys of two publishers apart", async () => {

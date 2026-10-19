@@ -1,6 +1,6 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { action as trustedAction, loader as trustedLoader } from "~/routes/api.v1.trusted-publishers";
-import { GITHUB_OIDC_ISSUER, resetJwksCache } from "~/lib/releases/github-oidc";
+import { GITHUB_OIDC_ISSUER, resetJwksCache, verifyGithubOidcToken } from "~/lib/releases/github-oidc";
 import { serveOidcExchange } from "~/lib/releases/oidc-exchange";
 import { tarOf } from "./release-harness";
 import { ADMIN, audit, envOf, skillFiles, useStateHarness } from "./release-state-helpers";
@@ -121,9 +121,39 @@ describe("OIDC exchange", () => {
     expect((await exchange(await jwt({ ...baseClaims(), ...override }))).body.error.code).toBe("oidc.not_trusted");
   });
 
-  it("refuses pull request events and unknown publishers", async () => {
+  it.each(["pull_request", "pull_request_target", "workflow_run", "issue_comment", "schedule", "repository_dispatch"])("refuses the %s event", async (event) => {
     await configure(TRUST);
-    expect((await exchange(await jwt({ ...baseClaims(), event_name: "pull_request_target" }))).body.error.code).toBe("oidc.event_forbidden");
+    const res = await exchange(await jwt({ ...baseClaims(), event_name: event }));
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("oidc.event_forbidden");
+  });
+
+  it("drops exchange rows past the retention window", async () => {
+    await configure(TRUST);
+    expect((await exchange(await jwt(baseClaims()))).status).toBe(200);
+    h.d1.raw.prepare("UPDATE oidc_token_exchanges SET created_at = ?").run(NOW.getTime() - 8 * 24 * 60 * 60_000);
+    expect((await exchange(await jwt(baseClaims()))).status).toBe(200);
+    expect(h.d1.raw.prepare("SELECT count(*) AS n FROM oidc_token_exchanges").get()).toEqual({ n: 1 });
+  });
+
+  it.each(["push", "release"])("accepts the %s event", async (event) => {
+    await configure(TRUST);
+    expect((await exchange(await jwt({ ...baseClaims(), event_name: event }))).status).toBe(200);
+  });
+
+  it("keeps verifying with recently fetched keys while the JWKS endpoint fails", async () => {
+    const at = (minutes: number) => new Date(NOW.getTime() + minutes * 60_000);
+    const tokenAt = (when: Date) => jwt({ ...baseClaims(), iat: when.getTime() / 1000 - 10, nbf: when.getTime() / 1000 - 10, exp: when.getTime() / 1000 + 290 });
+    const down = async () => {
+      throw new Error("GitHub is down");
+    };
+    await verifyGithubOidcToken(await tokenAt(NOW), { audience: "skillx", now: NOW, fetchJwks: async () => jwks });
+    await expect(verifyGithubOidcToken(await tokenAt(at(30)), { audience: "skillx", now: at(30), fetchJwks: down })).resolves.toMatchObject({ repository_id: "42" });
+    await expect(verifyGithubOidcToken(await tokenAt(at(120)), { audience: "skillx", now: at(120), fetchJwks: down })).rejects.toThrow("GitHub is down");
+  });
+
+  it("refuses unknown publishers", async () => {
+    await configure(TRUST);
     expect((await exchange(await jwt(baseClaims()), "@alpha")).body.error.code).toBe("oidc.not_trusted");
   });
 

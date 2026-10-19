@@ -16,6 +16,8 @@ export const GITHUB_OIDC_JWKS_URL = `${GITHUB_OIDC_ISSUER}/.well-known/jwks`;
 export const DEFAULT_OIDC_AUDIENCE = "skillx";
 const JWKS_TTL_MS = 10 * 60_000;
 const JWKS_MIN_REFRESH_MS = 60_000;
+/** How long past the TTL cached keys still verify while the JWKS endpoint fails. */
+const JWKS_STALE_GRACE_MS = 60 * 60_000;
 const CLOCK_SKEW_MS = 60_000;
 /** GitHub tokens live 5 to 10 minutes; anything longer is not one. */
 const MAX_LIFETIME_MS = 60 * 60_000;
@@ -70,7 +72,14 @@ async function importJwks(document: unknown): Promise<Map<string, CryptoKey>> {
 async function keyFor(kid: string, fetchJwks: JwksFetcher, now: number): Promise<CryptoKey | undefined> {
   const stale = cache === null || now - cache.fetchedAt > JWKS_TTL_MS;
   const unknownKid = cache !== null && !cache.keys.has(kid) && now - cache.fetchedAt > JWKS_MIN_REFRESH_MS;
-  if (stale || unknownKid) cache = { keys: await importJwks(await fetchJwks()), fetchedAt: now };
+  if (stale || unknownKid) {
+    try {
+      cache = { keys: await importJwks(await fetchJwks()), fetchedAt: now };
+    } catch (error) {
+      // A GitHub outage: keep verifying with keys fetched within the grace period.
+      if (cache === null || now - cache.fetchedAt > JWKS_TTL_MS + JWKS_STALE_GRACE_MS) throw error;
+    }
+  }
   return cache!.keys.get(kid);
 }
 

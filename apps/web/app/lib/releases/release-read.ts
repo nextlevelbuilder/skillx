@@ -121,9 +121,15 @@ function stateHeaders(release: ReadableRelease): Record<string, string> {
     "X-SkillX-Release-Digest": release.releaseDigest,
     "X-SkillX-Identity": release.identity,
     "X-SkillX-Version": release.version,
-    "X-SkillX-Release-Channel": release.channel,
   };
 }
+
+/**
+ * The current channel moves with promote and is not signed, so it is sent
+ * only on short-lived answers, never on the year-long immutable file and
+ * artifact responses.
+ */
+const channelHeader = (release: ReadableRelease) => ({ "X-SkillX-Release-Channel": release.channel });
 
 const DOWNLOAD_HEADERS = {
   "X-Content-Type-Options": "nosniff",
@@ -172,6 +178,7 @@ async function manifestResponse(ctx: ReadContext, release: ReadableRelease): Pro
     "Cache-Control": cacheControl(release, SHORT_TTL_SECONDS, false),
     "X-Content-Type-Options": "nosniff",
     ...stateHeaders(release),
+    ...channelHeader(release),
   });
 }
 

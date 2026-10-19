@@ -6,10 +6,15 @@
  * - `POST /api/v1/packages/@handle/slug/releases/:version/review` with
  *   `{"decision": "approve" | "reject", "reason"?}`.
  *
- * `approve` lifts the quarantine: `quarantined -> yanked -> published` in one
- * atomic batch (the v1 status graph has no direct edge, so the signed status
- * sequence advances by 2), one `release_state_audit` row per edge and one
- * `release_reviews` row, all or nothing. `reject` confirms the quarantine:
+ * `approve` lifts the quarantine and restores the state the release had
+ * before it (the last applied `release_state_audit` edge into
+ * `quarantined`): a release quarantined while yanked goes back to `yanked`
+ * only, so an owner's yank is never undone; `{"restoreTo": "published"}`
+ * publishes it explicitly. Publishing runs `quarantined -> yanked ->
+ * published` (the v1 status graph has no direct edge, so the signed status
+ * sequence advances by 2). One batch writes one audit row per edge and one
+ * `release_reviews` row, all or nothing, guarded on that audit edge still
+ * being the latest, so a concurrent change is `409`. `reject` confirms the quarantine:
  * the release stays `quarantined` (its bytes stay blocked in every package)
  * and only a `release_reviews` row is written. Both are compare-and-set on
  * `quarantined`: a release that is no longer quarantined is `409
@@ -20,13 +25,14 @@ import { notFound, parsePackageIdentity, parseReleaseVersion } from "./release-a
 import { ReleaseHttpError, errorResponse, notFoundResponse, releaseError } from "./release-http";
 import { releasesApiEnabled } from "./release-limits";
 import { compareAndSet } from "./release-state-cas";
+import { listQuarantine } from "./release-review-queue";
 import { NO_STORE, failureHeaders, invalidRequest, methodNotAllowed, parseReason, readJsonObject, resolveLimitedActor } from "./release-state-http";
 
 export const REVIEW_DECISIONS = ["approve", "reject"] as const;
 export type ReviewDecision = (typeof REVIEW_DECISIONS)[number];
-const BODY_FIELDS: ReadonlySet<string> = new Set(["decision", "reason"]);
-/** Most queue entries one listing returns. */
-export const MAX_QUEUE_ENTRIES = 200;
+const BODY_FIELDS: ReadonlySet<string> = new Set(["decision", "reason", "restoreTo"]);
+export const RESTORE_STATES = ["published", "yanked"] as const;
+export type RestoreState = (typeof RESTORE_STATES)[number];
 
 const REVIEW_COLUMNS = "id, release_id, release_digest, decision, actor_kind, actor_id, reason, created_at";
 const reviewId = () => `rrv_${crypto.randomUUID()}`;
@@ -36,21 +42,45 @@ export interface ReviewResult {
   version: string;
   releaseDigest: string | null;
   decision: ReviewDecision;
-  state: "published" | "quarantined";
+  state: RestoreState | "quarantined";
   reviewedAt: string;
 }
 
-type Subject = { id: string; release_state: string; release_digest: string | null; signed_manifest_key: string | null };
+type Subject = { id: string; release_state: string; release_digest: string | null; signed_manifest_key: string | null; quarantined_at: number | null };
+type Edge = { from_state: string; to_state: string; created_at: number };
+
+/**
+ * The state a quarantined release had before its latest quarantine: the start
+ * of the last applied audit path into `quarantined` (one batch, so one
+ * `created_at`; `yanked -> quarantined` runs through `published`). A release
+ * quarantined at publish time has no such path and counts as `published`.
+ */
+async function stateBeforeQuarantine(db: D1Database, releaseId: string): Promise<RestoreState> {
+  const { results } = await db
+    .prepare(
+      `SELECT from_state, to_state, created_at FROM release_state_audit
+        WHERE subject_kind = 'release' AND subject_id = ? AND outcome = 'applied' ORDER BY created_at DESC, rowid DESC LIMIT 4`,
+    )
+    .bind(releaseId)
+    .all<Edge>();
+  if (results.length === 0 || results[0]!.to_state !== "quarantined") return "published";
+  let start = results[0]!;
+  for (const edge of results.slice(1)) {
+    if (edge.created_at !== start.created_at || edge.to_state !== start.from_state) break;
+    start = edge;
+  }
+  return start.from_state === "yanked" ? "yanked" : "published";
+}
 
 export async function reviewRelease(
   db: D1Database,
   identity: string,
   version: string,
-  input: { decision: ReviewDecision; reason: string | null; now: Date },
+  input: { decision: ReviewDecision; reason: string | null; restoreTo?: RestoreState; now: Date },
 ): Promise<ReviewResult> {
   const subject = await db
     .prepare(
-      `SELECT r.id, r.release_state, r.release_digest, r.signed_manifest_key
+      `SELECT r.id, r.release_state, r.release_digest, r.signed_manifest_key, r.quarantined_at
          FROM package_releases r JOIN packages p ON p.id = r.package_id WHERE p.name = ? AND r.version = ?`,
     )
     .bind(identity, version)
@@ -81,16 +111,19 @@ export async function reviewRelease(
     return result("quarantined");
   }
 
-  if (subject.release_digest === null || subject.signed_manifest_key === null) {
+  const target = input.restoreTo ?? (await stateBeforeQuarantine(db, subject.id));
+  if (target === "published" && (subject.release_digest === null || subject.signed_manifest_key === null)) {
     throw releaseError(422, "release.incomplete", "a release without a tree digest and signed manifest cannot be published");
   }
+  // `quarantined_at` is set by every move into quarantine, so it pins the quarantine this decision read.
+  const guard = { sql: "EXISTS (SELECT 1 FROM package_releases WHERE id = ? AND quarantined_at IS ?)", binds: [subject.id, subject.quarantined_at] };
   const outcome = await compareAndSet(
     db,
-    { kind: "release", subjectId: subject.id, input: { from: "quarantined", to: "published", reason: input.reason, actor: { kind: "admin", id: "admin" }, now: input.now } },
+    { kind: "release", subjectId: subject.id, input: { from: "quarantined", to: target, reason: input.reason, actor: { kind: "admin", id: "admin" }, now: input.now } },
     {
-      path: ["quarantined", "yanked", "published"],
-      extraSet: ", published_at = COALESCE(published_at, ?)",
-      extraBinds: [at],
+      path: target === "published" ? ["quarantined", "yanked", "published"] : ["quarantined", "yanked"],
+      ...(target === "published" ? { extraSet: ", published_at = COALESCE(published_at, ?)", extraBinds: [at] } : {}),
+      guard,
       alsoInsert: [
         {
           sql: `INSERT INTO release_reviews (${REVIEW_COLUMNS}) SELECT ?, ?, ?, ?, 'admin', 'admin', ?, ?`,
@@ -100,44 +133,7 @@ export async function reviewRelease(
     },
   );
   if (outcome !== "applied") throw conflict();
-  return result("published");
-}
-
-type QueueRow = {
-  name: string;
-  version: string;
-  channel: string;
-  release_digest: string | null;
-  quarantined_at: number | null;
-  decision: string | null;
-  review_reason: string | null;
-  reviewed_at: number | null;
-};
-
-/** Quarantined releases, oldest quarantine first, each with its latest review (if any). */
-export async function listQuarantine(db: D1Database) {
-  const { results } = await db
-    .prepare(
-      `SELECT p.name, r.version, r.channel, r.release_digest, r.quarantined_at,
-              rv.decision, rv.reason AS review_reason, rv.created_at AS reviewed_at
-         FROM package_releases r
-         JOIN packages p ON p.id = r.package_id
-         LEFT JOIN release_reviews rv ON rv.id = (
-           SELECT id FROM release_reviews WHERE release_id = r.id ORDER BY created_at DESC, rowid DESC LIMIT 1)
-        WHERE r.release_state = 'quarantined'
-        ORDER BY r.quarantined_at, r.id LIMIT ?`,
-    )
-    .bind(MAX_QUEUE_ENTRIES)
-    .all<QueueRow>();
-  const iso = (ms: number | null) => (ms === null ? null : new Date(Number(ms)).toISOString());
-  return results.map((row) => ({
-    identity: row.name,
-    version: row.version,
-    channel: row.channel,
-    releaseDigest: row.release_digest,
-    quarantinedAt: iso(row.quarantined_at),
-    lastReview: row.decision === null ? null : { decision: row.decision, reason: row.review_reason, reviewedAt: iso(row.reviewed_at) },
-  }));
+  return result(target);
 }
 
 async function requireAdmin(request: Request, env: Env): Promise<void> {
@@ -165,7 +161,16 @@ export function serveReview(request: Request, env: Env, params: Record<string, s
     await requireAdmin(request, env);
     const body = await readJsonObject(request, BODY_FIELDS);
     if (!(REVIEW_DECISIONS as readonly unknown[]).includes(body.decision)) throw invalidRequest(`decision must be one of: ${REVIEW_DECISIONS.join(", ")}`);
-    const result = await reviewRelease(env.DB, identity, version, { decision: body.decision as ReviewDecision, reason: parseReason(body.reason), now: now() });
+    if (body.restoreTo !== undefined && !(RESTORE_STATES as readonly unknown[]).includes(body.restoreTo)) {
+      throw invalidRequest(`restoreTo must be one of: ${RESTORE_STATES.join(", ")}`);
+    }
+    if (body.restoreTo !== undefined && body.decision !== "approve") throw invalidRequest("restoreTo applies only to approve");
+    const result = await reviewRelease(env.DB, identity, version, {
+      decision: body.decision as ReviewDecision,
+      reason: parseReason(body.reason),
+      restoreTo: body.restoreTo as RestoreState | undefined,
+      now: now(),
+    });
     return Response.json(result, { headers: NO_STORE });
   });
 }

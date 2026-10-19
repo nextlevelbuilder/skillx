@@ -11,7 +11,7 @@
 import { ReleaseManifestError, SKILLX_RELEASE_SCHEMA_VERSION } from "@skillx/contracts";
 import { ERROR_CODES, SkillTreeError, readTarTree } from "@skillx/skill-tree";
 import type { TreeManifest } from "@skillx/skill-tree";
-import { authorizeReleasePublisher } from "./release-auth";
+import { authorizeReleasePublisher, type AuthorizedPublisher } from "./release-auth";
 import { checkExecManifest } from "./release-exec";
 import { ReleaseHttpError, errorResponse, releaseError } from "./release-http";
 import { BLOB_WRITE_CONCURRENCY, MAX_RELEASE_UPLOAD_BYTES, RELEASE_SERVER_TREE_LIMITS, assertSubrequestBudget } from "./release-limits";
@@ -33,6 +33,10 @@ export interface IngestDeps {
   /** `SKILLX_TOKEN_SECRET`; enables OIDC publish tokens (`sxo_...`). */
   tokenSecret?: string | null;
 }
+
+/** What the idempotent route already read and authorized, so ingest neither buffers the body nor authenticates twice. */
+export type PreparedUpload = { auth: AuthorizedPublisher; body: Uint8Array };
+type Params = { scope?: string; slug?: string };
 
 interface ReadTree {
   tree: TreeManifest;
@@ -81,9 +85,9 @@ function existingOutcome(identity: string, version: string, existing: ExistingRe
   });
 }
 
-async function ingest(request: Request, params: { scope?: string; slug?: string }, deps: IngestDeps): Promise<Response> {
+async function ingest(request: Request, params: Params, deps: IngestDeps, prepared?: PreparedUpload): Promise<Response> {
   const name = parseReleaseName(params.scope, params.slug);
-  const auth = await authorizeReleasePublisher(deps.db, request, name.handle, { tokenSecret: deps.tokenSecret, now: deps.now?.() });
+  const auth = prepared?.auth ?? (await authorizeReleasePublisher(deps.db, request, name.handle, { tokenSecret: deps.tokenSecret, now: deps.now?.() }));
   const signer = await deps.loadSigner();
   const metadata = parseReleaseMetadata(request.headers.get(RELEASE_METADATA_HEADER));
   const pkg = await findPackage(deps.db, name.identity);
@@ -94,7 +98,7 @@ async function ingest(request: Request, params: { scope?: string; slug?: string 
     throw releaseError(409, "release.kind_conflict", `${name.identity} is a ${pkg.kind} package, not ${metadata.kind}`);
   }
 
-  const body = await readUploadBody(request, MAX_RELEASE_UPLOAD_BYTES);
+  const body = prepared?.body ?? (await readUploadBody(request, MAX_RELEASE_UPLOAD_BYTES));
   const { tree, contents } = await readTree(body);
   const existing = await findRelease(deps.db, name.identity, metadata.version);
   if (existing !== null) return existingOutcome(name.identity, metadata.version, existing, tree.digest);
@@ -190,9 +194,9 @@ async function ingest(request: Request, params: { scope?: string; slug?: string 
 }
 
 /** Handles one upload; every failure becomes a JSON error with a stable code. */
-export async function ingestRelease(request: Request, params: { scope?: string; slug?: string }, deps: IngestDeps): Promise<Response> {
+export async function ingestRelease(request: Request, params: Params, deps: IngestDeps, prepared?: PreparedUpload): Promise<Response> {
   try {
-    return await ingest(request, params, deps);
+    return await ingest(request, params, deps, prepared);
   } catch (error) {
     if (error instanceof ReleaseHttpError) return errorResponse(error);
     console.error("release publish failed:", error instanceof Error ? error.message : String(error));

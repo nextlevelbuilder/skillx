@@ -6,8 +6,9 @@
  * and must match an active trusted publisher of that publisher: the same
  * `repository_id` and `repository`, a `workflow_ref` of
  * `<repository>/<workflowPath>@...`, and the configured `ref` and
- * `environment` when set. Pull request events are refused, so a fork's
- * workflow can never publish. Each JWT is exchanged once (its `jti` is the
+ * `environment` when set. Only `push`, `workflow_dispatch` and `release`
+ * events may publish (`PUBLISH_EVENTS`), so a fork's pull request or a
+ * comment-triggered workflow never can. Each JWT is exchanged once (its `jti` is the
  * primary key of `oidc_token_exchanges`).
  *
  * Answers `{token, expiresAt, publisher, scope}`: an `sxo_` token valid for
@@ -30,7 +31,15 @@ import { mintOidcPublishToken } from "./trusted-publish-token";
 
 const BODY_FIELDS: ReadonlySet<string> = new Set(["token", "publisher"]);
 const MAX_BODY_BYTES = 20 * 1024;
-const FORBIDDEN_EVENTS = new Set(["pull_request", "pull_request_target", "pull_request_review", "pull_request_review_comment"]);
+/**
+ * Events whose workflow runs the trusted ref itself. Everything else
+ * (`pull_request*`, `workflow_run`, `issue_comment`, `schedule`, ...) can run
+ * a workflow on behalf of someone without write access, or on a stale ref.
+ */
+/** How long an exchange row is kept; far beyond any JWT or publish token lifetime. */
+export const EXCHANGE_RETENTION_MS = 7 * 24 * 60 * 60_000;
+
+export const PUBLISH_EVENTS: ReadonlySet<string> = new Set(["push", "workflow_dispatch", "release"]);
 
 export interface OidcExchangeDeps {
   now?: () => Date;
@@ -71,7 +80,9 @@ export async function serveOidcExchange(request: Request, env: Env, deps: OidcEx
       now,
       fetchJwks: deps.fetchJwks,
     });
-    if (FORBIDDEN_EVENTS.has(claims.event_name)) throw releaseError(403, "oidc.event_forbidden", "pull request workflows cannot publish");
+    if (!PUBLISH_EVENTS.has(claims.event_name)) {
+    throw releaseError(403, "oidc.event_forbidden", `only push, workflow_dispatch and release workflows can publish, not ${claims.event_name}`);
+  }
 
     const publisher = await env.DB.prepare("SELECT id, state FROM publishers WHERE handle = ?").bind(handle).first<{ id: string; state: string }>();
     if (publisher === null) throw notTrusted();
@@ -85,6 +96,14 @@ export async function serveOidcExchange(request: Request, env: Env, deps: OidcEx
     if (publisher.state !== "active") throw releaseError(403, "publisher.inactive", `publisher @${handle} is ${publisher.state}`);
 
     const { token, expiresAt } = await mintOidcPublishToken(secret, { handle, publisherId: publisher.id, trustedPublisherId: trusted.id, jti: claims.jti }, now);
+    // Opportunistic retention: a jti only blocks replay while its JWT (at most 1 hour) and
+    // the publish token (15 minutes) live; older rows are kept a week for forensics.
+    await env.DB.prepare(
+      `DELETE FROM oidc_token_exchanges WHERE rowid IN (SELECT rowid FROM oidc_token_exchanges WHERE created_at <= ? LIMIT 50)`,
+    )
+      .bind(now.getTime() - EXCHANGE_RETENTION_MS)
+      .run()
+      .catch((error: unknown) => console.warn("oidc exchange: cannot delete old exchanges:", error instanceof Error ? error.message : String(error)));
     const recorded = await env.DB.prepare(
       `INSERT INTO oidc_token_exchanges (jti, trusted_publisher_id, publisher_id, repository, workflow_ref, run_id, created_at, token_expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(jti) DO NOTHING RETURNING jti`,

@@ -13,10 +13,13 @@
  * - same key while the first request still runs: `409 idempotency.in_progress`.
  *
  * Authentication, the name and the metadata are checked before the key is
- * claimed, so a rejected credential never consumes a key. Answers below 500
- * are stored (they are deterministic for the same bytes); a 5xx releases the
- * claim so the client may retry with the same key. A claim left pending by a
- * crashed request is taken over by the same request after 5 minutes.
+ * claimed, so a rejected credential never consumes a key. Only answers that
+ * the same bytes always get are stored (`isReplayable`): 2xx, 400, 415 and
+ * `409 release.version_exists`. Everything else (5xx, a publisher state or a
+ * concurrent-create race, an environment-dependent limit such as the
+ * subrequest budget) releases the claim, so a retry with the same key runs
+ * again. A claim left pending by a crashed request is taken over by the same
+ * request after 5 minutes.
  */
 import { ingestRelease } from "./ingest-release";
 import type { IngestDeps } from "./ingest-release";
@@ -58,6 +61,24 @@ export async function requestFingerprint(identity: string, metadata: ReleaseMeta
 
 type StoredKey = { request_fingerprint: string; status: string; response_status: number | null; response_body: string | null };
 
+/** Most expired rows one publish deletes on the way, so cleanup never grows a request. */
+export const CLEANUP_BATCH = 50;
+
+/** Opportunistic cleanup: expired keys of any publisher are dead weight. A failure never blocks the publish. */
+async function deleteExpired(db: D1Database, now: number): Promise<void> {
+  try {
+    await db
+      .prepare(
+        `DELETE FROM release_publish_idempotency WHERE rowid IN
+           (SELECT rowid FROM release_publish_idempotency WHERE expires_at <= ? LIMIT ${CLEANUP_BATCH})`,
+      )
+      .bind(now)
+      .run();
+  } catch (error) {
+    console.warn("release publish: cannot delete expired idempotency keys:", error instanceof Error ? error.message : String(error));
+  }
+}
+
 /** Claims the key for this request; on conflict reports what holds it. */
 async function claim(db: D1Database, publisherId: string, key: string, fingerprint: string, now: number): Promise<StoredKey | null> {
   const result = await db
@@ -84,6 +105,18 @@ async function claim(db: D1Database, publisherId: string, key: string, fingerpri
 
 const NO_STORE = { "Cache-Control": "no-store" };
 
+/** Whether an answer is a pure function of the request bytes, so replaying it is correct. */
+export function isReplayable(status: number, body: string): boolean {
+  if (status >= 200 && status < 300) return true;
+  if (status === 400 || status === 415) return true;
+  if (status !== 409) return false;
+  try {
+    return (JSON.parse(body) as { error?: { code?: unknown } }).error?.code === "release.version_exists";
+  } catch {
+    return false;
+  }
+}
+
 function replay(stored: StoredKey): Response {
   return new Response(stored.response_body, {
     status: stored.response_status ?? 200,
@@ -99,6 +132,7 @@ async function publishOnce(request: Request, params: { scope?: string; slug?: st
   const body = await readUploadBody(request, MAX_RELEASE_UPLOAD_BYTES);
   const fingerprint = await requestFingerprint(name.identity, metadata, body);
 
+  await deleteExpired(deps.db, now.getTime());
   const held = await claim(deps.db, auth.publisherId, key, fingerprint, now.getTime());
   if (held !== null) {
     if (held.request_fingerprint !== fingerprint) {
@@ -108,11 +142,10 @@ async function publishOnce(request: Request, params: { scope?: string; slug?: st
     return replay(held);
   }
 
-  const forwarded = new Request(request.url, { method: "POST", headers: request.headers, body: body as Uint8Array<ArrayBuffer> });
-  const response = await ingestRelease(forwarded, params, deps);
+  const response = await ingestRelease(request, params, deps, { auth, body });
   const text = await response.text();
   const where = "WHERE publisher_id = ? AND idempotency_key = ? AND request_fingerprint = ? AND status = 'pending'";
-  if (response.status >= 500) {
+  if (!isReplayable(response.status, text)) {
     await deps.db.prepare(`DELETE FROM release_publish_idempotency ${where}`).bind(auth.publisherId, key, fingerprint).run();
   } else {
     await deps.db

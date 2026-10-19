@@ -72,6 +72,25 @@ describe("quarantine review", () => {
     expect((await queue()).body.releases).toEqual([]);
   });
 
+  it("restores a yanked release to yanked unless the admin asks to publish it", async () => {
+    await publish();
+    expect((await change("@alpha/demo", "1.0.0", { from: "published", to: "yanked", reason: "owner yank" }, admin)).status).toBe(200);
+    expect((await change("@alpha/demo", "1.0.0", { from: "yanked", to: "quarantined", reason: "report" }, admin)).status).toBe(200);
+    const res = await review({ decision: "approve", reason: "false positive" });
+    expect(res.status).toBe(200);
+    expect(res.body.state).toBe("yanked");
+    expect(stateOf("1.0.0")).toBe("yanked");
+    expect(audit().at(-1)).toMatchObject({ from_state: "quarantined", to_state: "yanked", outcome: "applied" });
+    expect(reviews()).toHaveLength(1);
+
+    expect((await change("@alpha/demo", "1.0.0", { from: "yanked", to: "quarantined", reason: "again" }, admin)).status).toBe(200);
+    expectError(await review({ decision: "approve", restoreTo: "draft" }), 400, "invalid_request");
+    expectError(await review({ decision: "reject", restoreTo: "published" }), 400, "invalid_request");
+    const published = await review({ decision: "approve", restoreTo: "published" });
+    expect(published.body.state).toBe("published");
+    expect(stateOf("1.0.0")).toBe("published");
+  });
+
   it("answers 409 for a release that is not quarantined and writes no review", async () => {
     await publish();
     expectError(await review({ decision: "approve" }), 409, "state_conflict");
