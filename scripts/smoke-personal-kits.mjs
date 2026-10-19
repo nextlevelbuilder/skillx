@@ -9,7 +9,8 @@
  *
  * LOCAL BY DEFAULT: a non-loopback base URL is refused unless `--allow-remote`
  * is passed, so a staging run is always a deliberate choice, and a remote run
- * also needs a second account key so the cross-account checks always run. It
+ * also needs an https base URL and a second account key so the keys never
+ * travel in clear text and the cross-account checks always run. It
  * never deploys, never changes a flag and never follows a redirect.
  *
  * CLEANUP: the API cannot delete a kit (revisions and the audit are immutable
@@ -198,6 +199,10 @@ export async function main(args, env = process.env, { fetchImpl = fetch, log = c
   if (!LOOPBACK.has(base.hostname)) {
     if (!args.includes("--allow-remote")) {
       error(`refusing non-loopback base URL ${base.origin}; pass --allow-remote to smoke a deployed SkillX on purpose`);
+      return 1;
+    }
+    if (base.protocol !== "https:") {
+      error(`refusing ${base.origin}: a remote run sends account keys, so its base URL must be https`);
       return 1;
     }
     if (!env.SKILLX_SMOKE_OTHER_KEY) {

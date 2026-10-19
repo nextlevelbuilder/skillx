@@ -92,6 +92,16 @@ describe("personal kit enablement smoke", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("refuses a remote run over plain http even with both keys, before any request", async () => {
+    const fetchImpl = vi.fn();
+    const errors: string[] = [];
+    const io = { fetchImpl, log: () => {}, error: (m: string) => errors.push(m) };
+    const args = ["--base", "http://staging.skillx.test", "--allow-remote", "--handle", "alpha", "--base-skill", "@alpha/demo@1.0.0"];
+    expect(await main(args, { SKILLX_SMOKE_OWNER_KEY: "k", SKILLX_SMOKE_OTHER_KEY: "o" }, io)).toBe(1);
+    expect(errors.join("\n")).toMatch(/must be https/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
   it("reports a flag-off deployment as disabled and writes nothing", async () => {
     const receipt = await run({ fetchImpl: k.serveWith({ SKILLX_PERSONAL_KITS_API: "0" }) });
     expect(receipt).toMatchObject({ enabled: false, ok: false, checks: [{ label: "api enabled", ok: false, status: 404, code: "kit.api_disabled" }] });

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { personalKitsApiEnabled } from "~/lib/personal-kits/kit-http";
 import { BODY, createKitHarness, skillText } from "./kit-harness";
 import type { KitHarness } from "./kit-harness";
 
@@ -37,6 +38,19 @@ describe("personal kit revisions", () => {
       expect(res.headers.get("Cache-Control")).toBe("no-store");
     }
     expect(k.count("personal_kits") + k.count("personal_kit_audit")).toBe(0);
+  });
+
+  it('enables on "1" or "true", trimmed and in any case, and nothing else', async () => {
+    for (const on of ["1", "true", "TRUE", " 1 ", "\ttrue\n"]) {
+      expect(personalKitsApiEnabled({ SKILLX_PERSONAL_KITS_API: on }), JSON.stringify(on)).toBe(true);
+      const res = await k.call("", undefined, { env: { SKILLX_PERSONAL_KITS_API: on } });
+      expect(res.body.error?.code, JSON.stringify(on)).toBe("not_found");
+    }
+    for (const off of [undefined, "", " ", "0", "false", "yes", "on", "1 1", "truee"]) {
+      expect(personalKitsApiEnabled({ SKILLX_PERSONAL_KITS_API: off }), JSON.stringify(off)).toBe(false);
+      const res = await k.call("", undefined, { env: { SKILLX_PERSONAL_KITS_API: off } });
+      expect(res.body.error?.code, JSON.stringify(off)).toBe("kit.api_disabled");
+    }
   });
 
   it("stores a draft whose composition the server re-derives, then activates it only with approval", async () => {
