@@ -246,6 +246,12 @@ describe("built cli", { timeout: 30_000 }, () => {
       // A prompt on a closed stdin is a usage error, not a hang or Node's exit 13.
       const noPick = await cliWithInput("", "find", "one hit");
       expect(noPick.code).toBe(2);
+
+      // A piped selection without a trailing newline still selects.
+      const picked = await cliWithInput("1", "find", "one hit");
+      expect(picked.code).toBe(0);
+      expect(picked.stdout).toContain("s-declared");
+      expect(picked.stdout).not.toContain("Cancelled");
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
@@ -277,6 +283,18 @@ describe("built cli", { timeout: 30_000 }, () => {
     expect(code).toBe(2);
     expect(stdout).not.toContain("usage_error");
   });
+
+  it.each([["unterminated", "pk_unterminated_9z"], ["newline-terminated", "pk_terminated_9z\n"]])(
+    "saves a %s key piped into config set-key --json",
+    async (_label, input) => {
+      const { code, stdout } = await cliWithInput(input, "config", "set-key", "--json");
+      const envelope = JSON.parse(stdout) as { ok: boolean; data: { saved: boolean; path: string } };
+      expect(code).toBe(0);
+      expect(envelope).toMatchObject({ ok: true, data: { saved: true } });
+      expect(stdout).not.toContain(input.trim());
+      expect(readJson(envelope.data.path).apiKey).toBe(input.trim());
+    },
+  );
 
   it.each([[""], ["   \n"]])("refuses config set-key --json with no key on stdin (%j) as usage_error", async (input) => {
     const { code, stdout } = await cliWithInput(input, "config", "set-key", "--json");
