@@ -9,8 +9,10 @@
  * Two protocol rules are enforced here rather than in the tool layer:
  *   - a request with no `id` is a notification and is answered with 202 and no
  *     body; replying to one is a protocol violation.
- *   - every tool runs as the anonymous viewer; the request's session or API key is
- *     never read.
+ *   - every tool except `get_kit` runs as the anonymous viewer, and for them the
+ *     request's session or API key is never read. `get_kit` resolves the caller
+ *     the way the personal kit API does (unscoped API key or session), so an
+ *     owner can read their own private kit; a bad key is a tool error.
  *   - the tool handlers are thin adapters over the same executors as the HTTP
  *     API and the CLI, so MCP cannot drift from them.
  *
@@ -26,10 +28,13 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { checkReleaseRateLimit, rateLimitCaller } from "~/lib/releases/release-rate-limit";
 import { readBoundedBody, MAX_MCP_BODY_BYTES } from "~/lib/mcp/request-body";
 import { callTool, TOOL_DEFINITIONS } from "~/lib/mcp/tools";
+import { resolveViewer } from "~/lib/releases/release-read";
+import { ReleaseHttpError } from "~/lib/releases/release-http";
 import {
   MCP_PROTOCOL_VERSION,
   RPC,
   SERVER_NAME,
+  errorResult,
   SERVER_VERSION,
   isNotification,
   normalizeId,
@@ -113,9 +118,18 @@ export async function action({ request, context }: ActionFunctionArgs) {
           { headers: JSON_HEADERS },
         );
       }
-      // Every MCP caller is the anonymous viewer: no session or API key is read, so a
-      // credential on the request never widens what any tool returns.
-      const result = await callTool(params.name, params.arguments, { env, userId: null });
+      // Only `get_kit` reads the caller, and only to show an owner their own kit. Every
+      // other tool stays anonymous, so a credential never widens what they return.
+      let userId: string | null = null;
+      if (params.name === "get_kit") {
+        try {
+          userId = await resolveViewer(request, env);
+        } catch (error) {
+          if (!(error instanceof ReleaseHttpError)) throw error;
+          return Response.json(rpcResult(id, errorResult(error.message, { code: error.code })), { headers: JSON_HEADERS });
+        }
+      }
+      const result = await callTool(params.name, params.arguments, { env, userId });
       return Response.json(rpcResult(id, result), { headers: JSON_HEADERS });
     }
 

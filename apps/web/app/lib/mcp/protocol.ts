@@ -52,6 +52,19 @@ export interface ToolResult {
 export class ToolInputError extends Error {}
 
 /**
+ * Thrown by a handler that declines for a stable, machine-readable reason
+ * (e.g. `feature_disabled`). The code and message reach the caller.
+ */
+export class ToolCodedError extends Error {
+  constructor(
+    readonly code: string,
+    message: string,
+  ) {
+    super(message);
+  }
+}
+
+/**
  * Narrows `params.arguments` to a plain object. Anything else (a list, a string,
  * `null`) becomes `{}`, so handlers validate fields rather than shapes.
  */

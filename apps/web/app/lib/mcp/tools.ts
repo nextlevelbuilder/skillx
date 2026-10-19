@@ -9,7 +9,7 @@
  */
 
 import { HANDLERS, type ToolContext, type ToolName } from "./handlers";
-import { ToolInputError, asRecord, errorResult, textResult, type ToolResult } from "./protocol";
+import { ToolCodedError, ToolInputError, asRecord, errorResult, textResult, type ToolResult } from "./protocol";
 
 export interface McpToolDefinition {
   name: ToolName;
@@ -89,6 +89,23 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: "get_kit",
+    title: "Get kit",
+    description:
+      "Read one personal kit (`kit` is `@handle/name`) and its effective revision document. " +
+      "Anyone can read a public kit whose effective revision was authored public and activated by " +
+      "its owner; the owner, authenticated with a web session or an unscoped API key, can also read " +
+      "their own private kit. Every other kit, drafts and proposals included, answers `found: false` " +
+      "with code `not_found`. When personal kits are turned off on this server the call fails with " +
+      "code `feature_disabled`.",
+    inputSchema: {
+      type: "object",
+      properties: { kit: STRING },
+      required: ["kit"],
+      additionalProperties: false,
+    },
+  },
 ];
 
 /** The only failure detail a caller sees when a handler throws unexpectedly. */
@@ -119,6 +136,7 @@ export async function callTool(
     return textResult(await HANDLERS[name](asRecord(rawArgs), ctx));
   } catch (error) {
     if (error instanceof ToolInputError) return errorResult(error.message, { code: "invalid_arguments" });
+    if (error instanceof ToolCodedError) return errorResult(error.message, { code: error.code });
     // The cause stays in the server log: driver and query text never reach the caller.
     console.error(`MCP tool ${name} failed:`, error);
     return errorResult(`${name} failed`, { code: TOOL_INTERNAL_ERROR });

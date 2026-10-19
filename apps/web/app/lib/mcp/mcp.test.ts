@@ -101,9 +101,10 @@ describe("envelope builders", () => {
 });
 
 describe("tool catalog", () => {
-  it("exposes exactly the four read-only tools", () => {
+  it("exposes exactly the five read-only tools", () => {
     expect([...TOOL_NAMES].sort()).toEqual([
       "check_compatibility",
+      "get_kit",
       "get_package",
       "get_release",
       "search_packages",
