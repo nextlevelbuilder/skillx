@@ -17,6 +17,7 @@ vi.mock("./api-client.js", () => ({
   },
 }));
 
+import { COMPATIBILITY_STATUSES, isCompatibilityActionable } from "@skillx/contracts";
 import { fetchSkillInspection, isActionable } from "./skill-lookup.js";
 
 beforeEach(() => {
@@ -71,6 +72,15 @@ describe("isActionable", () => {
     expect(isActionable("unknown")).toBe(false);
     expect(isActionable("unsupported")).toBe(false);
     expect(isActionable("blocked")).toBe(false);
+  });
+
+  it.each([...COMPATIBILITY_STATUSES])("decides %s exactly as the contract does", (status) => {
+    expect(isActionable(status)).toBe(isCompatibilityActionable(status));
+  });
+
+  it("never permits action for a status outside the contract's vocabulary", () => {
+    expect(isActionable("supported")).toBe(false);
+    expect(isActionable("")).toBe(false);
   });
 
   it("treats a missing answer as not actionable", () => {

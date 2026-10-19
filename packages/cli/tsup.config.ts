@@ -27,6 +27,9 @@ export default defineConfig({
   splitting: false,
   sourcemap: true,
   shims: true,
+  // Workspace packages ship TypeScript source and are never published, so they are inlined into
+  // the bundle. Their own runtime dependencies (e.g. `yaml`) stay external via `dependencies`.
+  noExternal: ['@skillx/contracts', '@skillx/skill-tree'],
   define: {
     __SKILLX_VERSION__: JSON.stringify(readCliVersion()),
   },

@@ -11,11 +11,13 @@
  * layer stubbed, so it exercises the handler and the protocol envelope rather
  * than a re-implementation of them.
  *
- * The CLI is not imported here: `apps/web/tsconfig.cloudflare.json` lists its own
- * files only, so a cross-package import fails the project boundary. The CLI's
- * rule is pinned by value in packages/cli/src/lib/skill-lookup.test.ts, and its
- * drift risk is that it is the one surface holding a hand-written mirror of
- * `isCompatibilityActionable` instead of calling it.
+ * The CLI is covered from its own package, because `apps/web/tsconfig.cloudflare.json`
+ * lists the app's files only. It imports `isCompatibilityActionable` from this
+ * contract (bundled into the shipped binary), and two tests pin it: one compares
+ * the CLI decision with the contract for every status in COMPATIBILITY_STATUSES
+ * (packages/cli/src/lib/skill-lookup.test.ts), and one runs the built
+ * `bin/skillx.js check --json` against a stub API for all five statuses
+ * (packages/cli/src/built-cli.test.ts).
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";

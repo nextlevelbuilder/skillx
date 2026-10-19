@@ -6,13 +6,14 @@
  * uses `use`'s identifier parsing and endpoint builder, so a slug (or source
  * identity) that `use` finds is the one `inspect` reports.
  *
- * The compatibility shapes here mirror the API's JSON. They are declared locally
- * because this package is a thin HTTP client and does not depend on
- * `@skillx/contracts`; a contract test guards the two from drifting.
+ * The compatibility shapes here describe the API's JSON as received, so status
+ * fields stay `string`. The decision about a status is never made here: it is
+ * `isCompatibilityActionable` from `@skillx/contracts`, bundled into the CLI.
  */
 
+import { COMPATIBILITY_STATUSES, isCompatibilityActionable, type CompatibilityStatus } from '@skillx/contracts';
 import { apiRequest } from './api-client.js';
-import { buildSkillEndpoint, parseIdentifier, parseRepoPath } from '../commands/use.js';
+import { buildSkillEndpoint, parseIdentifier, parseRepoPath } from './skill-resolver.js';
 import type { SkillReference, SkillScript } from '../commands/use-display.js';
 
 export interface CompatibilityRequirement {
@@ -139,7 +140,15 @@ function resolveLookupTarget(identifier: string): { slug: string; identity?: { r
   }
 }
 
-/** True when the answer permits action without further evidence. */
+/** True when the API sent a status from the contract's vocabulary. */
+function isKnownStatus(status: string | null | undefined): status is CompatibilityStatus {
+  return (COMPATIBILITY_STATUSES as readonly string[]).includes(status ?? '');
+}
+
+/**
+ * True when the answer permits action without further evidence. The rule is the
+ * contract's; a status outside its vocabulary (or none) is never actionable.
+ */
 export function isActionable(status: string | null | undefined): boolean {
-  return status === 'declared' || status === 'verified';
+  return isKnownStatus(status) && isCompatibilityActionable(status);
 }
