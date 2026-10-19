@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { skills, skillAliases } from "./schema";
 import type { Database } from "./index";
 
@@ -54,6 +54,36 @@ export async function resolveSkillBySlug(
     .limit(1);
 
   return target ?? null;
+}
+
+/**
+ * Batch form of {@link resolveSkillBySlug} for ids only: maps every requested slug
+ * (canonical or alias) to its skill id. A canonical hit wins over an alias, and
+ * unknown slugs are omitted.
+ */
+export async function resolveSkillIdsBySlugs(
+  db: Database,
+  slugs: string[],
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>();
+  if (slugs.length === 0) return result;
+
+  const direct = await db
+    .select({ id: skills.id, slug: skills.slug })
+    .from(skills)
+    .where(inArray(skills.slug, slugs));
+  for (const row of direct) result.set(row.slug, row.id);
+
+  const missing = slugs.filter((s) => !result.has(s));
+  if (missing.length === 0) return result;
+
+  const aliased = await db
+    .select({ slug: skillAliases.slug, skillId: skillAliases.skill_id })
+    .from(skillAliases)
+    .where(inArray(skillAliases.slug, missing));
+  for (const row of aliased) result.set(row.slug, row.skillId);
+
+  return result;
 }
 
 export interface SkillAliasInput {
