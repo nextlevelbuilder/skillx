@@ -99,15 +99,17 @@ export async function runCommand<T>(
  * Commander exits 1 on every parse problem. A caller has to tell "you called me
  * wrong" (2) from a failed run (1), and with `--json` it expects an envelope on
  * stdout, so parse errors are routed through the same vocabulary. Help and
- * `--version` still exit 0.
+ * `--version` still exit 0; help shown because a command was called without
+ * its subcommand (`skillx`, `skillx config`) is a usage error.
  */
 export function routeUsageErrors(program: Command, argv: readonly string[] = process.argv): void {
-  const json = argv.includes('--json');
+  // After `--` everything is an operand, so a literal "--json" there is not the flag.
+  const end = argv.indexOf('--');
+  const json = (end < 0 ? argv : argv.slice(0, end)).includes('--json');
   const apply = (command: Command) => {
     command.exitOverride((error: CommanderError) => {
-      if (error.code === 'commander.helpDisplayed' || error.code === 'commander.version') {
-        process.exit(EXIT_CODES.ok);
-      }
+      // Help and version (`--help`, `help <cmd>`, `--version`) are answers, not errors.
+      if (error.exitCode === 0) process.exit(EXIT_CODES.ok);
       const envelope = failure('usage_error', error.message.replace(/^error:\s*/, ''), {
         details: { reason: error.code },
         hint: 'Run `skillx --help` or `skillx <command> --help`.',

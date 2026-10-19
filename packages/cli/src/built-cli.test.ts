@@ -186,6 +186,11 @@ describe("built cli", () => {
   it("answers check --json for all five statuses with the contract's decision and exit code", async () => {
     const server = createServer((req, res) => {
       const url = new URL(String(req.url), "http://stub");
+      if (url.pathname === "/api/search") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ results: [] }));
+        return;
+      }
       const status = url.pathname.replace("/api/skills/s-", "");
       if (!(COMPATIBILITY_STATUSES as readonly string[]).includes(status)) {
         res.writeHead(404, { "Content-Type": "application/json" });
@@ -214,6 +219,10 @@ describe("built cli", () => {
       const missing = await cliExit("check", "s-nope", "--target", "agentkit", "--json");
       expect(missing.code).toBe(3);
       expect(JSON.parse(missing.stdout)).toMatchObject({ ok: false, error: { code: "not_found" } });
+
+      const nothing = await cliExit("use", "no such skill anywhere", "--json");
+      expect(nothing.code).toBe(3);
+      expect(JSON.parse(nothing.stdout)).toMatchObject({ ok: false, error: { code: "not_found" } });
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
@@ -223,6 +232,27 @@ describe("built cli", () => {
     const { code, stdout } = await cliExit("check", "some-skill", "--json");
     expect(code).toBe(2);
     expect(JSON.parse(stdout)).toMatchObject({ ok: false, error: { code: "usage_error" } });
+  });
+
+  it.each([["help", "check"], ["help", "check", "--json"], ["check", "--help", "--json"]])(
+    "treats `%s %s` as help, exit 0, with no usage_error envelope",
+    async (...args) => {
+      const { code, stdout } = await cliExit(...args);
+      expect(code).toBe(0);
+      expect(stdout).toContain("Usage: skillx check");
+      expect(stdout).not.toContain("usage_error");
+    },
+  );
+
+  it("reports a missing command as usage_error with exit 2", async () => {
+    expect((await cliExit()).code).toBe(2);
+    expect((await cliExit("config")).code).toBe(2);
+  });
+
+  it("reads --json only before --", async () => {
+    const { code, stdout } = await cliExit("check", "--", "--json");
+    expect(code).toBe(2);
+    expect(stdout).not.toContain("usage_error");
   });
 
   it("validates report arguments before any request", async () => {

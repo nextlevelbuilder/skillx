@@ -1776,7 +1776,7 @@ unknown or revoked key is a tool error with `details.code = "invalid_api_key"`.
 | `get_package` | `slug`, `target?` | Listing detail (alias-aware) and declared compatibility |
 | `get_release` | `package` (`@handle/slug`), `version?` | Public published releases only, through the release access module; private, draft, and unsigned rows are `not_found`, quarantined is `release_quarantined` |
 | `check_compatibility` | `slug`, `target` (`runtime[@version]`) | Version-aware status plus reason codes; returns the canonical slug |
-| `get_kit` | `kit` (`@handle/name`) | One personal kit and its effective revision. The owner reads their own kit at any visibility; anyone else only a `public` kit whose effective revision is reviewed, activated and authored public, otherwise `not_found`. While `SKILLX_PERSONAL_KITS_API` is off it is a tool error with `details.code = "feature_disabled"` |
+| `get_kit` | `kit` (`@handle/name`) | One personal kit and its effective revision. The owner reads their own kit at any visibility, with the full revision document. Anyone else sees only a `public` kit whose effective revision is reviewed, activated and authored public, and then only its metadata and `{ digest, number, activatedAt }` (the reference a foreign ancestor gets in the lock); otherwise `not_found`. A suspended or revoked publisher answers `publisher_revoked`. While `SKILLX_PERSONAL_KITS_API` is off it is a tool error with `details.code = "feature_disabled"` and credentials are not read |
 
 A miss is `{ "found": false, "code": "not_found" }`. Invalid arguments are a tool
 error with `details.code = "invalid_arguments"`; an unexpected failure is a tool

@@ -1,6 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { runCommand } from '../lib/run-command.js';
+import { CliError } from '../lib/output.js';
 import { resolveSkill, type ResolvedSkill } from '../lib/skill-resolver.js';
 import { discoveryOnlyNotice, displaySkill, trackInstall, type DisplayOptions } from './use-display.js';
 
@@ -90,6 +91,12 @@ export const useCommand = new Command('use')
       },
       async (progress) => {
         resolved = await resolveSkill(identifier, { forceSearch: options.search, progress });
+        if (resolved.kind === 'none') {
+          throw new CliError('not_found', `No skills found for ${resolved.displayId}`, {
+            details: { notes: resolved.notes },
+            hint: 'Try different search terms or browse all skills at https://skillx.sh',
+          });
+        }
         // Human display tracks the install itself; the envelope path counts the same use.
         if (json && resolved.kind === 'skill') trackInstall(resolved.detail.skill.slug);
         return toUsePayload(resolved);

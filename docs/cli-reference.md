@@ -64,7 +64,7 @@ Smart skill lookup and display with multiple identifier formats.
 | `-s, --search` | Force search mode regardless of identifier format | `false` |
 | `--include-refs` | Include references in output | `false` |
 | `--include-scripts` | Include scripts in output | `false` |
-| `--json` | Envelope with the resolution (`kind`: `skill`, `repo` scan, or `none` when a search found nothing) and its `notes` | `false` |
+| `--json` | Envelope with the resolution (`kind`: `skill` or `repo` scan) and its `notes`; nothing found is `not_found` (exit `3`) | `false` |
 
 **Resolution Logic:**
 1. Spaces in query → search mode
@@ -615,13 +615,18 @@ carries the same answer, so a script can branch without parsing either form:
 | `1` | `api_error`, `unexpected_error` | The API failed without a better class, or a bug |
 | `2` | `usage_error` | Invalid arguments or options, unknown command, missing argument |
 | `3` | `not_found` | The skill or resource does not exist |
-| `4` | `incompatible` | `check`: the skill exists but the target may not act on it |
+| `4` | — | `check` only: `ok: true` with `data.actionable: false`; the skill exists but the target may not act on it |
 | `5` | `auth_error` | API key missing or rejected (`401`/`403`); the hint names `skillx config set-key` |
 | `6` | `network_error` | The API could not be reached |
 | `7` | `rate_limited` | The API answered `429`; retry later |
 
+Exit `4` is an answer, not a failure, so its envelope is a success. Only flags before `--`
+count: `skillx check -- --json` treats `--json` as an operand.
+
 Parse failures follow the same table: with `--json` on the command line, an unknown option
-prints a `usage_error` envelope and exits `2`. `--help` and `--version` exit `0`. The
+prints a `usage_error` envelope and exits `2`. `--help`, `help <command>` and `--version` exit
+`0`; a bare `skillx` or a group without its subcommand (`skillx config`) prints help and exits
+`2`. The
 implementation lives in [`output.ts`](../packages/cli/src/lib/output.ts) and
 [`run-command.ts`](../packages/cli/src/lib/run-command.ts); a command wraps its work in
 `runCommand` and throws `CliError` for failures it classifies itself.
