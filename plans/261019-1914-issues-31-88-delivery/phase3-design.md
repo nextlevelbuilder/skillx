@@ -31,14 +31,14 @@ personal, overlay-capable unit; collections are the shareable list.
   canonical `{members, config}`.
 - `config` and members pass the shared **sync-leak scanner** (secrets, absolute paths) → 422.
 
-Migration `0017_collection_revision_lineage.sql` (additive, rollback SQL in header):
+Migration `0018_collection_revision_lineage.sql` (additive, rollback SQL in header):
 `collections.cloned_from_revision_id`, `collection_revisions.revision_digest`, trigger
 `collection_revisions_immutable`.
 
 ## 2. Lockfile `skillx.lock/v1` (contracts `install-lock.ts`)
 
 Canonical JSON, no timestamps, no machine paths. `source` = kit revision, collection
-revision or explicit packages; `target.runtime`; `packages[]` sorted by alias with
+revision or explicit packages; `runtimes` (kit runtime constraints); `packages[]` sorted by alias with
 `package, version, releaseDigest, compositionDigest, overlayDigests, alias`. Validator +
 `lockDigest`. `findSyncLeaks(value)` (also in contracts) is run before a lock is written,
 read for sync, or a collection is stored.
@@ -52,7 +52,7 @@ read for sync, or a collection is stored.
 - **Fetch/verify**: signed manifest (trusted key, identity, version, digest), every file
   sha256 + size, tree digest; overlay applied and checked against `compositionDigest`.
   Content-addressed blob cache `~/.skillx/cache/blobs`.
-- **Atomic apply**: stage in `<skillsDir>/.skillx-staging/`, journal, rename old → backup,
+- **Atomic apply**: stage in `<runtime dir>/.skillx-staging/` (sibling of `skills/`), journal, rename old → backup,
   stage → target, write receipt, drop backup, clear journal. Recovery at start of every
   run rolls forward (target present, receipt from journal) or back (restore backup).
 - **Receipts** `~/.skillx/receipts/<adapter>/<alias>.json` (`skillx.install-receipt/v1`):
@@ -87,7 +87,7 @@ HOME/USERPROFILE/CODEX_HOME/SKILLX_HOME.
 ## Out of scope / follow-ups
 
 - Production registry public key is not in the repo: the CLI ships an empty trust store
-  and reads `SKILLX_TRUSTED_KEYS` / `skillx config set trustedKeys`; embedding the
+  and reads `~/.skillx/trusted-keys.json` / `SKILLX_TRUSTED_KEYS`; embedding the
   production key needs the operator to publish it.
 - Dependency graphs between packages: releases declare none today; resolver reports
   duplicates/alias collisions only.

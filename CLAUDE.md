@@ -114,6 +114,7 @@ pnpm db:migrate:remote    # Apply migrations to remote D1
 | `/api/v1/oidc/github/token` | api.v1.oidc-github-token.ts (GitHub Actions JWT → 15 min `sxo_` token scoped `releases:publish:@handle`; jti replay-checked) | GitHub OIDC JWT (503 without `SKILLX_TOKEN_SECRET`; 404 unless `SKILLX_RELEASES_API` on) |
 | `/api/v1/releases/:digest/artifact/url`, `/api/v1/downloads/:token` | api.v1.release-download-url.ts, api.v1.release-download.ts (5 min signed artifact URL for private/entitled releases) | URL: entitled Key/Session; download: the token (404 unless `SKILLX_RELEASES_API` on) |
 | `/api/v1/kits/:scope/:name`, `/api/v1/kits/:scope/:name/*` | api.v1.kits.ts (personal kit revisions, rebase, conflicts, session-derived proposals and review, activate/rollback, lock; see docs/personal-kits-api.md) | Owner session or unscoped API key; scoped keys 401, non-owners 404; `revisions/:id/quarantine` admin secret only (404 unless `SKILLX_PERSONAL_KITS_API` on) |
+| `/api/v1/collections`, `/api/v1/collections/:id`, `/api/v1/collections/:id/*` | api.v1.collections.ts (collections: create/update/delete, immutable revisions, members, clone; see docs/api-reference.md#collections) | Reads: owner, or anyone for unlisted/public; writes: owner session or unscoped key (404 unless `SKILLX_COLLECTIONS_API` on) |
 
 ## Database Tables (Drizzle schema)
 

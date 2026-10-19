@@ -1357,6 +1357,44 @@ column and deletes the `0012_api_key_scopes.sql` row from `d1_migrations`.
 
 `/api/v1/kits/@{handle}/{name}[/...]` (flag `SKILLX_PERSONAL_KITS_API`): owner-private kit revisions, foundation rebase, conflict resolution, session-derived proposals and review, activation and locks. See [Personal Kits API](./personal-kits-api.md).
 
+### Collections
+
+`/api/v1/collections[/:id[/...]]` (flag `SKILLX_COLLECTIONS_API`, 404 when off).
+A collection is a shareable recipe of package references with immutable,
+numbered revisions; per-user overlays and activation stay with personal kits.
+
+| Method | Path | Who | Body / result |
+|--------|------|-----|---------------|
+| GET | `/api/v1/collections` | Owner | `{collections}` (own only; 401 anonymous) |
+| POST | `/api/v1/collections` | Owner | `{slug, name?, visibility?, members, config?}` → 201 `{collection, revision}` (revision 1) |
+| GET | `/:id` | Reader | `{collection}` |
+| PATCH | `/:id` | Owner | `{name?, visibility?}` → `{collection}` |
+| DELETE | `/:id` | Owner | `{deleted: true, id}` (revisions cascade) |
+| GET | `/:id/revisions` | Reader | `{revisions}` |
+| POST | `/:id/revisions` | Owner | `{expectedRevision, members, config?}` → 201 `{revision}` (full replace) |
+| GET | `/:id/revisions/:n` or `/latest` | Reader | `{revision}` |
+| POST | `/:id/members` | Owner | `{expectedRevision, add?: Member[], remove?: string[]}` → 201 `{revision}` |
+| POST | `/:id/clone` | Reader | `{slug?, name?, visibility?, revisionNumber?}` → 201 new private collection of the caller |
+
+- **Auth**: owner writes need a session or an unscoped account API key; scoped
+  keys are refused. Writes use `RELEASE_WRITE_LIMITER`, reads
+  `RELEASE_READ_LIMITER`.
+- **Visibility**: `private` (default; non-owners get 404), `unlisted` and
+  `public` (anyone may read and clone).
+- **Members**: `{packageName, version?, digest?, optional?}`. A member without
+  `version` follows the newest stable release at install time; a pinned one is
+  exact, and a `digest` must equal that release's `releaseDigest`.
+- **Revisions** are immutable (DB trigger). `revisionDigest` is
+  `sha256:` of the canonical JSON of `{members, config}`; clients recompute and
+  compare it. A stale `expectedRevision` answers `409 collection.revision_conflict`.
+- **Leak scan**: `members` and `config` pass the shared sync-leak scanner
+  (`findSyncLeaks` in `@skillx/contracts`); a secret-shaped value or an
+  absolute local path answers `422`.
+
+Database: migration `0018_collection_revision_lineage` adds
+`collection_revisions.revision_digest`, `collections.cloned_from_revision_id`
+and the `collection_revisions_immutable` trigger (rollback SQL in its header).
+
 ### Changing release and publisher state
 
 Behind the same flag (`404 not_found` unless `SKILLX_RELEASES_API` is `"1"`
