@@ -467,17 +467,17 @@ document in R2 under `statuses/sha256/`. Rollback: the header SQL of
 `0014_release_status_and_exec.sql` (drops both columns, clears the
 `d1_migrations` row); deploy the previous code first.
 
-**Migration 0018 and the collections API.**
-`0018_collection_revision_lineage` adds two nullable columns
+**Migration 0019 and the collections API.**
+`0019_collection_revision_lineage` adds two nullable columns
 (`collection_revisions.revision_digest`, `collections.cloned_from_revision_id`)
 and the `collection_revisions_immutable` trigger, which aborts every `UPDATE`
 of a stored revision. It is additive; apply it (`pnpm run db:migrate:remote`,
 after a backup) before deploying code with `SKILLX_COLLECTIONS_API` set to
 `"1"`. The flag is `"0"` in `apps/web/wrangler.jsonc`, so `/api/v1/collections`
-answers 404 until it is enabled. Revisions written before 0018 have no digest;
+answers 404 until it is enabled. Revisions written before 0019 have no digest;
 the CLI then trusts the member list it recomputes. Rollback: set the flag back
 to `"0"`, redeploy, then run the header SQL of
-`0018_collection_revision_lineage.sql` (drops the trigger and both columns,
+`0019_collection_revision_lineage.sql` (drops the trigger and both columns,
 clears the `d1_migrations` row).
 
 The CLI installer (`skillx install`, `sync --locked`, `mcp`) needs no server

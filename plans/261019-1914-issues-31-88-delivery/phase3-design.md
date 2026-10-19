@@ -31,7 +31,7 @@ personal, overlay-capable unit; collections are the shareable list.
   canonical `{members, config}`.
 - `config` and members pass the shared **sync-leak scanner** (secrets, absolute paths) → 422.
 
-Migration `0018_collection_revision_lineage.sql` (additive, rollback SQL in header):
+Migration `0019_collection_revision_lineage.sql` (additive, rollback SQL in header):
 `collections.cloned_from_revision_id`, `collection_revisions.revision_digest`, trigger
 `collection_revisions_immutable`.
 

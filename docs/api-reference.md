@@ -1391,7 +1391,7 @@ numbered revisions; per-user overlays and activation stay with personal kits.
   (`findSyncLeaks` in `@skillx/contracts`); a secret-shaped value or an
   absolute local path answers `422`.
 
-Database: migration `0018_collection_revision_lineage` adds
+Database: migration `0019_collection_revision_lineage` adds
 `collection_revisions.revision_digest`, `collections.cloned_from_revision_id`
 and the `collection_revisions_immutable` trigger (rollback SQL in its header).
 
