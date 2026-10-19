@@ -55,3 +55,6 @@ apps/web/.backfill-tmp.sql
 # Python bytecode
 __pycache__/
 *.pyc
+
+# Pi agent per-session state
+.pi/
