@@ -8,6 +8,7 @@ import { compareUtf8, memoryTree, overlayBetween, PERSONAL_KIT_SCHEMA } from "@s
 import type { KitTree, SkillOverlay } from "@skillx/contracts";
 import { releasePublishScope } from "~/lib/auth/api-key-scopes";
 import { loader, action } from "~/routes/api.v1.kits";
+import { loader as manifestLoader } from "~/routes/api.v1.release-manifest";
 import { FakeRateLimiter } from "../releases/fake-rate-limiter";
 import { createHarness, file, tarOf } from "../releases/release-harness";
 
@@ -93,11 +94,34 @@ export async function createKitHarness() {
     return { status: res.status, headers: res.headers, body: (await res.json()) as Record<string, any> };
   }
 
+  /**
+   * A `fetch` over the real kit and release-manifest route modules, for
+   * clients (the enablement smoke) that speak HTTP, with `extra` over the
+   * harness env. Other paths are 599.
+   */
+  const serveWith = (extra: Record<string, unknown> = {}) => async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+    const request = new Request(input, init);
+    const path = new URL(request.url).pathname;
+    const context = { cloudflare: { env: env(extra) } };
+    const kitPath = /^\/api\/v1\/kits\/(@[^/]+)\/([^/]+)(?:\/(.+))?$/.exec(path);
+    if (kitPath !== null) {
+      const params = { scope: kitPath[1], name: kitPath[2], ...(kitPath[3] === undefined ? {} : { "*": kitPath[3] }) };
+      const args = { request, params, context } as never;
+      return request.method === "GET" || request.method === "HEAD" ? loader(args) : action(args);
+    }
+    const manifest = /^\/api\/v1\/packages\/(@[^/]+)\/([^/]+)\/releases\/([^/]+)$/.exec(path);
+    if (manifest !== null) {
+      return manifestLoader({ request, params: { scope: manifest[1], slug: manifest[2], version: manifest[3] }, context } as never);
+    }
+    return new Response("no route in the kit harness", { status: 599 });
+  };
+  const serve = serveWith();
+
   const count = (table: string) => (h.d1.raw.prepare(`SELECT count(*) AS n FROM ${table}`).get() as { n: number }).n;
   const sql = (statement: string, ...params: Array<string | number | null>) => h.d1.raw.prepare(statement).run(...params);
 
   let keyCounter = 0;
   const idem = () => `idem-key-${String(++keyCounter).padStart(4, "0")}`;
 
-  return { h, ownerKey, otherKey, publish, treeOf, overlayTo, entry, doc, call, count, sql, idem };
+  return { h, ownerKey, otherKey, publish, treeOf, overlayTo, entry, doc, call, serve, serveWith, count, sql, idem };
 }

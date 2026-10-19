@@ -1,6 +1,6 @@
 /**
  * HTTP boundary of the personal kit API (`/api/v1/kits/@handle/name/...`).
- * 404 while `SKILLX_PERSONAL_KITS_API` is off. The caller is the release
+ * 404 `kit.api_disabled` while `SKILLX_PERSONAL_KITS_API` is off. The caller is the release
  * viewer (unscoped account API key or web session; scoped publish keys are
  * refused); a kit is visible only to its owner, everyone else gets the same
  * 404 as an unknown kit. Reads count against `RELEASE_READ_LIMITER`, writes
@@ -9,7 +9,7 @@
  */
 import { PersonalKitError } from "@skillx/contracts";
 import { IDENTITY_PATTERN, validateIdentity } from "@skillx/skill-tree";
-import { ReleaseHttpError, errorResponse, notFoundResponse, releaseError } from "~/lib/releases/release-http";
+import { ReleaseHttpError, errorResponse, releaseError } from "~/lib/releases/release-http";
 import { checkReleaseRateLimit, rateLimitCaller } from "~/lib/releases/release-rate-limit";
 import { resolveViewer } from "~/lib/releases/release-read";
 import { NO_STORE, failureHeaders, readJsonObject, resolveLimitedActor } from "~/lib/releases/release-state-http";
@@ -27,6 +27,20 @@ export function personalKitsApiEnabled(env: { SKILLX_PERSONAL_KITS_API?: string 
 }
 
 export const kitNotFound = () => releaseError(404, "not_found", "Not found");
+
+/** Code of the flag-off answer. */
+export const KIT_API_DISABLED = "kit.api_disabled";
+
+/**
+ * The flag-off answer. It stays a 404, so a client that only reads the
+ * status keeps treating the API as absent, and its code tells a client the
+ * deployment does not offer personal kits, so it can say so instead of
+ * "no such kit". It is answered before any authentication or lookup and
+ * names no kit, owner or state: only the deployment's flag, which the routes
+ * do not hide either (other methods still get the framework's 405).
+ */
+export const kitApiDisabledResponse = () =>
+  errorResponse(releaseError(404, KIT_API_DISABLED, "Personal kits are not enabled on this SkillX deployment"));
 export const badRequest = (message: string) => releaseError(400, "invalid_request", message);
 export const conflict = (code: string, message: string) => releaseError(409, code, message);
 
@@ -165,7 +179,7 @@ export async function serveKit(
   handler: (caller: KitCaller) => Promise<Response>,
   now: () => Date = () => new Date(),
 ): Promise<Response> {
-  if (!personalKitsApiEnabled(env)) return notFoundResponse();
+  if (!personalKitsApiEnabled(env)) return kitApiDisabledResponse();
   try {
     let userId: string;
     if (access === "read") {

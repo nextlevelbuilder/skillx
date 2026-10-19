@@ -24,11 +24,19 @@ async function createKit(files = MINE) {
 }
 
 describe("personal kit revisions", () => {
-  it("is 404 everywhere while the flag is off", async () => {
-    for (const res of [await k.call("", undefined, { env: { SKILLX_PERSONAL_KITS_API: "0" } }), await k.call("revisions", {}, { env: { SKILLX_PERSONAL_KITS_API: "0" } })]) {
+  it("is 404 kit.api_disabled everywhere while the flag is off, before any auth or lookup", async () => {
+    const off = { env: { SKILLX_PERSONAL_KITS_API: "0" } };
+    for (const res of [
+      await k.call("", undefined, off),
+      await k.call("revisions", {}, off),
+      await k.call("lock", undefined, { ...off, key: null }),
+      await k.call("", undefined, { ...off, kit: "@nobody/missing" }),
+    ]) {
       expect(res.status).toBe(404);
-      expect(res.body.error.code).toBe("not_found");
+      expect(res.body.error.code).toBe("kit.api_disabled");
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
     }
+    expect(k.count("personal_kits") + k.count("personal_kit_audit")).toBe(0);
   });
 
   it("stores a draft whose composition the server re-derives, then activates it only with approval", async () => {
