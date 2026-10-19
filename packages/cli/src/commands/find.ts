@@ -1,7 +1,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import * as readline from 'node:readline/promises';
-import { stdin as input, stdout as output } from 'node:process';
+import { stdout } from 'node:process';
+import { CliError } from '../lib/output.js';
+import { promptLine } from '../lib/prompt-line.js';
 import { searchSkills, type SearchResult } from '../lib/search-api.js';
 import { runCommand } from '../lib/run-command.js';
 import { resolveAndUseSkill } from './use.js';
@@ -22,12 +23,11 @@ async function pickAndUse(results: SearchResult[]): Promise<void> {
   });
   console.log();
 
-  const rl = readline.createInterface({ input, output });
-  let answer: string;
-  try {
-    answer = await rl.question(chalk.cyan(`Select a skill [1-${results.length}] or press Enter to cancel: `));
-  } finally {
-    rl.close();
+  const answer = await promptLine(chalk.cyan(`Select a skill [1-${results.length}] or press Enter to cancel: `), stdout);
+  if (answer === null) {
+    throw new CliError('usage_error', 'No selection on stdin.', {
+      hint: 'Use `skillx find <query> --json` to list hits without prompting.',
+    });
   }
 
   const choice = parseInt(answer.trim(), 10);

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { execFile, execFileSync, execSync } from "node:child_process";
+import { execFile, execFileSync, execSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
@@ -45,6 +45,18 @@ async function cliExit(...args: string[]): Promise<{ code: number; stdout: strin
     const failed = error as { code?: number; stdout?: string };
     return { code: failed.code ?? -1, stdout: failed.stdout ?? "" };
   }
+}
+
+/** Runs the built CLI with `input` on stdin, then closes it; the exit code is data. */
+function cliWithInput(input: string, ...args: string[]): Promise<{ code: number; stdout: string }> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [BIN, ...args], { cwd: root, env: childEnv });
+    let stdout = "";
+    child.stdout.setEncoding("utf8").on("data", (chunk: string) => (stdout += chunk));
+    child.on("error", reject);
+    child.on("close", (code) => resolve({ code: code ?? -1, stdout }));
+    child.stdin.end(input);
+  });
 }
 
 beforeAll(() => {
@@ -187,8 +199,14 @@ describe("built cli", () => {
     const server = createServer((req, res) => {
       const url = new URL(String(req.url), "http://stub");
       if (url.pathname === "/api/search") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({ results: [] }));
+        // One hit for "one hit", none for anything else.
+        let body = "";
+        req.on("data", (chunk) => (body += chunk));
+        req.on("end", () => {
+          const hit = { slug: "s-declared", name: "s-declared", author: "a", category: "c", description: "d" };
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ results: body.includes("one hit") ? [hit] : [] }));
+        });
         return;
       }
       const status = url.pathname.replace("/api/skills/s-", "");
@@ -223,6 +241,10 @@ describe("built cli", () => {
       const nothing = await cliExit("use", "no such skill anywhere", "--json");
       expect(nothing.code).toBe(3);
       expect(JSON.parse(nothing.stdout)).toMatchObject({ ok: false, error: { code: "not_found" } });
+
+      // A prompt on a closed stdin is a usage error, not a hang or Node's exit 13.
+      const noPick = await cliWithInput("", "find", "one hit");
+      expect(noPick.code).toBe(2);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
@@ -253,6 +275,12 @@ describe("built cli", () => {
     const { code, stdout } = await cliExit("check", "--", "--json");
     expect(code).toBe(2);
     expect(stdout).not.toContain("usage_error");
+  });
+
+  it.each([[""], ["   \n"]])("refuses config set-key --json with no key on stdin (%j) as usage_error", async (input) => {
+    const { code, stdout } = await cliWithInput(input, "config", "set-key", "--json");
+    expect(code).toBe(2);
+    expect(JSON.parse(stdout)).toMatchObject({ ok: false, error: { code: "usage_error" } });
   });
 
   it("validates report arguments before any request", async () => {

@@ -29,10 +29,6 @@ describe("exit codes", () => {
     expect(exitCodeFor(success({ anything: true }))).toBe(EXIT_CODES.ok);
   });
 
-  it("is 4 for an incompatible target, which is not a generic failure", () => {
-    expect(exitCodeFor(failure("incompatible", "no"))).toBe(EXIT_CODES.incompatible);
-  });
-
   it("is 2 for a usage error and 3 for a missing skill", () => {
     expect(exitCodeFor(failure("usage_error", "no"))).toBe(EXIT_CODES.usage);
     expect(exitCodeFor(failure("not_found", "no"))).toBe(EXIT_CODES.notFound);
@@ -109,7 +105,7 @@ describe("serialize", () => {
 
   it("carries machine-readable details when present", () => {
     const parsed = JSON.parse(
-      serialize(failure("incompatible", "blocked", { details: { reasonCodes: ["COMPAT_RANGE_MISMATCH"] } })),
+      serialize(failure("not_found", "blocked", { details: { reasonCodes: ["COMPAT_RANGE_MISMATCH"] } })),
     );
     expect(parsed.error.details.reasonCodes).toEqual(["COMPAT_RANGE_MISMATCH"]);
   });

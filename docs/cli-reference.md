@@ -64,7 +64,10 @@ Smart skill lookup and display with multiple identifier formats.
 | `-s, --search` | Force search mode regardless of identifier format | `false` |
 | `--include-refs` | Include references in output | `false` |
 | `--include-scripts` | Include scripts in output | `false` |
-| `--json` | Envelope with the resolution (`kind`: `skill` or `repo` scan) and its `notes`; nothing found is `not_found` (exit `3`) | `false` |
+| `--json` | Envelope with the resolution (`kind`: `skill` or `repo` scan) and its `notes` | `false` |
+
+When nothing matches, `use` (and `search --use`, `find` after a pick) fails with `not_found`
+and exits `3` in both modes; the human message goes to stderr.
 
 **Resolution Logic:**
 1. Spaces in query → search mode
@@ -140,6 +143,9 @@ Interactive search — browse results and select a skill.
 2. Shows name, category, rating, description per result
 3. Prompts: `Select a skill [1-N] or press Enter to cancel:`
 4. Shows the selected skill exactly as `skillx use <slug>` would
+
+If stdin closes before a selection (no terminal, empty pipe), `find` fails with `usage_error`
+(exit `2`); use `--json` in scripts.
 
 **Examples:**
 ```bash
@@ -332,7 +338,8 @@ Manage CLI configuration.
 
 All three subcommands accept `--json`. `config show --json` reports the key only as
 `apiKey: { configured, source, masked }`; the plaintext key is never printed. Under
-`set-key --json` the prompt goes to stderr, so stdout stays one envelope.
+`set-key --json` the prompt goes to stderr, so stdout stays one envelope. The key may be
+piped on stdin; an empty or closed stdin is a `usage_error` (exit `2`).
 
 #### `skillx config set-key`
 

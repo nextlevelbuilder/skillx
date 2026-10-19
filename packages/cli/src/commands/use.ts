@@ -15,8 +15,19 @@ interface UseOptions {
   json?: boolean;
 }
 
-/** Human rendering of a resolution. */
-function renderResolved(resolved: ResolvedSkill, options: DisplayOptions): void {
+type Match = Exclude<ResolvedSkill, { kind: 'none' }>;
+
+/** Nothing matched is `not_found` (exit 3) for `use`, `search --use` and `find` alike. */
+function requireMatch(resolved: ResolvedSkill): Match {
+  if (resolved.kind !== 'none') return resolved;
+  throw new CliError('not_found', `No skills found for ${resolved.displayId}`, {
+    details: { notes: resolved.notes },
+    hint: 'Try different search terms or browse all skills at https://skillx.sh',
+  });
+}
+
+/** Human rendering of a match. */
+function renderResolved(resolved: Match, options: DisplayOptions): void {
   // In raw mode stdout is the skill content only; the detours go to stderr.
   const note = options.raw ? console.error : (text: string) => console.log(chalk.dim(text));
   for (const text of resolved.notes) note(text);
@@ -28,18 +39,12 @@ function renderResolved(resolved: ResolvedSkill, options: DisplayOptions): void 
     return;
   }
 
-  if (resolved.kind === 'repo') {
-    console.log(chalk.bold.green(`\nFound ${resolved.skills.length} skill(s) in repo:\n`));
-    resolved.skills.forEach((s) => console.log(`  ${chalk.cyan(`${s.author}/${s.name}`)}`));
-    console.log(chalk.dim(`\nUse ${chalk.cyan(`skillx use ${resolved.displayId}/<skill-name>`)} to use a specific skill`));
-    if (resolved.registered) {
-      console.log(chalk.dim(`(${resolved.registered} newly registered, ${resolved.skipped} already existed)`));
-    }
-    return;
+  console.log(chalk.bold.green(`\nFound ${resolved.skills.length} skill(s) in repo:\n`));
+  resolved.skills.forEach((s) => console.log(`  ${chalk.cyan(`${s.author}/${s.name}`)}`));
+  console.log(chalk.dim(`\nUse ${chalk.cyan(`skillx use ${resolved.displayId}/<skill-name>`)} to use a specific skill`));
+  if (resolved.registered) {
+    console.log(chalk.dim(`(${resolved.registered} newly registered, ${resolved.skipped} already existed)`));
   }
-
-  console.log(chalk.yellow(`\nNo skills found for ${resolved.displayId}`));
-  console.log(chalk.dim('Try different search terms or browse all skills at https://skillx.sh'));
 }
 
 /** The `use --json` payload: the resolution, with the discovery-only decision made explicit. */
@@ -62,7 +67,7 @@ export function toUsePayload(resolved: ResolvedSkill) {
 
 /** Resolve identifier and display the skill. Exported for use by search --use. */
 export async function resolveAndUseSkill(identifier: string, options: DisplayOptions): Promise<void> {
-  renderResolved(await resolveSkill(identifier), options);
+  renderResolved(requireMatch(await resolveSkill(identifier)), options);
 }
 
 export const useCommand = new Command('use')
@@ -81,7 +86,7 @@ export const useCommand = new Command('use')
       includeScripts: options.includeScripts ?? false,
     };
     // The envelope flattens the skill; the human renderer needs the resolution itself.
-    let resolved: ResolvedSkill | undefined;
+    let resolved: Match | undefined;
     return runCommand(
       {
         json,
@@ -90,17 +95,12 @@ export const useCommand = new Command('use')
         errors: { notFoundMessage: `Skill not found: ${identifier}` },
       },
       async (progress) => {
-        resolved = await resolveSkill(identifier, { forceSearch: options.search, progress });
-        if (resolved.kind === 'none') {
-          throw new CliError('not_found', `No skills found for ${resolved.displayId}`, {
-            details: { notes: resolved.notes },
-            hint: 'Try different search terms or browse all skills at https://skillx.sh',
-          });
-        }
+        const match = requireMatch(await resolveSkill(identifier, { forceSearch: options.search, progress }));
+        resolved = match;
         // Human display tracks the install itself; the envelope path counts the same use.
-        if (json && resolved.kind === 'skill') trackInstall(resolved.detail.skill.slug);
-        return toUsePayload(resolved);
+        if (json && match.kind === 'skill') trackInstall(match.detail.skill.slug);
+        return toUsePayload(match);
       },
-      () => renderResolved(resolved as ResolvedSkill, display),
+      () => renderResolved(resolved as Match, display),
     );
   });

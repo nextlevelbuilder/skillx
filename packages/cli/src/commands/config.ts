@@ -1,8 +1,8 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
-import * as readline from 'node:readline/promises';
-import { stdin as input, stdout, stderr } from 'node:process';
+import { stdout, stderr } from 'node:process';
 import { CliError } from '../lib/output.js';
+import { promptLine } from '../lib/prompt-line.js';
 import { runCommand } from '../lib/run-command.js';
 import {
   getApiKey,
@@ -38,18 +38,14 @@ configCommand
     return runCommand(
       { json },
       async () => {
-        // With --json, stdout carries only the envelope, so the prompt is written to stderr.
-        const rl = readline.createInterface({ input, output: json ? stderr : stdout });
-        let apiKey: string;
-        try {
-          if (!json) {
-            console.log(chalk.bold('\nSkillX API Key Configuration'));
-            console.log(chalk.dim('Get your API key from: https://skillx.sh/settings/api\n'));
-          }
-          apiKey = (await rl.question(json ? 'Enter your API key: ' : chalk.cyan('Enter your API key: '))).trim();
-        } finally {
-          rl.close();
+        if (!json) {
+          console.log(chalk.bold('\nSkillX API Key Configuration'));
+          console.log(chalk.dim('Get your API key from: https://skillx.sh/settings/api\n'));
         }
+        // With --json, stdout carries only the envelope, so the prompt is written to stderr.
+        const line = await promptLine(json ? 'Enter your API key: ' : chalk.cyan('Enter your API key: '), json ? stderr : stdout);
+        if (line === null) throw new CliError('usage_error', 'No API key on stdin.');
+        const apiKey = line.trim();
         if (apiKey.length === 0) throw new CliError('usage_error', 'API key cannot be empty.');
 
         setApiKey(apiKey);
