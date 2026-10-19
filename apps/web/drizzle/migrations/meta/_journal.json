@@ -134,6 +134,13 @@
       "when": 1792412883490,
       "tag": "0018_registry_publishing",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "6",
+      "when": 1792412951303,
+      "tag": "0019_collection_revision_lineage",
+      "breakpoints": true
     }
   ]
 }

@@ -23,3 +23,6 @@ export * from "./dto";
 export * from "./payload-access";
 export * from "./fixtures";
 export * from "./personal-kit";
+export * from "./sync-leaks";
+export * from "./install-lock";
+export * from "./collection-revision";

@@ -52,5 +52,8 @@ export default [
   route("api/v1/keys", "routes/api.v1.signing-keys.ts"),
   route("api/v1/kits/:scope/:name", "routes/api.v1.kits.ts", { id: "personal-kit" }),
   route("api/v1/kits/:scope/:name/*", "routes/api.v1.kits.ts", { id: "personal-kit-sub" }),
+  route("api/v1/collections", "routes/api.v1.collections.ts", { id: "collections" }),
+  route("api/v1/collections/:id", "routes/api.v1.collections.ts", { id: "collection" }),
+  route("api/v1/collections/:id/*", "routes/api.v1.collections.ts", { id: "collection-sub" }),
   route("*", "routes/$.tsx"),
 ] satisfies RouteConfig;
