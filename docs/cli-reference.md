@@ -408,10 +408,10 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
   explicit package is its own source (`packages:@scope/name`), whether it was
   installed alone, with others, or by `sync --locked` from a packages lock.
   Each package is dropped from a packages lock file as soon as it is
-  uninstalled, so a run that stops part way leaves the lock in step. Uninstalling a kit or a
-  collection does not rewrite its lock file: the lock still describes that
-  revision and can restore it with `sync --locked`. A skill another source
-  still needs stays. Only regular files whose SHA-256 still matches the
+  uninstalled, so a run that stops part way leaves the lock in step.
+  Uninstalling a kit or a collection does not rewrite its lock file: the lock
+  still describes that revision and can restore it with `sync --locked`. A
+  skill another source still needs stays. Only regular files whose SHA-256 still matches the
   receipt are deleted; edited and unknown files are kept and reported. Links
   are never followed: a file reached through a symlink or junction is kept,
   and a skill directory that is itself a link is left alone.
