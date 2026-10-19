@@ -1,6 +1,6 @@
 import type { ActionFunctionArgs } from "react-router";
 import { getDb } from "~/lib/db";
-import { skills, favorites } from "~/lib/db/schema";
+import { favorites } from "~/lib/db/schema";
 import { eq, and } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
 import { recomputeSkillScores } from "~/lib/leaderboard/recompute-skill-scores";

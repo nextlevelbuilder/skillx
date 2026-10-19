@@ -1,4 +1,4 @@
-import { useLoaderData, useFetcher } from "react-router";
+import { useLoaderData, useFetcher, useRevalidator } from "react-router";
 import type { LoaderFunctionArgs } from "react-router";
 import { PageContainer } from "../components/layout/page-container";
 import { ApiKeyCreateDialog, ApiKeyRevealDialog } from "../components/settings/api-key-create-dialog";
@@ -8,7 +8,7 @@ import { getSession } from "~/lib/auth/session-helpers";
 import { getDb } from "~/lib/db";
 import { listOwnedActivePublishers, listUserApiKeys } from "~/lib/auth/user-api-keys";
 import type { CreateKeyRequest } from "~/lib/auth/api-key-form";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env as Env;
@@ -34,16 +34,13 @@ interface CreateKeyResponse {
 
 export default function Settings() {
   const data = useLoaderData<typeof loader>();
-  const createFetcher = useFetcher<CreateKeyResponse>();
+  const revalidator = useRevalidator();
   const deleteFetcher = useFetcher<{ error?: string }>();
   const [showNewKeyModal, setShowNewKeyModal] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
+  // The plaintext key lives only in this state, so closing the reveal dialog drops it.
   const [generated, setGenerated] = useState<{ key: string; scopes: string[] | null } | null>(null);
-
-  // Show the generated key once when the create request returns it.
-  useEffect(() => {
-    const result = createFetcher.data;
-    if (result?.key) setGenerated({ key: result.key, scopes: result.scopes ?? null });
-  }, [createFetcher.data]);
 
   if (!data.isAuthenticated) {
     return (
@@ -59,9 +56,34 @@ export default function Settings() {
     );
   }
 
-  const handleGenerateKey = (body: CreateKeyRequest) => {
-    createFetcher.submit({ ...body }, { method: "post", action: "/api/user/api-keys", encType: "application/json" });
-    setShowNewKeyModal(false);
+  // The dialog stays open, with its inputs, until the server answers; a 400/403 is shown inside it.
+  const handleGenerateKey = async (body: CreateKeyRequest) => {
+    setCreating(true);
+    setCreateError(null);
+    try {
+      const res = await fetch("/api/user/api-keys", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = (await res.json().catch(() => ({}))) as CreateKeyResponse;
+      if (!res.ok || !result.key) {
+        setCreateError(result.error ?? `Could not create the key (HTTP ${res.status})`);
+        return;
+      }
+      setGenerated({ key: result.key, scopes: result.scopes ?? null });
+      setShowNewKeyModal(false);
+      revalidator.revalidate();
+    } catch {
+      setCreateError("Network error. Could not create the key.");
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const openNewKeyModal = () => {
+    setCreateError(null);
+    setShowNewKeyModal(true);
   };
 
   const handleDeleteKey = (keyId: string) => {
@@ -69,7 +91,6 @@ export default function Settings() {
     deleteFetcher.submit({ id: keyId }, { method: "delete", action: "/api/user/api-keys", encType: "application/json" });
   };
 
-  const error = createFetcher.state === "idle" ? createFetcher.data?.error : undefined;
   const revokeError = deleteFetcher.state === "idle" ? deleteFetcher.data?.error : undefined;
 
   return (
@@ -87,6 +108,8 @@ export default function Settings() {
         <ApiKeyCreateDialog
           publishers={data.publishers}
           onSubmit={handleGenerateKey}
+          submitting={creating}
+          error={createError}
           onCancel={() => setShowNewKeyModal(false)}
         />
       )}
@@ -95,7 +118,7 @@ export default function Settings() {
         <div className="mb-4 flex items-center justify-between">
           <h2 className="font-mono text-lg font-semibold">API Keys</h2>
           <button
-            onClick={() => setShowNewKeyModal(true)}
+            onClick={openNewKeyModal}
             className="flex items-center gap-2 rounded-lg bg-sx-accent px-4 py-2 text-sm font-medium text-sx-bg transition-colors hover:bg-sx-accent-hover"
           >
             <Plus size={16} />
@@ -103,9 +126,9 @@ export default function Settings() {
           </button>
         </div>
 
-        {(error || revokeError) && (
+        {revokeError && (
           <p role="alert" className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-500">
-            {error ?? revokeError}
+            {revokeError}
           </p>
         )}
 
