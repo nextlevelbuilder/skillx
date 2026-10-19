@@ -1,5 +1,6 @@
 import type { ActionFunctionArgs } from "react-router";
 import { getDb } from "~/lib/db";
+import { resolveSkillBySlug } from "~/lib/db/skill-aliases";
 import { skills, ratings } from "~/lib/db/schema";
 import { eq, avg, count } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
@@ -34,11 +35,7 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     }
 
     // Find skill
-    const [skill] = await db
-      .select()
-      .from(skills)
-      .where(eq(skills.slug, slug))
-      .limit(1);
+    const skill = await resolveSkillBySlug(db, slug);
 
     if (!skill) {
       return Response.json({ error: "Skill not found" }, { status: 404 });

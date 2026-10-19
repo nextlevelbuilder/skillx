@@ -1,6 +1,7 @@
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { getDb } from "~/lib/db";
-import { skills, reviews } from "~/lib/db/schema";
+import { resolveSkillBySlug } from "~/lib/db/skill-aliases";
+import { reviews } from "~/lib/db/schema";
 import { eq, desc } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
 
@@ -15,11 +16,7 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
     const db = getDb(env.DB);
 
     // Find skill
-    const [skill] = await db
-      .select()
-      .from(skills)
-      .where(eq(skills.slug, slug))
-      .limit(1);
+    const skill = await resolveSkillBySlug(db, slug);
 
     if (!skill) {
       return Response.json({ error: "Skill not found" }, { status: 404 });
@@ -76,11 +73,7 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     }
 
     // Find skill
-    const [skill] = await db
-      .select()
-      .from(skills)
-      .where(eq(skills.slug, slug))
-      .limit(1);
+    const skill = await resolveSkillBySlug(db, slug);
 
     if (!skill) {
       return Response.json({ error: "Skill not found" }, { status: 404 });

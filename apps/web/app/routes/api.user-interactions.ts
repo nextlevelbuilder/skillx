@@ -1,8 +1,9 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { getDb } from "~/lib/db";
-import { skills, favorites, votes } from "~/lib/db/schema";
+import { favorites, votes } from "~/lib/db/schema";
 import { eq, and, inArray } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
+import { resolveSkillIdsBySlugs } from "~/lib/db/skill-aliases";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env as Env;
@@ -21,14 +22,13 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
 
   const db = getDb(env.DB);
 
-  // Get skill IDs from slugs
-  const skillRows = await db
-    .select({ id: skills.id, slug: skills.slug })
-    .from(skills)
-    .where(inArray(skills.slug, slugs));
-
-  const idToSlug = new Map(skillRows.map((r) => [r.id, r.slug]));
-  const skillIds = skillRows.map((r) => r.id);
+  // Canonical and alias slugs both resolve; overlay keys stay the slugs the client asked for.
+  const slugToId = await resolveSkillIdsBySlugs(db, slugs);
+  const idToSlugs = new Map<string, string[]>();
+  for (const [slug, id] of slugToId) {
+    idToSlugs.set(id, [...(idToSlugs.get(id) ?? []), slug]);
+  }
+  const skillIds = [...idToSlugs.keys()];
 
   if (skillIds.length === 0) {
     return Response.json({ favorites: [], votes: {} });
@@ -46,11 +46,10 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
       .where(and(eq(votes.user_id, session.user.id), inArray(votes.skill_id, skillIds))),
   ]);
 
-  const userFavorites = favRows.map((r) => idToSlug.get(r.skill_id)).filter(Boolean);
+  const userFavorites = favRows.flatMap((r) => idToSlugs.get(r.skill_id) ?? []);
   const userVotes: Record<string, string> = {};
   for (const row of voteRows) {
-    const slug = idToSlug.get(row.skill_id);
-    if (slug) userVotes[slug] = row.vote_type;
+    for (const slug of idToSlugs.get(row.skill_id) ?? []) userVotes[slug] = row.vote_type;
   }
 
   return Response.json({ favorites: userFavorites, votes: userVotes });
