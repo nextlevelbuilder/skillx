@@ -1,4 +1,4 @@
-import { apiRequest } from './api-client.js';
+import { ApiError, apiRequest as rawRequest } from './api-client.js';
 
 /**
  * Typed client for the personal kit API (`/api/v1/kits/@handle/name`, see
@@ -27,6 +27,29 @@ export interface StoredRevision {
 export interface Update {
   package: string;
   version: string;
+}
+
+/** The code a deployment with the personal kit API turned off answers on every path. */
+export const KIT_API_DISABLED = 'kit.api_disabled';
+
+/**
+ * The deployment does not offer personal kits (its flag is off). It is not a
+ * missing kit: nothing was deleted and local kits keep working.
+ */
+export class KitApiDisabledError extends ApiError {
+  constructor(body: string) {
+    super(404, 'this SkillX deployment does not offer personal kits yet (kit.api_disabled); nothing was changed and your local kits are unaffected', body);
+    this.name = 'KitApiDisabledError';
+  }
+}
+
+async function apiRequest<T>(endpoint: string, options?: RequestInit): Promise<T> {
+  try {
+    return await rawRequest<T>(endpoint, options);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404 && error.code === KIT_API_DISABLED) throw new KitApiDisabledError(error.body);
+    throw error;
+  }
 }
 
 const KIT = /^@[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9._-]{0,63}$/;

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { personalKitsApiEnabled } from "~/lib/personal-kits/kit-http";
 import { BODY, createKitHarness, skillText } from "./kit-harness";
 import type { KitHarness } from "./kit-harness";
 
@@ -24,10 +25,31 @@ async function createKit(files = MINE) {
 }
 
 describe("personal kit revisions", () => {
-  it("is 404 everywhere while the flag is off", async () => {
-    for (const res of [await k.call("", undefined, { env: { SKILLX_PERSONAL_KITS_API: "0" } }), await k.call("revisions", {}, { env: { SKILLX_PERSONAL_KITS_API: "0" } })]) {
+  it("is 404 kit.api_disabled everywhere while the flag is off, before any auth or lookup", async () => {
+    const off = { env: { SKILLX_PERSONAL_KITS_API: "0" } };
+    for (const res of [
+      await k.call("", undefined, off),
+      await k.call("revisions", {}, off),
+      await k.call("lock", undefined, { ...off, key: null }),
+      await k.call("", undefined, { ...off, kit: "@nobody/missing" }),
+    ]) {
       expect(res.status).toBe(404);
-      expect(res.body.error.code).toBe("not_found");
+      expect(res.body.error.code).toBe("kit.api_disabled");
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+    }
+    expect(k.count("personal_kits") + k.count("personal_kit_audit")).toBe(0);
+  });
+
+  it('enables on "1" or "true", trimmed and in any case, and nothing else', async () => {
+    for (const on of ["1", "true", "TRUE", " 1 ", "\ttrue\n"]) {
+      expect(personalKitsApiEnabled({ SKILLX_PERSONAL_KITS_API: on }), JSON.stringify(on)).toBe(true);
+      const res = await k.call("", undefined, { env: { SKILLX_PERSONAL_KITS_API: on } });
+      expect(res.body.error?.code, JSON.stringify(on)).toBe("not_found");
+    }
+    for (const off of [undefined, "", " ", "0", "false", "yes", "on", "1 1", "truee"]) {
+      expect(personalKitsApiEnabled({ SKILLX_PERSONAL_KITS_API: off }), JSON.stringify(off)).toBe(false);
+      const res = await k.call("", undefined, { env: { SKILLX_PERSONAL_KITS_API: off } });
+      expect(res.body.error?.code, JSON.stringify(off)).toBe("kit.api_disabled");
     }
   });
 
