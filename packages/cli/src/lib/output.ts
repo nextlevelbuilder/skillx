@@ -26,7 +26,7 @@ export const EXIT_CODES = {
   /** The API could not be reached. */
   network: 6,
   /** Local files block an install change (modified, unowned or shared). */
-  conflict: 7,
+  conflict: 8,
 } as const;
 
 export type ExitCode = (typeof EXIT_CODES)[keyof typeof EXIT_CODES];

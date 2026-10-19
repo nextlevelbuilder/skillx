@@ -506,7 +506,9 @@ Installer commands print a `{ok, data}` / `{ok, error}` envelope with `--json`.
 | 4 | `incompatible` | The release refuses the runtime |
 | 5 | `auth_error` | Credentials missing or rejected |
 | 6 | `network_error` | Registry unreachable |
-| 7 | `conflict` | Local edits, unowned directory, shared version, drift or stale plan |
+| 8 | `conflict` | Local edits, unowned directory, shared version, drift or stale plan |
+
+Code 7 is reserved for `rate_limited` in the shared CLI envelope.
 
 ---
 
