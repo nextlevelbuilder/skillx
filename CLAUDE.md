@@ -108,6 +108,11 @@ pnpm db:migrate:remote    # Apply migrations to remote D1
 | `/api/v1/packages/:scope/:slug/releases/:version/state`, `/api/v1/publishers/:handle/state` | api.v1.release-state.ts (POST compare-and-set state change, audited) | Admin `X-Admin-Secret` or owner session/full API key; scoped keys refused (404 unless `SKILLX_RELEASES_API` on) |
 | `/api/v1/publishers` | api.v1.publishers.ts (POST provision an active publisher; idempotent, audited) | Admin `X-Admin-Secret` only; accounts 403 (404 unless `SKILLX_RELEASES_API` on) |
 | `/api/v1/keys` | api.v1.signing-keys.ts | None (404 unless `SKILLX_RELEASES_API` on) |
+| `/api/v1/packages/:scope/:slug/releases/:version/promote` | api.v1.release-promote.ts (POST channel move, audited; publish credentials may only promote) | Scoped key / OIDC publish token, owner session/key, or admin (404 unless `SKILLX_RELEASES_API` on) |
+| `/api/v1/packages/:scope/:slug/releases/:version/review`, `/api/v1/admin/quarantine` | api.v1.release-review.ts, api.v1.admin-quarantine.ts (approve/reject quarantined releases; see docs/release-resolution-policy.md) | Admin `X-Admin-Secret` only (404 unless `SKILLX_RELEASES_API` on) |
+| `/api/v1/publishers/:handle/trusted-publishers`, `.../:id/revoke` | api.v1.trusted-publishers.ts (GitHub OIDC trust config, audited) | Admin `X-Admin-Secret` only (404 unless `SKILLX_RELEASES_API` on) |
+| `/api/v1/oidc/github/token` | api.v1.oidc-github-token.ts (GitHub Actions JWT → 15 min `sxo_` token scoped `releases:publish:@handle`; jti replay-checked) | GitHub OIDC JWT (503 without `SKILLX_TOKEN_SECRET`; 404 unless `SKILLX_RELEASES_API` on) |
+| `/api/v1/releases/:digest/artifact/url`, `/api/v1/downloads/:token` | api.v1.release-download-url.ts, api.v1.release-download.ts (5 min signed artifact URL for private/entitled releases) | URL: entitled Key/Session; download: the token (404 unless `SKILLX_RELEASES_API` on) |
 | `/api/v1/kits/:scope/:name`, `/api/v1/kits/:scope/:name/*` | api.v1.kits.ts (personal kit revisions, rebase, conflicts, session-derived proposals and review, activate/rollback, lock; see docs/personal-kits-api.md) | Owner session or unscoped API key; scoped keys 401, non-owners 404; `revisions/:id/quarantine` admin secret only (404 unless `SKILLX_PERSONAL_KITS_API` on) |
 
 ## Database Tables (Drizzle schema)
@@ -138,7 +143,7 @@ Search algorithm: `./docs/search-algorithm.md`
 
 **CLI `skillx use` resolution**: `author/skill` (two-part → DB slug `author-skill`) | `org/repo/skill` (three-part → DB slug `org-skill`, fallback register from GitHub) | `slug` (direct lookup, fallback search) | `"keywords"` (search mode). Flags: `--include-refs`, `--include-scripts` for extended content. Display logic split into `use-display.ts` module.
 
-**Register & Publish APIs**: POST `/api/skills/register` with `{ owner, repo, skill_path?, scan? }`. GitHub ownership verified via collaborator check. Content scanned for security (risk_label: safe/caution/danger/unknown). CLI `skillx publish owner/repo [--path X] [--scan] [--dry-run]` — requires API key auth.
+**Register & Publish APIs**: POST `/api/skills/register` with `{ owner, repo, skill_path?, scan? }`. GitHub ownership verified via collaborator check. Content scanned for security (risk_label: safe/caution/danger/unknown). CLI `skillx import owner/repo [--path X] [--scan] [--dry-run]` — requires API key auth (`skillx publish owner/repo` is a deprecated alias). Releases: `skillx validate|pack|publish <dir>|promote` (`skillx release pack|publish` are aliases), JSON envelope via `--json`.
 
 **Styling**: Always dark theme. Use `bg-slate-900`, `text-white`, `text-mint`, `border-mint/20`. Geist Sans/Mono fonts. Lucide icons.
 

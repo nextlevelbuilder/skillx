@@ -1074,14 +1074,14 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 
 | Status | Codes |
 |--------|-------|
-| 400 | `identity.*` (invalid names), `release.invalid_metadata`, `tree.read_failed` (empty body) |
-| 401 | `auth.invalid_key` |
+| 400 | `identity.*` (invalid names), `release.invalid_metadata`, `tree.read_failed` (empty body), `idempotency.invalid_key` |
+| 401 | `auth.invalid_key` (also an expired, forged or revoked `sxo_` OIDC publish token) |
 | 403 | `identity.reserved_publisher` (`@agentkit`), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
 | 404 | `not_found` (API disabled) |
-| 409 | `release.version_exists`, `release.kind_conflict` |
+| 409 | `release.version_exists`, `release.kind_conflict`, `idempotency.in_progress` |
 | 413 | `tree.limit_exceeded` |
 | 415 | `release.unsupported_media_type` |
-| 422 | other `tree.*` codes from the skill-tree reader, `exec.manifest_invalid`, `exec.entrypoint_undeclared` |
+| 422 | other `tree.*` codes from the skill-tree reader, `exec.manifest_invalid`, `exec.entrypoint_undeclared`, `idempotency.key_reused` |
 | 500 | `release.internal_error` |
 | 503 | `release.signing_unavailable` |
 
@@ -1090,6 +1090,64 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 `SKILLX_REGISTRY_SIGNING_KEY_ID` (published key id
 `skillx-reg-993cd14a011f7b76`). A missing or malformed key fails closed with
 `503`; key material is never logged or returned.
+
+#### `Idempotency-Key`
+
+An upload may carry `Idempotency-Key: <1 to 255 printable ASCII characters,
+no spaces>` (an RFC 8941 quoted string is unwrapped). The key is bound, per
+publisher, to the exact request: package name, parsed `X-SkillX-Release`
+metadata and the sha256 of the body. It is stored in
+`release_publish_idempotency` for 24 hours.
+
+- Same key, same request: the first answer (status and JSON body) is replayed
+  verbatim with `Idempotent-Replayed: true`; nothing is read from or written
+  to R2 or `package_releases` again.
+- Same key, another request (other bytes, version, channel, kind, provenance or
+  scripts): `422 idempotency.key_reused`.
+- Same key while the first request still runs: `409 idempotency.in_progress`
+  (a claim left pending by a crashed request is taken over by the same request
+  after 5 minutes).
+
+Credentials, the name and the metadata are checked before the key is claimed,
+so a rejected request never consumes a key. Answers below `500` are stored; a
+`5xx` releases the key so the same request can be retried. Without the header
+the route behaves as before (already safe to retry, see above).
+
+#### Trusted publishing (GitHub Actions OIDC)
+
+Instead of a stored API key, a GitHub Actions job can authenticate with its
+OIDC token. `POST /api/v1/oidc/github/token` with
+`{"token": "<OIDC JWT>", "publisher": "@handle"}` (`application/json`, at most
+20 KiB) verifies the JWT and answers `200`
+`{"token": "sxo_...", "expiresAt", "publisher": "@handle", "scope": "releases:publish:@handle"}`
+(`no-store`). Send that token as `Authorization: Bearer sxo_...` to this
+route (and to the promote route) for 15 minutes; no other route accepts it.
+
+The JWT must be RS256-signed by a key of
+`https://token.actions.githubusercontent.com/.well-known/jwks` (cached 10
+minutes, refetched for an unknown `kid` at most once a minute), have issuer
+`https://token.actions.githubusercontent.com`, audience `SKILLX_OIDC_AUDIENCE`
+(default `skillx`), be unexpired (60 s skew, lifetime at most 1 hour) and carry
+`jti`, `sub`, `repository`, `repository_id`, `repository_owner_id`,
+`workflow_ref`, `ref` and `event_name`. It must match an active trusted
+publisher of the publisher (see [Trusted publishers](#trusted-publishers-admin)):
+the same `repository_id` and `repository`, a `workflow_ref` of
+`<repository>/<workflowPath>@...`, and the configured `ref` (also the ref of the
+workflow file) and `environment` when set. `pull_request*` events are refused.
+Each JWT is exchanged once: its `jti` is the primary key of
+`oidc_token_exchanges`.
+
+The `sxo_` token is an HMAC (`SKILLX_TOKEN_SECRET`) over the handle, publisher
+id, trusted publisher id, `jti` and expiry. Every use re-reads D1: a revoked
+trusted publisher, or a suspended or revoked publisher, stops it at once.
+
+**Errors**: `400 invalid_request`, `401 oidc.invalid_token`, `403
+oidc.not_trusted` (one answer for every mismatch; it names no configuration),
+`403 oidc.event_forbidden`, `403 publisher.inactive`, `404 not_found` (API
+disabled), `409 oidc.replayed`, `429 rate_limited`, `503 oidc.unavailable`
+(no `SKILLX_TOKEN_SECRET`), `503 oidc.jwks_unavailable`, `503
+rate_limit_unavailable`. Counted on `RELEASE_WRITE_LIMITER` per client IP,
+failing closed.
 
 ### Reading releases (pinned whole-tree read API)
 
@@ -1492,6 +1550,122 @@ and `package_releases.exec_summary_json` (the exec manifest summary, `NULL`
 without `agentkit-exec.json`). Both nullable and additive; the header rollback
 drops them and deletes the `0014_release_status_and_exec.sql` row from
 `d1_migrations`.
+
+### Promoting a release between channels
+
+`POST /api/v1/packages/@{publisher}/{slug}/releases/{version}/promote` with
+`{"to": "stable" | "beta" | "alpha", "from"?: <channel>, "reason"?: <text>}`
+(`application/json`, at most 4 KiB). Moves a **published** release to another
+channel, like an npm dist-tag. Only `package_releases.channel` changes: bytes,
+digests and the signed manifest stay as published (the manifest's `channel`
+records the channel at publish time; the listing, `GET .../releases/{version}`
+and the `X-SkillX-Release-Channel` header carry the current one).
+
+| Caller | May |
+|--------|-----|
+| Scoped key `releases:publish:@publisher`, or an `sxo_` OIDC publish token | promote only (`alpha` → `beta` → `stable`); demotion is `403 promote.demotion_forbidden` |
+| Package owner (session or unscoped API key) | any move |
+| Admin (`X-Admin-Secret`) | any move |
+
+`from` defaults to the current channel. It is compare-and-set: if the channel
+changed before the write, `409 state_conflict`. Every attempt on an existing
+release writes a `release_state_audit` row (`subject_kind` `release_channel`,
+`from_state`/`to_state` are channels, actor `publisher_key` / `user` /
+`admin`), denied and invalid attempts included. Counted on
+`RELEASE_WRITE_LIMITER` before the body is read.
+
+**Response** `200` (`no-store`):
+`{"identity", "version", "releaseDigest", "from", "to", "channel", "changedAt"}`.
+
+**Errors**: `400 invalid_request`, `401`, `403 transition.not_owner` /
+`promote.demotion_forbidden` / `publisher_revoked` / `auth.scope_missing`,
+`404 not_found` (unknown, private and not owned, or API disabled), `409
+promote.not_published` / `state_conflict`, `422 promote.same_channel`, `429
+rate_limited`.
+
+### Reviewing quarantined releases (operators)
+
+Admin only (`X-Admin-Secret`; an account is `403 review.admin_only`), counted
+on `RELEASE_WRITE_LIMITER`.
+
+- `GET /api/v1/admin/quarantine`: the review queue,
+  `{"releases": [{"identity", "version", "channel", "releaseDigest", "quarantinedAt", "lastReview": null | {"decision", "reason", "reviewedAt"}}]}`,
+  oldest quarantine first, at most 200.
+- `POST /api/v1/packages/@{publisher}/{slug}/releases/{version}/review` with
+  `{"decision": "approve" | "reject", "reason"?: <text>}`.
+  - `approve` lifts the quarantine: `quarantined` → `yanked` → `published` in
+    one atomic batch (the status graph has no direct edge, so the signed status
+    sequence advances by two), one `release_state_audit` row per edge and one
+    `release_reviews` row, all or nothing.
+  - `reject` confirms the quarantine: the release stays `quarantined` (its
+    tree stays blocked in every package) and only a `release_reviews` row is
+    written. To retire it for good, yank it with the state API
+    (`quarantined` → `yanked`).
+  - Both are compare-and-set on `quarantined`: a release that is not (or no
+    longer) quarantined is `409 state_conflict` and writes nothing.
+
+**Response** `200`: `{"identity", "version", "releaseDigest", "decision", "state", "reviewedAt"}`.
+`release_reviews` is append-only (update and delete triggers abort).
+
+How each state resolves for readers and clients is the
+[release resolution policy](release-resolution-policy.md).
+
+### Signed artifact download URLs
+
+For a tool that holds no credentials (a package manager, `curl`), a viewer who
+may read a release can mint a short-lived URL:
+
+- `POST /api/v1/releases/{digest}/artifact/url[?version=&package=]` runs the
+  normal read path (viewer, read rate limit, the private package and
+  entitlement rules above, the same `?version=`/`?package=` selectors) and
+  answers `{"url", "expiresAt", "identity", "version", "releaseDigest", "artifactDigest", "artifactSize"}`
+  (`no-store`). Other methods are `405`.
+- `GET /api/v1/downloads/{token}` streams the artifact (`no-store`). The URL is
+  valid for 5 minutes. The token is an HMAC (`SKILLX_TOKEN_SECRET`) over the
+  release digest, identity, version, viewer and expiry; it is not an API key
+  and grants nothing else. Redemption re-applies the access rules for the same
+  viewer, so a revoked entitlement, a quarantine, a yank by version or a
+  suspended publisher stops a URL already issued. A forged, expired or
+  unverifiable token answers exactly like an unknown release (`404`).
+
+Without `SKILLX_TOKEN_SECRET`, minting is `503 download_url.unavailable`. The
+public artifact route (`GET /api/v1/releases/{digest}/artifact`) is unchanged.
+
+### Trusted publishers (admin)
+
+Configuration of the GitHub Actions workflows allowed to publish for a
+publisher through OIDC. Admin only (`X-Admin-Secret`; an account is `403
+trusted_publisher.admin_only`), counted on `RELEASE_WRITE_LIMITER`; unknown
+handle `404 publisher.not_found`.
+
+- `GET /api/v1/publishers/{handle}/trusted-publishers` →
+  `{"trustedPublishers": [...]}`, active and revoked.
+- `POST /api/v1/publishers/{handle}/trusted-publishers` with
+  `{"repository": "owner/repo", "repositoryId": "<numeric id>", "workflowPath": ".github/workflows/<file>.yml", "ref"?: "refs/heads/<branch>" | "refs/tags/<tag>", "environment"?: "<name>", "reason"?}`
+  → `{"trustedPublisher", "created"}`. `repositoryId` is GitHub's numeric id
+  (`gh api repos/OWNER/REPO --jq .id`), as a string: it survives a rename and
+  stops a re-created repository of the same name from inheriting the trust.
+  `repository` is stored lowercase. An identical active entry is returned with
+  `created: false`; at most 20 active entries per publisher (`409
+  trusted_publisher.limit`). Omitting `ref` or `environment` accepts any.
+- `POST /api/v1/publishers/{handle}/trusted-publishers/{id}/revoke` with
+  `{"reason"?}` → `{"trustedPublisher"}`; already revoked is `409
+  trusted_publisher.already_revoked`. Tokens already issued from it stop
+  working at once.
+
+Each creation and revocation writes a `release_state_audit` row
+(`subject_kind` `trusted_publisher`, `none` → `active`, `active` → `revoked`).
+
+### Database tables (migration `0018_registry_publishing`)
+
+`release_publish_idempotency` (primary key `publisher_id`, `idempotency_key`;
+`request_fingerprint`, `status` `pending`/`complete`, `response_status`,
+`response_body`, `created_at`, `expires_at`), `release_reviews` (append-only,
+triggers `release_reviews_no_update` / `release_reviews_no_delete`),
+`trusted_publishers`, and `oidc_token_exchanges` (primary key `jti`). Additive,
+no foreign keys; the header rollback drops the triggers, indexes and tables and
+deletes the `0018_registry_publishing.sql` row from `d1_migrations`. Numbered
+0018 (no 0017 file) because the drizzle journal already holds 18 entries.
 
 ---
 

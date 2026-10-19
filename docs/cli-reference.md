@@ -145,19 +145,22 @@ skillx find "api integration"
 
 ---
 
-### `skillx publish [repo]`
+### `skillx import [repo]`
 
-Publish skills from a GitHub repo to the SkillX marketplace.
+Import (register) skills from a GitHub repo into the SkillX marketplace
+(`POST /api/skills/register`). This was `skillx publish [repo]`;
+`skillx publish <owner/repo|github-url>` still runs it, prints a deprecation
+warning on stderr, and will be removed.
 
 **Arguments:**
-- `[repo]` (optional) — GitHub repo in `owner/repo` format. Auto-detects from git remote if omitted.
+- `[repo]` (optional) — `owner/repo` or a GitHub URL. Auto-detects from git remote if omitted.
 
 **Options:**
 | Flag | Description | Default |
 |------|-------------|---------|
 | `-p, --path <path>` | Specific skill subfolder path | — |
 | `-s, --scan` | Scan entire repo for all SKILL.md files | `false` |
-| `--dry-run` | Preview what would be published without calling API | `false` |
+| `--dry-run` | Preview what would be imported without calling API | `false` |
 
 **Resolution Logic:**
 - No flags → auto-detect (root SKILL.md or scan all)
@@ -169,16 +172,39 @@ Publish skills from a GitHub repo to the SkillX marketplace.
 
 **Examples:**
 ```bash
-skillx publish                                     # auto-detect from git remote
-skillx publish owner/repo                          # explicit repo
-skillx publish owner/repo --path .claude/skills/my-skill
-skillx publish owner/repo --scan
-skillx publish --dry-run
+skillx import                                     # auto-detect from git remote
+skillx import owner/repo                          # explicit repo
+skillx import owner/repo --path .claude/skills/my-skill
+skillx import owner/repo --scan
+skillx import --dry-run
 ```
 
 ---
 
-### `skillx release pack <source>`
+### Release commands: `validate`, `pack`, `publish`, `promote`
+
+These commands work on immutable, digest-pinned releases. With `--json` they
+print exactly one envelope on stdout, `{"ok": true, "data": {...}}` or
+`{"ok": false, "error": {"code", "message", "details"?, "hint"?}}`, and the
+exit code follows it: `0` ok, `1` registry or unexpected error, `2` usage
+(invalid input or a package the registry would reject), `3` not found, `5`
+credentials missing or rejected, `6` network. `skillx release pack` and
+`skillx release publish` remain as aliases of `skillx pack` and
+`skillx publish <dir>`.
+
+### `skillx validate [source]`
+
+Checks a package without uploading: packs it exactly like `pack` (so a tree
+the registry would reject fails here), requires a root `SKILL.md` with YAML
+frontmatter carrying `name` and `description` (for `--kind skill`), and checks
+the optional `--name`, `--release-version`, `--kind` and `--channel`. Lists
+every problem in `details.problems` and exits `2`.
+
+```bash
+skillx validate skills/my-skill --name @acme/my-skill --release-version 1.2.0
+```
+
+### `skillx pack <source>`
 
 Packs a package from git at an exact commit into a deterministic tar and
 prints its `releaseDigest` (`agentkit.skill-tree/v1`). Only committed content
@@ -186,7 +212,8 @@ is packed: the tree comes from git objects, never the working tree, so mtimes,
 umask, `core.autocrlf`, `core.fileMode` and uncommitted edits do not change
 the digest (uncommitted edits are reported as a warning). Modes are normalized
 to `100644`/`100755`; symlinks and submodules are rejected; OS noise files
-(e.g. `.DS_Store`) are excluded and listed.
+(e.g. `.DS_Store`) are excluded and listed. Packing the same commit twice gives
+the same `releaseDigest`, `artifactDigest` and bytes.
 
 - `<source>`: a package directory (packs `HEAD`, path from the repo root) or a
   git ref used with `--path`.
@@ -195,22 +222,26 @@ to `100644`/`100755`; symlinks and submodules are rejected; OS noise files
 |------|-------------|
 | `-o, --out <file>` | Output tar file (required) |
 | `-p, --path <dir>` | Package directory inside the repository, for a git ref |
-| `--json` | Print the result as JSON |
+| `--json` | Print the result envelope |
 
 ```bash
-skillx release pack skills/my-skill -o my-skill.tar
-skillx release pack v1.2.0 --path skills/my-skill -o my-skill.tar
+skillx pack skills/my-skill -o my-skill.tar
+skillx pack v1.2.0 --path skills/my-skill -o my-skill.tar
 ```
 
-### `skillx release publish <source>`
+### `skillx publish <source>`
 
-Packs like `release pack`, then uploads to
+Packs like `pack`, then uploads to
 `POST /api/v1/packages/@publisher/slug/releases`. Needs an API key scoped to
-`releases:publish:@publisher` (`SKILLX_API_KEY` or the config). Releases are
-immutable: re-publishing identical content is a no-op, different content for
-an existing version is rejected. The command fails if the registry reports a
-`releaseDigest` (or, for a new release, an `artifactDigest`) other than the
-one packed locally.
+`releases:publish:@publisher` (`SKILLX_API_KEY` or the config), or `--oidc` in
+GitHub Actions (trusted publishing). Releases are immutable: re-publishing
+identical content is a no-op, different content for an existing version is
+rejected. The command fails if the registry reports a `releaseDigest` (or, for
+a new release, an `artifactDigest`) other than the one packed locally.
+
+A source that is an existing path, or any use of `--name` /
+`--release-version`, is a release. Only a GitHub URL or an `owner/repo` that is
+not a local path runs the deprecated import (see `skillx import`).
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -222,17 +253,43 @@ one packed locally.
 | `--repo <https-url>` | Provenance repository URL | `origin` remote (https form) |
 | `--script <path>` | Declare a packaged script (repeatable) | — |
 | `--registry <url>` | Registry base URL; `https` only (`http` only for localhost) | configured base URL |
-| `--json` | Print the result as JSON | — |
+| `--idempotency-key <key>` | Sends `Idempotency-Key`: a retry with the same key and bytes replays the first answer; other bytes are refused | — |
+| `--oidc` | Exchange the GitHub Actions OIDC token for a 15 minute publish token (needs `permissions: id-token: write` and a trusted publisher) | — |
+| `--oidc-audience <aud>` | Audience requested for the OIDC token | `skillx` |
+| `--json` | Print the result envelope | — |
 
 ```bash
-SKILLX_API_KEY=sx_... skillx release publish skills/my-skill --name @acme/my-skill --release-version 1.2.0
+SKILLX_API_KEY=sx_... skillx publish skills/my-skill --name @acme/my-skill --release-version 1.2.0
+skillx publish HEAD --path skills/my-skill --name @acme/my-skill --release-version 1.2.0 --oidc --idempotency-key "$GITHUB_RUN_ID"
 ```
 
 CI: `.github/workflows/publish-release.yml` (manual dispatch or
 `workflow_call`, never on pull requests) runs the same command with a pinned
 CLI version, in the `skillx-publish` environment, with its
-`SKILLX_PUBLISH_KEY` secret.
+`SKILLX_PUBLISH_KEY` secret. `.github/workflows/publish-agentkit-foundation.yml`
+publishes an AgentKit foundation skill from `bestagentkits/agentkit` at a
+pinned commit with OIDC (fallback `SKILLX_AGENTKIT_PUBLISH_KEY`).
 
+### `skillx promote <@publisher/slug@version>`
+
+Moves a published release to another channel (like an npm dist-tag): only the
+current channel changes; bytes, digests and the signed manifest stay as
+published. A publish credential (scoped key or `--oidc`) may only promote
+(`alpha` → `beta` → `stable`); the package owner's account key may also
+demote. Every attempt is audited.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--to <channel>` | Target channel (required) | — |
+| `--from <channel>` | Expected current channel; the move fails with `state_conflict` if it changed | current |
+| `--reason <text>` | Reason stored in the audit log | — |
+| `--registry <url>` | Registry base URL | configured base URL |
+| `--oidc`, `--oidc-audience` | As for `publish` | — |
+| `--json` | Print the result envelope | — |
+
+```bash
+skillx promote @acme/my-skill@1.2.0 --from beta --to stable --reason "soak passed"
+```
 ---
 
 ### `skillx report <slug> <outcome>`
@@ -306,9 +363,11 @@ skillx config show
 | `use` (install) | `/api/skills/{slug}/install` | POST | No |
 | `find` | `/api/search` | POST | No |
 | `find` (detail) | `/api/skills/{slug}` | GET | No |
-| `publish` | `/api/skills/register` | POST | Yes |
+| `import` (and deprecated `publish <owner/repo>`) | `/api/skills/register` | POST | Yes |
 | `report` | `/api/report` | POST | Yes |
-| `release publish` | `/api/v1/packages/@{publisher}/{slug}/releases` | POST | Yes (scoped key) |
+| `publish <dir>` (`release publish`) | `/api/v1/packages/@{publisher}/{slug}/releases` | POST | Yes (scoped key or `--oidc`) |
+| `publish --oidc`, `promote --oidc` | `/api/v1/oidc/github/token` | POST | GitHub Actions OIDC token |
+| `promote` | `/api/v1/packages/@{publisher}/{slug}/releases/{version}/promote` | POST | Yes (scoped key, OIDC, or owner key) |
 
 **Auth method:** `Authorization: Bearer <API_KEY>` header.
 
