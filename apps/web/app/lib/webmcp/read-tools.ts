@@ -7,11 +7,15 @@
  * different answer from the API, and the protected payload boundary stays in
  * exactly one place: the server.
  *
+ * `get_package` and `get_release` mirror the remote MCP tools of the same name
+ * (see `mcp-mirror-tools.ts`).
+ *
  * `fetchImpl` is injected so the tools are testable without a live network and
  * so the caller controls credentials and origin.
  */
 
 import type { WebMcpTool } from "./model-context";
+import { createMcpMirrorTools } from "./mcp-mirror-tools";
 
 const STRING = { type: "string" } as const;
 
@@ -110,5 +114,6 @@ export function createReadTools(options: ReadToolOptions): WebMcpTool[] {
         return { slug: args.slug, target: args.target, compatibility: record.compatibility ?? null };
       },
     },
+    ...createMcpMirrorTools(options),
   ];
 }

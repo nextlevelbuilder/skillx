@@ -101,9 +101,15 @@ function fakeFetch(payload: unknown, capture: { url?: string; init?: RequestInit
 }
 
 describe("read tools", () => {
-  it("exposes the three read tools", () => {
+  it("exposes the read tools, including the two that mirror remote MCP", () => {
     const tools = createReadTools({ fetchImpl: fakeFetch({}), baseUrl: "https://skillx.sh/" });
-    expect(tools.map((t) => t.name)).toEqual(["search_skills", "get_skill", "check_skill_compatibility"]);
+    expect(tools.map((t) => t.name)).toEqual([
+      "search_skills",
+      "get_skill",
+      "check_skill_compatibility",
+      "get_package",
+      "get_release",
+    ]);
   });
 
   it("posts a search to the same endpoint the page uses", async () => {
