@@ -13,7 +13,8 @@
 # environment and optionally require reviewers. An environment secret takes
 # precedence over one passed by a caller. The key only goes to the production
 # registry (https://skillx.sh); only workflow_call may name another https host.
-# Needs a published skillx-sh version that has the `release` command.
+# Needs a published skillx-sh version that has the `release` command. Its `--json`
+# output is read both as the 0.x raw object and as the `{ok, data}` envelope.
 #
 # Caller example:
 #   jobs:
@@ -141,6 +142,6 @@ jobs:
             --repo "$REPO_URL" \
             --registry "$REGISTRY" \
             --json > "$RUNNER_TEMP/release.json"
-          digest="$(node -e 'const r=require(process.argv[1]); if(!/^sha256:[0-9a-f]{64}$/.test(r.releaseDigest)) process.exit(1); process.stdout.write(r.releaseDigest)' "$RUNNER_TEMP/release.json")"
+          digest="$(node -e 'const j=require(process.argv[1]); const r=j.data ?? j; if(!/^sha256:[0-9a-f]{64}$/.test(r.releaseDigest)) process.exit(1); process.stdout.write(r.releaseDigest)' "$RUNNER_TEMP/release.json")"
           echo "release-digest=$digest" >> "$GITHUB_OUTPUT"
-          echo "Published $NAME@$VERSION ($digest), state: $(node -e 'process.stdout.write(String(require(process.argv[1]).state))' "$RUNNER_TEMP/release.json")" >> "$GITHUB_STEP_SUMMARY"
+          echo "Published $NAME@$VERSION ($digest), state: $(node -e 'const j=require(process.argv[1]); process.stdout.write(String((j.data ?? j).state))' "$RUNNER_TEMP/release.json")" >> "$GITHUB_STEP_SUMMARY"
