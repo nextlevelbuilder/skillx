@@ -5,7 +5,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { skills } from "../../app/lib/db/schema";
-import { recordSkillAlias, resolveSkillBySlug } from "../../app/lib/db/skill-aliases";
+import { recordSkillAlias, resolveSkillBySlug, resolveSkillIdsBySlugs } from "../../app/lib/db/skill-aliases";
 import type { Database } from "../../app/lib/db/index";
 
 /**
@@ -117,6 +117,21 @@ describe("skill alias resolution", () => {
 
   it("returns null for an unknown slug", async () => {
     expect(await resolveSkillBySlug(db, "does-not-exist")).toBeNull();
+  });
+
+  it("resolves a batch of canonical, alias and unknown slugs to skill ids", async () => {
+    const ids = await resolveSkillIdsBySlugs(db, [
+      "ypyt1-ui-ux-pro-max-719a8cd0", // canonical of s2
+      "ypyt1-ui-ux-pro-max-ill-md", // alias of s2
+      "ypyt1-ui-ux-pro-max", // canonical of s1, also an alias of s2: canonical wins
+      "does-not-exist",
+    ]);
+    expect(Object.fromEntries(ids)).toEqual({
+      "ypyt1-ui-ux-pro-max-719a8cd0": "s2",
+      "ypyt1-ui-ux-pro-max-ill-md": "s2",
+      "ypyt1-ui-ux-pro-max": "s1",
+    });
+    expect((await resolveSkillIdsBySlugs(db, [])).size).toBe(0);
   });
 
   it("keeps two same-leaf-name skills from one repo as distinct identities", async () => {
