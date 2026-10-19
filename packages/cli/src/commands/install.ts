@@ -93,12 +93,13 @@ export const uninstallCommand = withCommon(new Command('uninstall'))
     runInstaller(
       options,
       async () => {
-        const results = await uninstallRef(contextFrom(options), refs);
-        const ref = parseRefs(refs);
         let lockPath: string | null = null;
-        if (options.lock !== false && ref.kind === 'packages') {
-          for (const p of ref.packages) lockPath = dropFromLockFile(options.lock ?? INSTALL_LOCK_FILENAME, p.name) ?? lockPath;
-        }
+        // Each package leaves the packages lock as soon as it is uninstalled, so a later failure leaves the lock in step.
+        const dropFromLock = (owner: string) => {
+          if (options.lock === false || !owner.startsWith('packages:')) return;
+          lockPath = dropFromLockFile(options.lock ?? INSTALL_LOCK_FILENAME, owner.slice('packages:'.length)) ?? lockPath;
+        };
+        const results = await uninstallRef(contextFrom(options), refs, dropFromLock);
         return { uninstalled: results, lockPath };
       },
       (data) => {

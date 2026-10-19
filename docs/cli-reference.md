@@ -407,7 +407,8 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
 - **uninstall** drops a kit, a collection, or one or more packages; each
   explicit package is its own source (`packages:@scope/name`), whether it was
   installed alone, with others, or by `sync --locked` from a packages lock.
-  Packages are also dropped from a packages lock file. Uninstalling a kit or a
+  Each package is dropped from a packages lock file as soon as it is
+  uninstalled, so a run that stops part way leaves the lock in step. Uninstalling a kit or a
   collection does not rewrite its lock file: the lock still describes that
   revision and can restore it with `sync --locked`. A skill another source
   still needs stays. Only regular files whose SHA-256 still matches the
@@ -423,9 +424,12 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
   `~/.skillx/backups/<runtime>/<alias>/<stamp>`) and installs into unowned
   directories, keeping unknown files. It never overrides a version conflict
   between two sources sharing a skill, and never installs over a skill path that
-  is a link or a file (`unowned_directory`) or over a skill directory that
-  contains a symlink or junction (`contains_link`; links are never copied or
-  followed, so remove or replace them first).
+  is a link or a file (`unowned_directory`). A symlink or junction inside a
+  skill directory is kept while nothing is rewritten (reinstalling the same
+  version, `sync --locked`, another source adding itself as owner), but an
+  install or update that would rewrite the directory is a `contains_link`
+  conflict, also with `--force`: links are never copied or followed, so
+  remove or replace them first.
 - Aliases match `^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9_-])?$` (no trailing `.`) and
   are never a Windows device name (`con`, `prn`, `aux`, `nul`, `com1`-`com9`,
   `lpt1`-`lpt9`, with or without an extension).
@@ -457,7 +461,9 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
    to the old tree and reported as a `conflict`. If something else has taken
    the skill path in the meantime, the old tree is not deleted: it is moved to
    `~/.skillx/backups/<runtime>/<alias>/<stamp>-previous-tree` and listed in
-   the error's `parked` details. An old tree left in staging without a journal
+   the error's `parked` details. The move is a rename; across volumes (or
+   when the rename stays refused) regular files are copied instead and links
+   are recorded as `<path>.link`, never followed. An old tree left in staging without a journal
    is parked the same way. Each run first recovers interrupted journals (roll
    back while the stage exists, roll forward once it is in place) and drops
    `requiredBy` owners that `~/.skillx/owners/<runtime>.json` no longer

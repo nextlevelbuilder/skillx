@@ -1,4 +1,4 @@
-import { cpSync, existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { writeReceipt } from './install-state.js';
 import type { InstallReceipt } from './install-state.js';
@@ -55,13 +55,23 @@ export const exists = (path: string) => {
   }
 };
 
-/** Copies a whole old tree into the backup area (links are copied as links, never followed), then drops it. */
-function park(tree: string, dest: string): string {
+/**
+ * Moves a whole old tree into the backup area. A rename keeps it exactly as
+ * it was, links included. Across volumes (or when the rename is still refused
+ * after retries) it is copied file by file instead:
+ * regular files are copied, and links (junctions included) are recorded as
+ * `<path>.link` and removed, never followed or recreated.
+ */
+function park(ctx: RecoveryContext, tree: string, dest: string): string {
   let to = dest;
   for (let n = 1; exists(to); n += 1) to = `${dest}.${n}`;
   mkdirSync(join(to, '..'), { recursive: true });
-  cpSync(tree, to, { recursive: true, verbatimSymlinks: true });
-  rmSync(tree, { recursive: true, force: true });
+  try {
+    renameWithRetry(tree, to, ctx.hooks);
+  } catch {
+    // Another volume (EXDEV), or a rename still refused after retries.
+    retireOld({ dir: tree, previous: null, carried: join(to, '.none'), saved: to });
+  }
   return to;
 }
 
@@ -82,7 +92,7 @@ export function recoverJournals(ctx: RecoveryContext): Recovery {
     const restore = () => {
       if (!exists(journal.backup)) return;
       if (!exists(journal.target)) renameWithRetry(journal.backup, journal.target, ctx.hooks);
-      else result.parked.push({ alias: journal.alias, savedTo: park(journal.backup, `${journal.saved}-previous-tree`) });
+      else result.parked.push({ alias: journal.alias, savedTo: park(ctx, journal.backup, `${journal.saved}-previous-tree`) });
     };
     if (exists(journal.stage)) {
       restore();
@@ -104,7 +114,7 @@ export function recoverJournals(ctx: RecoveryContext): Recovery {
     if (referenced.has(path)) continue;
     if (name.endsWith('.old')) {
       const alias = name.replace(/\.[0-9a-f-]{36}\.old$/, '');
-      result.parked.push({ alias, savedTo: park(path, join(ctx.home, 'backups', ctx.runtime, alias, `unjournaled-${name}`)) });
+      result.parked.push({ alias, savedTo: park(ctx, path, join(ctx.home, 'backups', ctx.runtime, alias, `unjournaled-${name}`)) });
     } else rmSync(path, { recursive: true, force: true });
     result.sweptStaging += 1;
   }

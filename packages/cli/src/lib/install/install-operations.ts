@@ -83,11 +83,15 @@ export function ownersOfRefs(refs: readonly string[]): string[] {
   const ref = parseRefs(refs);
   if (ref.kind === 'kit') return [`kit:${ref.kit}`];
   if (ref.kind === 'collection') return [`collection:${ref.id}`];
-  return ref.packages.map((p) => `packages:${p.name}`);
+  return [...new Set(ref.packages.map((p) => `packages:${p.name}`))];
 }
 
-/** Uninstalls each owner the refs name; every one must be installed, or nothing is removed. */
-export async function uninstallRef(ctx: InstallContext, refs: readonly string[]): Promise<ApplyResult[]> {
+/**
+ * Uninstalls each owner the refs name; every one must be installed, or nothing
+ * is removed. `onUninstalled` runs right after each owner is gone, so a caller
+ * keeping a lock file in step loses nothing when a later owner fails.
+ */
+export async function uninstallRef(ctx: InstallContext, refs: readonly string[], onUninstalled?: (owner: string) => void): Promise<ApplyResult[]> {
   const owners = ownersOfRefs(refs);
   return withInstallLock(ctx, async () => {
     recover(ctx);
@@ -99,6 +103,7 @@ export async function uninstallRef(ctx: InstallContext, refs: readonly string[])
       const record = records[owner]!;
       const owned = { owner, ref: record.ref, lock: { ...record.lock, packages: [] }, overlays: new Map() };
       results.push(await applyOwned(ctx, owned, planOwned(ctx, owned), true));
+      onUninstalled?.(owner);
     }
     return results;
   });

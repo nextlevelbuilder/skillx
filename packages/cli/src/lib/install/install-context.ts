@@ -87,7 +87,7 @@ export async function withInstallLock<T>(ctx: InstallContext, run: () => Promise
       }
       const text = readText(path);
       // Released between our link attempt and this read: try again.
-      if (text === '') continue;
+      if (text === null) continue;
       const holder = Number.parseInt(text, 10);
       if (!Number.isSafeInteger(holder)) throw busy(`unknown; remove ${path} if no skillx command is running`);
       if (alive(holder)) throw busy(`pid ${holder}`);
@@ -97,7 +97,7 @@ export async function withInstallLock<T>(ctx: InstallContext, run: () => Promise
       } catch {
         continue; // someone else took it over first; try again
       }
-      const taken = Number.parseInt(readText(stale), 10);
+      const taken = Number.parseInt(readText(stale) ?? '', 10);
       if (taken !== holder) {
         // A live process replaced the stale lock between our read and rename: give it back.
         try {
@@ -120,10 +120,11 @@ export async function withInstallLock<T>(ctx: InstallContext, run: () => Promise
   }
 }
 
-function readText(path: string): string {
+/** The file's text; null when it does not exist (any other read failure reads as empty). */
+function readText(path: string): string | null {
   try {
     return readFileSync(path, 'utf8');
-  } catch {
-    return '';
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'ENOENT' ? null : '';
   }
 }

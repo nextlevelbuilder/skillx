@@ -3,7 +3,7 @@ import { canonicalJsonBytes } from '@skillx/contracts';
 import type { InstallLock, InstallLockPackage } from '@skillx/contracts';
 import { sha256Hex } from './fetch-verify.js';
 import { inspectLocal, readReceipt } from './install-state.js';
-import type { InstallReceipt, OwnersFile } from './install-state.js';
+import type { InstallReceipt, LocalState, OwnersFile } from './install-state.js';
 
 /**
  * Plans what applying a lock for one owner changes in one skills directory.
@@ -21,7 +21,8 @@ import type { InstallReceipt, OwnersFile } from './install-state.js';
  * A file, symlink or junction where a skill directory belongs is always an
  * `unowned_directory` conflict: the installer never writes through a link.
  * A symlink or junction inside the skill directory is a `contains_link`
- * conflict, also with `--force`: links are never copied or followed.
+ * conflict, also with `--force`, but only when the directory would be
+ * rewritten (install or update): links are never copied or followed.
  */
 
 export type PlanAction =
@@ -55,11 +56,19 @@ export interface PlanInput {
 
 function planPackage(input: PlanInput, p: InstallLockPackage, receipt: InstallReceipt | null): PlanAction {
   const local = inspectLocal(join(input.skillsDir, p.alias), receipt);
-  const base = { alias: p.alias, package: p.package, version: p.version, compositionDigest: p.compositionDigest };
   // A file, symlink or junction where the skill directory belongs is never replaced, not even with --force.
   if (local.unknown.includes('.')) return { action: 'conflict', alias: p.alias, package: p.package, reason: 'unowned_directory', files: ['.'], owners: receipt?.requiredBy ?? [] };
-  // Links inside it are never copied, carried or replaced: the user resolves them first.
-  if (local.links.length > 0) return { action: 'conflict', alias: p.alias, package: p.package, reason: 'contains_link', files: local.links, owners: receipt?.requiredBy ?? [] };
+  const action = planChange(input, p, receipt, local);
+  // A link inside the directory is legitimate user state while nothing is rewritten; a rewrite would have
+  // to copy or carry it, which the installer never does, so the user resolves it first.
+  if ((action.action === 'install' || action.action === 'update') && local.links.length > 0) {
+    return { action: 'conflict', alias: p.alias, package: p.package, reason: 'contains_link', files: local.links, owners: receipt?.requiredBy ?? [] };
+  }
+  return action;
+}
+
+function planChange(input: PlanInput, p: InstallLockPackage, receipt: InstallReceipt | null, local: LocalState): PlanAction {
+  const base = { alias: p.alias, package: p.package, version: p.version, compositionDigest: p.compositionDigest };
   if (receipt === null) {
     if (!local.exists) return { action: 'install', ...base, preserve: [] };
     if (!input.force) return { action: 'conflict', alias: p.alias, package: p.package, reason: 'unowned_directory', files: local.unknown, owners: [] };

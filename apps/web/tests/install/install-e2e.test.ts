@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lockDigest } from "@skillx/contracts";
 import { installRefs, listInstalled, uninstallRef, updateInstalled } from "../../../../packages/cli/src/lib/install/install-operations";
-import { readLockFile, writeLockFile } from "../../../../packages/cli/src/lib/install/lock-file";
+import { dropFromLockFile, readLockFile, writeLockFile } from "../../../../packages/cli/src/lib/install/lock-file";
 import { readReceipt, scanDir } from "../../../../packages/cli/src/lib/install/install-state";
 import { syncLocked } from "../../../../packages/cli/src/lib/install/sync-locked";
 import { BODY, skillText } from "../personal-kits/kit-harness";
@@ -151,8 +151,24 @@ describe("installer end to end", () => {
     expect(readReceipt(b.home, "claude-code", "tools")!.requiredBy).toEqual(["packages:@alpha/tools"]);
     const [updated] = await updateInstalled(b, ["@alpha/demo"]);
     expect(updated!.items.map((i) => i.owner)).toEqual(["packages:@alpha/demo"]);
-    const gone = await uninstallRef(b, ["@alpha/demo", "@alpha/tools"]);
+    const gone = await uninstallRef(b, ["@alpha/demo", "@alpha/tools", "@alpha/demo"]);
     expect(gone.map((g) => g.owner)).toEqual(["packages:@alpha/demo", "packages:@alpha/tools"]);
     expect(scanDir(b.skillsDir)).toEqual([]);
+  });
+
+  it("keeps the packages lock in step when a multi-package uninstall stops part way", async () => {
+    const a = s.machine("a");
+    const ctx = a.context();
+    const installed = await installRefs(ctx, ["@alpha/demo@1.0.0", "@alpha/tools"]);
+    const lockPath = join(a.root, "skillx.lock.json");
+    writeLockFile(lockPath, installed.lock);
+    const failAfterDemo = (owner: string) => {
+      dropFromLockFile(lockPath, owner.slice("packages:".length));
+      if (owner === "packages:@alpha/demo") throw new Error("stopped");
+    };
+    await expect(uninstallRef(ctx, ["@alpha/demo", "@alpha/tools"], failAfterDemo)).rejects.toThrow("stopped");
+    expect(readLockFile(lockPath).packages.map((p) => p.alias)).toEqual(["tools"]);
+    expect(readReceipt(ctx.home, "claude-code", "demo")).toBeNull();
+    expect(readReceipt(ctx.home, "claude-code", "tools")!.requiredBy).toEqual(["packages:@alpha/tools"]);
   });
 });

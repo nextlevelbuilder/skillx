@@ -114,16 +114,47 @@ describe("a skill directory held open by another program", () => {
     expect(readdirSync(ctx.stagingDir)).toEqual([]);
     expect(existsSync(join(ctx.home, "journal", "claude-code", "demo.json"))).toBe(false);
   });
+
+  it("parks across volumes without following a junction in the old tree", async () => {
+    const m = s.machine("park-link");
+    const ctx = m.context();
+    await installRefs(ctx, ["@alpha/demo@1.0.0"]);
+    const target = join(ctx.skillsDir, "demo");
+    const outside = join(m.root, "outside");
+    mkdirSync(outside);
+    writeFileSync(join(outside, "private.md"), "private\n");
+    const racing = m.context({
+      hooks: {
+        rename: (from, to) => {
+          if (to.includes("previous-tree")) throw Object.assign(new Error("cross-device"), { code: "EXDEV" });
+          if (to !== target) return renameSync(from, to);
+          // The old tree is aside; a junction appears in it and something takes the skill path.
+          if (!existsSync(join(`${from}.old`, "refs"))) symlinkSync(outside, join(`${from}.old`, "refs"), "junction");
+          mkdirSync(target, { recursive: true });
+          throw Object.assign(new Error("not permitted"), { code: "EPERM" });
+        },
+      },
+    });
+    const error = await installRefs(racing, ["@alpha/demo@2.0.0"]).catch((e) => e);
+    expect(error).toMatchObject({ code: "conflict" });
+    const [parked] = error.details.parked as Array<{ savedTo: string }>;
+    expect(paths(parked!.savedTo)).toEqual(["SKILL.md", "old-only.md", "refs.link"]);
+    expect(readFileSync(join(outside, "private.md"), "utf8")).toBe("private\n");
+    expect(readdirSync(ctx.stagingDir)).toEqual([]);
+    expect(existsSync(join(ctx.home, "journal", "claude-code", "demo.json"))).toBe(false);
+  });
 });
 
 describe("links inside a skill directory", () => {
-  it("is a conflict even with --force, and nothing is copied through it", async () => {
+  it("are kept while nothing is rewritten, and block an update even with --force", async () => {
     const m = s.machine("inner-link");
     const ctx = m.context();
     await installRefs(ctx, ["@alpha/demo@1.0.0"]);
     mkdirSync(join(m.root, "outside"));
     writeFileSync(join(m.root, "outside", "private.md"), "private\n");
     symlinkSync(join(m.root, "outside"), join(ctx.skillsDir, "demo", "refs"), "junction");
+    const same = await installRefs(ctx, ["@alpha/demo@1.0.0"]);
+    expect(same.items[0]!.plan.actions[0]).toMatchObject({ action: "unchanged", alias: "demo" });
     await expect(installRefs(m.context({ force: true }), ["@alpha/demo@2.0.0"])).rejects.toMatchObject({
       code: "conflict",
       details: { conflicts: [expect.objectContaining({ alias: "demo", reason: "contains_link", files: ["refs"] })] },
@@ -171,9 +202,11 @@ describe("state left by a crashed run", () => {
     await expect(withInstallLock(ctx, async () => "ran")).resolves.toBe("ran");
     expect(existsSync(lockPath)).toBe(false);
 
-    for (const holder of [String(process.pid), "garbage"]) {
+    for (const holder of [String(process.pid), "garbage", ""]) {
       writeFileSync(lockPath, holder);
-      await expect(withInstallLock(ctx, async () => "ran")).rejects.toMatchObject({ code: "conflict" });
+      const refused = await withInstallLock(ctx, async () => "ran").catch((e) => e);
+      expect(refused).toMatchObject({ code: "conflict" });
+      if (holder !== String(process.pid)) expect(refused.message).toContain(`remove ${lockPath}`);
       expect(readFileSync(lockPath, "utf8")).toBe(holder);
     }
   });
