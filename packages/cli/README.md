@@ -64,17 +64,29 @@ skillx use something --search             # force search mode
 
 Use `--raw` to output content with boundary markers (for piping to other tools).
 
-### `skillx publish [owner/repo]`
+### `skillx import [owner/repo]`
 
-Publish skills from a GitHub repo to the SkillX marketplace (requires API key + repo ownership).
+Import skills from a GitHub repo into the SkillX marketplace (requires API key + repo ownership).
+`skillx publish owner/repo` still runs it with a deprecation notice.
 
 ```bash
-skillx publish                          # auto-detect from git remote
-skillx publish owner/repo               # explicit repo
-skillx publish owner/repo --path .claude/skills/my-skill  # specific skill
-skillx publish owner/repo --scan        # scan all SKILL.md files
-skillx publish --dry-run                # preview without publishing
+skillx import                          # auto-detect from git remote
+skillx import owner/repo               # explicit repo
+skillx import owner/repo --path .claude/skills/my-skill  # specific skill
+skillx import owner/repo --scan        # scan all SKILL.md files
+skillx import --dry-run                # preview without importing
 ```
+
+### Release commands: `validate`, `pack`, `publish <dir>`, `promote`
+
+Build and upload immutable, digest-pinned releases. With `--json` each prints one
+envelope, `{"ok": true, "data": {...}}` or `{"ok": false, "error": {...}}`, and the
+exit code follows it. See the [CLI reference](https://github.com/nextlevelbuilder/skillx/blob/main/docs/cli-reference.md).
+
+> **Breaking:** `skillx release publish --json` (now an alias of `skillx publish <dir>`)
+> used to print the bare release object, and failures only as text on stderr with exit
+> code `1`. It now prints the envelope: read the result from `.data` and a failure from
+> `.error`; the exit code tells the failure kind (`2` usage, `3` not found, `5` auth, `6` network).
 
 ### `skillx report <slug> <outcome>`
 
