@@ -151,7 +151,7 @@ Search algorithm: `./docs/search-algorithm.md`
 - **Max 200 LOC per file** — split into focused modules if exceeded.
 - **Seed data** in `scripts/seed-data.json` (30 real skills from skills.sh). Seed via `ADMIN_SECRET=... pnpm seed`.
 - **Scoped API keys** — `api_keys.scopes` NULL = legacy key; scoped keys (`releases:publish:@handle`) work only on the release publish API. They are stored under `hashScopedApiKey` (domain-separated), so legacy routes (`authenticateApiKey`, by plain key hash) never accept them. Apply migration 0012 to remote D1 before deploying (`docs/deployment-guide.md`).
-- **Releases are byte-exact** — the release publish API (`app/lib/releases/`) never sanitizes; the scan only picks `published` vs `quarantined`. R2 writes are create-only, the D1 row is written last. See `docs/api-reference.md#publishing-releases`.
+- **Releases are byte-exact** — the release publish API (`app/lib/releases/`) never sanitizes; the scan only picks `published` vs `quarantined`. R2 writes are create-only, the D1 row is written last. Only `@agentkit/*` kit releases (metadata `provenance.provider = "kit"`) are signed as `skillx.release/v2`; everything else stays v1, and a registry signature never yields `signed-kit` trust. See `docs/api-reference.md#publishing-releases`.
 - **Content security scanning** — all SKILL.md content scanned for prompt injection, invisible chars, ANSI escapes, shell injection. `risk_label` column stores result ("safe"/"caution"/"danger"/"unknown"). Sanitization strips zero-width Unicode + ANSI escapes before storage.
 
 ## Deployment

@@ -747,7 +747,7 @@ Bulk upsert skills and index into Vectorize. For seeding demo/production data.
 
 ---
 
-## Release Manifest Contract (`skillx.release/v1`)
+## Release Manifest Contract (`skillx.release/v1`, `skillx.release/v2`)
 
 Contract only: no endpoint serves or accepts release manifests yet. The
 publisher pipeline and pinned read API build on it. Source:
@@ -762,8 +762,8 @@ members; unknown members (including `state`) are rejected at every level.
 
 | Member | Type | Rule |
 |--------|------|------|
-| `schemaVersion` | string | `skillx.release/v1` |
-| `identity` | string | `PACKAGE_NAME_PATTERN`, publisher and slug pass the tree segment rules; `@agentkit/*` is rejected (`identity.reserved_publisher`) |
+| `schemaVersion` | string | `skillx.release/v1` or `skillx.release/v2` (any other value is `unsupported_value`) |
+| `identity` | string | `PACKAGE_NAME_PATTERN`, publisher and slug pass the tree segment rules; `@agentkit/*` is rejected (`identity.reserved_publisher`) unless the v2 provider is `kit` (see Kit provenance) |
 | `version` | string | SemVer 2.0 without build metadata (`+...`) or leading zeros in numeric identifiers, at most 128 characters (`RELEASE_VERSION_PATTERN`; stricter than the package-wide `SEMVER_PATTERN`) |
 | `channel` | string | `stable`, `beta`, `alpha` |
 | `kind` | string | `skill`, `hook-pack`, `bundle` |
@@ -780,6 +780,30 @@ members; unknown members (including `state`) are rejected at every level.
 | `keyId` | string | `^[a-z0-9][a-z0-9._-]{1,63}$` |
 | `signatureAlgorithm` | string | `ed25519` |
 | `signature` | string | padded standard base64 of the 64-byte Ed25519 signature: `^[A-Za-z0-9+/]{85}[AQgw]==$` (the unused trailing bits are zero, so each signature has one accepted text) |
+
+### Kit provenance (`skillx.release/v2`)
+
+`skillx.release/v2` is v1 plus one required, closed member, `provenance`.
+v1 has no such member (`unknown_field`) and every v1 release is provider
+`skillx`. The registry signs kit releases as v2 and keeps every other release
+on v1, so v1-only verifiers keep working. Source:
+`packages/contracts/src/release-provenance.ts`.
+
+| `provenance` | Rule |
+|--------------|------|
+| `{"provider": "skillx"}` | identity must not be `@agentkit/*` (`identity.reserved_publisher`); the slug must not start with `ak-` or `ak:` (`identity.reserved_alias`) |
+| `{"provider": "kit", "origin": "remote-signed" \| "local-dev"}` | identity must be `@agentkit/*` (`identity.invalid`); `origin` records where the kit content came from |
+
+Other providers or origins are `unsupported_value`, a missing `origin` is
+`required` and extra members are `unknown_field`. `origin` is a claim that
+the registry countersigns, not a kit signature: a verifier MUST NOT derive
+trust `signed-kit` from a SkillX signature. `releaseTrust(manifest,
+{kitVerifiedReleaseDigest})` returns `signed-kit` only for `origin:
+"remote-signed"` when the caller verified the AgentKit kit signature of the
+tree whose digest equals the manifest `releaseDigest`; every other release is
+`local-unverified`. Golden vectors:
+`packages/contracts/src/fixtures/release-manifest-v2.json` (same test key and
+canonical form as the v1 vectors).
 
 ### Signature bytes
 
@@ -968,17 +992,28 @@ Unscoped keys are rejected (`auth.scope_missing`).
   `version` (SemVer without build metadata, required), `channel`
   (`stable` default, `beta`, `alpha`), `kind` (`skill` default, `hook-pack`,
   `bundle`), `sourceProvenance` (`{repo, commit, path}` or `null`) and
-  `declaredScripts` (packaged paths). Unknown members are rejected.
+  `declaredScripts` (packaged paths) and `provenance` (`null`,
+  `{"provider": "skillx"}`, or `{"provider": "kit", "origin":
+  "remote-signed" | "local-dev"}`). Unknown members are rejected.
   `sourceProvenance` is asserted by the publisher and not verified (GitHub
   OIDC is a follow-up); the registry signature covers it but does not vouch
   for it.
+
+**Kit releases**: `@agentkit/*` is accepted only with `provenance.provider
+= "kit"`, from a key scoped `releases:publish:@agentkit` whose user owns the
+active, admin-provisioned `agentkit` publisher (`POST /api/v1/publishers`).
+They are signed as `skillx.release/v2`; the `ak-` slug forms are allowed for
+them. Kit provenance on any other publisher is `400 identity.invalid`; every
+release without it is signed as `skillx.release/v1`. Republishing an existing
+kit version with the same tree but a different `origin` is `409
+release.version_exists`.
 
 **Processing**, each step rejecting before the next runs: name and reserved
 namespaces, key and ownership, signing key, metadata, capped body, tar read
 with the shared skill-tree rules and digest (traversal, absolute paths,
 symlinks, hardlinks, devices and duplicate paths fail), version conflict, the
 exec manifest check (below), the release scan, the signed `skillx.release/v1`
-manifest, then R2 writes, and the D1 row last. Uploaded bytes are stored
+(or, for a kit release, `skillx.release/v2`) manifest, then R2 writes, and the D1 row last. Uploaded bytes are stored
 exactly; nothing is sanitized.
 
 **Exec manifest** (`agentkit-exec.json`, optional). A tree may carry an
@@ -1076,7 +1111,7 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 |--------|-------|
 | 400 | `identity.*` (invalid names), `release.invalid_metadata`, `tree.read_failed` (empty body) |
 | 401 | `auth.invalid_key` |
-| 403 | `identity.reserved_publisher` (`@agentkit`), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
+| 403 | `identity.reserved_publisher` (`@agentkit` without kit provenance), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
 | 404 | `not_found` (API disabled) |
 | 409 | `release.version_exists`, `release.kind_conflict` |
 | 413 | `tree.limit_exceeded` |
@@ -1099,7 +1134,7 @@ Read-only, behind the same flag: unless `SKILLX_RELEASES_API` is `"1"` or
 | Endpoint | Returns |
 |----------|---------|
 | `GET /api/v1/packages/@{publisher}/{slug}/releases` | JSON list, newest first (at most 500): `version`, `channel`, `state`, `releaseDigest`, `artifactDigest`, `artifactSize`, `createdAt`. Published and yanked releases; a release is hidden when its tree is quarantined anywhere (it would answer `403`), so the list never offers one |
-| `GET /api/v1/packages/@{publisher}/{slug}/releases/{version}` | The signed `skillx.release/v1` manifest bytes (new resolution: only `published`) |
+| `GET /api/v1/packages/@{publisher}/{slug}/releases/{version}` | The signed `skillx.release/v1` or `v2` manifest bytes (new resolution: only `published`) |
 | `GET /api/v1/packages/@{publisher}/{slug}/releases/{version}/status` | The signed `skillx.release-status/v1` document of that release, in every state (see [Signed release status](#signed-release-status)) |
 | `GET /api/v1/releases/{releaseDigest}/manifest[?version=&package=]` | The same manifest, by tree digest (locked clients) |
 | `GET /api/v1/releases/{releaseDigest}/files/{path}[?version=&package=]` | One file's raw bytes, only if `path` is in the manifest |

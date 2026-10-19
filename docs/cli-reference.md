@@ -221,6 +221,7 @@ one packed locally.
 | `--kind <kind>` | `skill`, `hook-pack` or `bundle` | `skill` |
 | `--repo <https-url>` | Provenance repository URL | `origin` remote (https form) |
 | `--script <path>` | Declare a packaged script (repeatable) | — |
+| `--kit-origin <origin>` | Publish an `@agentkit/*` kit release (`remote-signed` or `local-dev`), signed as `skillx.release/v2`; needs a `releases:publish:@agentkit` key | — |
 | `--registry <url>` | Registry base URL; `https` only (`http` only for localhost) | configured base URL |
 | `--json` | Print the result as JSON | — |
 

@@ -4,9 +4,10 @@
  * here touches storage.
  */
 import { PACKAGE_KINDS, PACKAGE_NAME_PATTERN, RELEASE_CHANNELS, RELEASE_VERSION_PATTERN } from "@skillx/contracts";
-import type { PackageKind, ReleaseChannel, ReleaseSourceProvenance } from "@skillx/contracts";
+import type { PackageKind, ReleaseChannel, ReleaseProvenance, ReleaseProvider, ReleaseSourceProvenance } from "@skillx/contracts";
 import { ERROR_CODES, SkillTreeError, checkDirectoryAlias, checkPublisher, validateIdentity } from "@skillx/skill-tree";
 import { releaseError } from "./release-http";
+import { parseKitReleaseName, parseProvenance, treeErrorToHttp } from "./release-kit";
 import { MAX_RELEASE_METADATA_HEADER_BYTES } from "./release-limits";
 
 export const RELEASE_METADATA_HEADER = "X-SkillX-Release";
@@ -24,27 +25,27 @@ export interface ReleaseMetadata {
   kind: PackageKind;
   sourceProvenance: ReleaseSourceProvenance | null;
   declaredScripts: string[];
+  /** `kit` releases are signed as `skillx.release/v2`; null means provider `skillx` (v1). */
+  provenance: ReleaseProvenance | null;
 }
 
-const METADATA_FIELDS = new Set(["version", "channel", "kind", "sourceProvenance", "declaredScripts"]);
+const METADATA_FIELDS = new Set(["version", "channel", "kind", "sourceProvenance", "declaredScripts", "provenance"]);
 /** The AgentKit alias prefixes (`ak-plan`, `ak:plan`), compared with ASCII case folding. */
 const RESERVED_ALIAS_PREFIX = /^ak[-:]/i;
 
-function treeErrorToHttp(error: SkillTreeError) {
-  const reserved = error.code === ERROR_CODES.identityReservedPublisher || error.code === ERROR_CODES.identityReservedAlias;
-  return releaseError(reserved ? 403 : 400, error.code, error.message);
-}
-
 /**
- * Parses `@handle/slug` from the route. `@agentkit/*` and the `ak-`/`ak:`
- * alias forms are reserved for AgentKit kit content and fail with 403 before
- * any other check; a malformed name fails with 400.
+ * Parses `@handle/slug` from the route for a release of `provider`. For
+ * `skillx`, `@agentkit/*` and the `ak-`/`ak:` alias forms are reserved for
+ * AgentKit kit content and fail with 403 before any other check. A `kit`
+ * release must be `@agentkit/*` (else 400 `identity.invalid`). A malformed
+ * name fails with 400.
  */
-export function parseReleaseName(scope: string | undefined, slug: string | undefined): ReleaseName {
+export function parseReleaseName(scope: string | undefined, slug: string | undefined, provider: ReleaseProvider = "skillx"): ReleaseName {
   if (!scope?.startsWith("@") || !slug) {
     throw releaseError(400, ERROR_CODES.identityInvalid, "package name must be @publisher/slug");
   }
   const handle = scope.slice(1);
+  if (provider === "kit") return parseKitReleaseName(scope, slug);
   if (handle.toLowerCase() === "agentkit") {
     throw releaseError(403, ERROR_CODES.identityReservedPublisher, "the @agentkit publisher is reserved for AgentKit kit content");
   }
@@ -93,6 +94,22 @@ function oneOf<T extends string>(values: readonly T[], value: unknown, fallback:
 }
 
 /**
+ * The provider a release request asks for, read before authorization so the
+ * reserved `@agentkit` namespace is decided first. Only `provenance.provider`
+ * is read; a header that does not decode counts as `skillx`, and
+ * `parseReleaseMetadata` reports every invalid value later.
+ */
+export function requestedProvider(header: string | null): ReleaseProvider {
+  try {
+    const provenance = decodeMetadataHeader(header).provenance;
+    const kit = typeof provenance === "object" && provenance !== null && (provenance as Record<string, unknown>).provider === "kit";
+    return kit ? "kit" : "skillx";
+  } catch {
+    return "skillx";
+  }
+}
+
+/**
  * Reads the metadata header. Only the shape is checked here; the signed
  * manifest validator re-checks every value (provenance URL and commit,
  * scripts against the tree) before anything is stored.
@@ -118,6 +135,7 @@ export function parseReleaseMetadata(header: string | null): ReleaseMetadata {
     kind: oneOf(PACKAGE_KINDS, raw.kind, "skill", "kind"),
     sourceProvenance: provenance as ReleaseSourceProvenance | null,
     declaredScripts: scripts as string[],
+    provenance: parseProvenance(raw.provenance),
   };
 }
 
