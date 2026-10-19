@@ -10,7 +10,8 @@ without an explicit user approval.
 
 - Mount: `/api/v1/kits/@{handle}/{name}[/...]`. Source:
   `apps/web/app/routes/api.v1.kits.ts` and `apps/web/app/lib/personal-kits/`.
-- Feature flag: `SKILLX_PERSONAL_KITS_API` (`"1"` enables it). While it is off,
+- Feature flag: `SKILLX_PERSONAL_KITS_API` (`"1"` or `"true"` enables it, as
+  for `SKILLX_RELEASES_API`; any other value or no value is off). While it is off,
   every path returns the JSON 404 `kit.api_disabled`, before any
   authentication or lookup, so a client can say "this deployment does not offer
   personal kits" instead of "no such kit". Reading base releases also needs the
@@ -538,14 +539,25 @@ in `apps/web/wrangler.jsonc` stays `"0"` until an operator turns it on.
 
 1. Turn it on for one environment (`SKILLX_PERSONAL_KITS_API` = `"1"`) and
    deploy that environment.
-2. Run the enablement smoke against it with a throwaway owner account that
-   holds a published base skill:
+2. Run the enablement smoke against it with a dedicated smoke owner account
+   whose publisher holds a published base skill, and a second account:
    `SKILLX_SMOKE_OWNER_KEY=... SKILLX_SMOKE_OTHER_KEY=... node scripts/smoke-personal-kits.mjs --base <url> --allow-remote --handle <owner handle> --base-skill @pub/slug@version`.
-   It stores one private kit `@handle/smoke-<random>`, checks 401 for
-   anonymous, idempotent replay, 412 on a stale `If-Match`, activation, the lock
-   read-back and 404 for another account, and prints a JSON receipt (no keys).
-   Exit 2 means the deployment still answers `kit.api_disabled`.
-3. Roll back by setting the flag to `"0"` and redeploying. Every kit path then
+   A remote run refuses to start without `SKILLX_SMOKE_OTHER_KEY`. The smoke
+   checks 401 for anonymous, idempotent replay, 412 on a stale `If-Match`,
+   activation and the lock read-back, then that the second account gets 404 on
+   reading the kit, storing a revision and activating it, gets 403
+   `kit.publisher_not_owned` creating a kit under the owner's handle, and leaves
+   the owner's kit unchanged. It never follows a redirect (a 3xx fails the
+   check) and prints a JSON receipt with no keys. Exit 2 means the deployment
+   still answers `kit.api_disabled`.
+3. Clean up: the API cannot delete a kit (revisions and audit rows are
+   immutable, and kits are `ON DELETE RESTRICT`), so the smoke reuses one
+   private kit, `@handle/agentkit-smoke` (`--kit-name` to choose another), and
+   each run only appends and activates one revision there; the receipt names
+   the kit and the run. Keep that kit on the dedicated smoke account; do not
+   point the smoke at a real user's handle. The squat probe of step 2 stores
+   nothing (403 before any write).
+4. Roll back by setting the flag to `"0"` and redeploying. Every kit path then
    answers 404 `kit.api_disabled` again; stored revisions, locks and audit rows
    stay in D1 untouched and come back unchanged when the flag returns. Clients
    keep their local kits: AgentKit maps `kit.api_disabled` to "unsupported"
