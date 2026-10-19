@@ -473,7 +473,7 @@ document in R2 under `statuses/sha256/`. Rollback: the header SQL of
 `"1"` in `apps/web/wrangler.jsonc`. Before enabling it on another deployment,
 confirm that `wrangler d1 migrations list skillx-db --remote` reports nothing
 pending. Rollback: set the flag to `"0"` and redeploy; every route answers 404
-and stored kits stay untouched.
+`kit.api_disabled` and stored kits stay untouched.
 
 **Migration 0019 and the collections API.**
 `0019_collection_revision_lineage` adds two nullable columns

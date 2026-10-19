@@ -10,8 +10,9 @@ without an explicit user approval.
 
 - Mount: `/api/v1/kits/@{handle}/{name}[/...]`. Source:
   `apps/web/app/routes/api.v1.kits.ts` and `apps/web/app/lib/personal-kits/`.
-- Feature flag: `SKILLX_PERSONAL_KITS_API` (`"1"` or `"true"` enables it, as
-  for `SKILLX_RELEASES_API`; any other value or no value is off). While it is off,
+- Feature flag: `SKILLX_PERSONAL_KITS_API` (`"1"` or `"true"`, trimmed and in
+  any case, enables it, as for `SKILLX_RELEASES_API`; any other value or no
+  value is off). While it is off,
   every path returns the JSON 404 `kit.api_disabled`, before any
   authentication or lookup, so a client can say "this deployment does not offer
   personal kits" instead of "no such kit". Reading base releases also needs the
@@ -539,15 +540,17 @@ or file content. Its rollback SQL is in its header.
 ## Enablement and rollback
 
 The flag is the only switch; enabling it runs no migration (`0015` and `0016`
-are applied with the rest) and touches no existing data. The production value
-in `apps/web/wrangler.jsonc` stays `"0"` until an operator turns it on.
+are applied with the rest) and touches no existing data. Production already
+runs with `"1"` in `apps/web/wrangler.jsonc`; the steps below apply to any
+other deployment and to re-enabling after a rollback.
 
 1. Turn it on for one environment (`SKILLX_PERSONAL_KITS_API` = `"1"`) and
    deploy that environment.
 2. Run the enablement smoke against it with a dedicated smoke owner account
    whose publisher holds a published base skill, and a second account:
    `SKILLX_SMOKE_OWNER_KEY=... SKILLX_SMOKE_OTHER_KEY=... node scripts/smoke-personal-kits.mjs --base <url> --allow-remote --handle <owner handle> --base-skill @pub/slug@version`.
-   A remote run refuses to start without `SKILLX_SMOKE_OTHER_KEY`. The smoke
+   A remote run refuses to start without `SKILLX_SMOKE_OTHER_KEY` or with a
+   base URL that is not `https`. The smoke
    checks 401 for anonymous, idempotent replay, 412 on a stale `If-Match`,
    activation and the lock read-back, then that the second account gets 404 on
    reading the kit, storing a revision and activating it, gets 403
@@ -560,8 +563,9 @@ in `apps/web/wrangler.jsonc` stays `"0"` until an operator turns it on.
    private kit, `@handle/agentkit-smoke` (`--kit-name` to choose another), and
    each run only appends and activates one revision there; the receipt names
    the kit and the run. Keep that kit on the dedicated smoke account; do not
-   point the smoke at a real user's handle. The squat probe of step 2 stores
-   nothing (403 before any write).
+   point the smoke at a real user's handle. The second account's attempt to
+   create `@handle/smoke-squat-<random>` leaves no kit behind: it is refused
+   with 403 `kit.publisher_not_owned` before anything is written.
 4. Roll back by setting the flag to `"0"` and redeploying. Every kit path then
    answers 404 `kit.api_disabled` again; stored revisions, locks and audit rows
    stay in D1 untouched and come back unchanged when the flag returns. Clients
