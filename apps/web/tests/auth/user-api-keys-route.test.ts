@@ -121,4 +121,49 @@ describe("DELETE /api/user/api-keys", () => {
     expect((await list()).body.keys).toEqual([]);
     expect((await call("DELETE", { id })).status).toBe(404);
   });
+
+  it("answers a malformed or non-object JSON body with 400, not 500", async () => {
+    expect((await call("DELETE", "{not json")).status).toBe(400);
+    expect((await call("DELETE", "[]")).status).toBe(400);
+    expect((await call("DELETE", "null")).status).toBe(400);
+  });
+});
+
+describe("scopes: null", () => {
+  it("is treated as an omitted field and creates an account key", async () => {
+    const res = await call("POST", { name: "CLI", scopes: null });
+    expect(res.status).toBe(200);
+    expect(res.body.scopes).toBeNull();
+    expect(storedScopes()).toEqual([null]);
+  });
+});
+
+describe("same-origin check on mutating requests", () => {
+  const send = async (method: string, headers: Record<string, string>, body: unknown) => {
+    const request = new Request("https://skillx.test/api/user/api-keys", {
+      method,
+      headers: { "Content-Type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    });
+    return (await action({ request, params: {}, context: context() } as never)) as Response;
+  };
+
+  it("refuses a foreign or sibling-subdomain Origin before touching the database", async () => {
+    for (const origin of ["https://evil.example", "https://sub.skillx.test", "http://skillx.test"]) {
+      expect((await send("POST", { Origin: origin }, { name: "x" })).status).toBe(403);
+      expect((await send("DELETE", { Origin: origin }, { id: "k" })).status).toBe(403);
+    }
+    expect(storedScopes()).toEqual([]);
+  });
+
+  it("refuses a cross-site request that sends only Sec-Fetch-Site", async () => {
+    expect((await send("POST", { "Sec-Fetch-Site": "same-site" }, { name: "x" })).status).toBe(403);
+    expect((await send("POST", { "Sec-Fetch-Site": "cross-site" }, { name: "x" })).status).toBe(403);
+  });
+
+  it("accepts a same-origin browser request and a header-less non-browser client", async () => {
+    expect((await send("POST", { Origin: "https://skillx.test" }, { name: "a" })).status).toBe(200);
+    expect((await send("POST", { "Sec-Fetch-Site": "same-origin" }, { name: "b" })).status).toBe(200);
+    expect((await send("POST", {}, { name: "c" })).status).toBe(200);
+  });
 });

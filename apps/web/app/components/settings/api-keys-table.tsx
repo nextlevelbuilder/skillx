@@ -48,6 +48,8 @@ export function ApiKeysTable({ keys, onRevoke }: ApiKeysTableProps) {
                 <td className="px-4 py-3 text-sm">
                   {key.scopes === null ? (
                     <span className="rounded bg-sx-bg-elevated px-2 py-0.5 text-sx-fg-muted">Account key</span>
+                  ) : key.scopes.length === 0 ? (
+                    <span className="rounded bg-sx-bg-elevated px-2 py-0.5 text-sx-fg-muted">No access</span>
                   ) : (
                     <ul className="space-y-1">
                       {key.scopes.map((scope) => (

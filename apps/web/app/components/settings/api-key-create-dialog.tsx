@@ -8,6 +8,10 @@ interface ApiKeyCreateDialogProps {
   /** Active publishers the user owns; the only handles a publishing key may name. */
   publishers: OwnedPublisher[];
   onSubmit: (request: CreateKeyRequest) => void;
+  /** A request is in flight; the form keeps its inputs and disables submitting. */
+  submitting?: boolean;
+  /** Server error from the last attempt (400/403), shown above the buttons. */
+  error?: string | null;
   onCancel: () => void;
 }
 
@@ -16,7 +20,7 @@ interface ApiKeyCreateDialogProps {
  * account key, which can never publish releases; selecting publishers makes a
  * release-publishing key restricted to exactly those handles.
  */
-export function ApiKeyCreateDialog({ publishers, onSubmit, onCancel }: ApiKeyCreateDialogProps) {
+export function ApiKeyCreateDialog({ publishers, onSubmit, submitting = false, error = null, onCancel }: ApiKeyCreateDialogProps) {
   const [name, setName] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
   const request = buildCreateKeyRequest(name, selected);
@@ -30,7 +34,7 @@ export function ApiKeyCreateDialog({ publishers, onSubmit, onCancel }: ApiKeyCre
         className="w-full max-w-lg rounded-lg border border-sx-border bg-sx-bg p-6"
         onSubmit={(e) => {
           e.preventDefault();
-          if (request.name) onSubmit(request);
+          if (request.name && !submitting) onSubmit(request);
         }}
       >
         <h3 id="new-key-title" className="mb-4 font-mono text-lg font-semibold">
@@ -91,13 +95,19 @@ export function ApiKeyCreateDialog({ publishers, onSubmit, onCancel }: ApiKeyCre
           {describeKeyAccess(request.scopes ?? null)}
         </p>
 
+        {error && (
+          <p role="alert" className="mb-4 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-500">
+            {error}
+          </p>
+        )}
+
         <div className="flex gap-2">
           <button
             type="submit"
-            disabled={!request.name}
+            disabled={!request.name || submitting}
             className="flex-1 rounded-lg bg-sx-accent px-4 py-2 font-medium text-sx-bg transition-colors hover:bg-sx-accent-hover disabled:opacity-50"
           >
-            Generate
+            {submitting ? "Generating…" : "Generate"}
           </button>
           <button
             type="button"

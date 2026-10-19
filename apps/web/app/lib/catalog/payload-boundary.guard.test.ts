@@ -66,12 +66,6 @@ const NON_RESPONSE_PATHS: Record<string, string> = {
     "identity resolution layer; id-only callers never serialize the row, and the detail path gates the row",
   "lib/github/skill-insert.ts":
     "insert helper; returns the row to skill-import.ts, which gates it",
-  "routes/api.skill-rate.ts":
-    "reads the skill for its id only; the response carries no row",
-  "routes/api.skill-review.ts":
-    "reads the skill for its id only; the response carries no row",
-  "routes/api.usage-report.ts":
-    "reads the skill for its id only; the response carries no row",
 };
 
 /** Response paths whose rows must be gated before they can be serialized. */

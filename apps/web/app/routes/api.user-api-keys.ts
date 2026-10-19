@@ -5,6 +5,7 @@ import { eq, isNull, and } from "drizzle-orm";
 import { getSession } from "~/lib/auth/session-helpers";
 import { generateApiKey } from "~/lib/auth/api-key-utils";
 import { normalizeRequestedScopes } from "~/lib/auth/api-key-scopes";
+import { crossOriginRefusal } from "~/lib/auth/same-origin";
 import { listOwnedActivePublishers, listUserApiKeys } from "~/lib/auth/user-api-keys";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
@@ -33,6 +34,9 @@ export async function action({ request, context }: ActionFunctionArgs) {
     const env = context.cloudflare.env as Env;
     const db = getDb(env.DB);
 
+    const crossOrigin = crossOriginRefusal(request);
+    if (crossOrigin) return crossOrigin;
+
     // Require authentication
     const session = await getSession(request, env);
     if (!session?.user?.id) {
@@ -59,7 +63,8 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
       // Optional scopes make a scoped key (e.g. CI release publishing), which legacy endpoints reject.
       let scopes: string[] | null = null;
-      if (body.scopes !== undefined) {
+      // `scopes: null` is the same as omitting the field: an account key.
+      if (body.scopes !== undefined && body.scopes !== null) {
         let requested: { scopes: string[]; handles: string[] };
         try {
           requested = normalizeRequestedScopes(body.scopes);
@@ -102,7 +107,10 @@ export async function action({ request, context }: ActionFunctionArgs) {
     } else if (method === "DELETE") {
       // Revoke API key (soft delete)
       // SAFETY: request bodies are untrusted; every field is coerced below.
-      const body = (await request.json()) as Record<string, unknown>;
+      const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
+      if (body === null || typeof body !== "object" || Array.isArray(body)) {
+        return Response.json({ error: "Request body must be a JSON object" }, { status: 400 });
+      }
       const keyId = String(body.id || "").trim();
 
       if (!keyId) {

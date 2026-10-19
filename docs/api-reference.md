@@ -536,7 +536,7 @@ Generate a new API key. Plaintext returned **once** — not stored.
 | Field | Type | Required | Validation |
 |-------|------|----------|------------|
 | `name` | string | No | Max 100 chars (default: `"Default"`) |
-| `scopes` | string[] | No | 1-8 entries of `releases:publish:@<handle>`; each handle must be an active publisher you own (`403` otherwise) |
+| `scopes` | string[] | No | 1-8 entries of `releases:publish:@<handle>`; each handle must be an active publisher you own (`403` otherwise). `null` is the same as omitting the field: an account key |
 
 **Response** `200`:
 
@@ -548,6 +548,11 @@ Generate a new API key. Plaintext returned **once** — not stored.
   "message": "Save this key securely. It will not be shown again."
 }
 ```
+
+`POST` and `DELETE` on this route are session-cookie requests and must come from
+the site's own origin: a request whose `Origin` differs (or, without `Origin`,
+whose `Sec-Fetch-Site` is not `same-origin`/`none`) gets `403`. A body that is
+not a JSON object gets `400`.
 
 A scoped key is accepted only by endpoints that check its scope (today the
 release publish API). Endpoints that take unscoped keys (`authenticateRequest`,

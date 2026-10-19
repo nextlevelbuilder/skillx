@@ -51,6 +51,16 @@ describe("ApiKeyCreateDialog", () => {
     expect(html).toContain("Account key:");
   });
 
+  it("shows a server error and disables Generate while a request is in flight", () => {
+    const html = renderToStaticMarkup(
+      createElement(ApiKeyCreateDialog, { publishers, onSubmit: noop, onCancel: noop, submitting: true, error: "You do not own an active publisher @gone" }),
+    );
+    expect(html).toContain('role="alert"');
+    expect(html).toContain("You do not own an active publisher @gone");
+    expect(html).toContain("Generating…");
+    expect(html).toMatch(/<button type="submit" disabled=""/);
+  });
+
   it("explains the account-key fallback when the user owns no publisher", () => {
     const html = renderToStaticMarkup(createElement(ApiKeyCreateDialog, { publishers: [], onSubmit: noop, onCancel: noop }));
     expect(html).toContain("You do not own an active publisher");
@@ -86,6 +96,17 @@ describe("ApiKeysTable", () => {
     expect(html).toContain("sx_abcde...");
     expect(html).toContain('aria-label="Revoke CI"');
     expect(html).toContain("Oct 14, 2026");
+  });
+
+  it("labels a key whose stored scopes parse to an empty list as having no access", () => {
+    const html = renderToStaticMarkup(
+      createElement(ApiKeysTable, {
+        onRevoke: noop,
+        keys: [{ id: "k3", name: "Odd", key_masked: "sx_zzzzz...", created_at: new Date("2026-10-14T00:00:00Z"), scopes: [] }],
+      }),
+    );
+    expect(html).toContain("No access");
+    expect(html).not.toContain("Account key");
   });
 
   it("renders an empty state", () => {
