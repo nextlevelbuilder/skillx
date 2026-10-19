@@ -46,12 +46,25 @@ function byteText(bytes: Uint8Array): string {
 function secretsInBytes(bytes: Uint8Array): Set<string> {
   const found = new Set<string>();
   for (let at = 0; at < bytes.length; at += SECRET_WINDOW) {
-    const window = byteText(bytes.subarray(at, Math.min(bytes.length, at + SECRET_WINDOW + SECRET_OVERLAP)));
+    // Start one byte early so a window never opens in the middle of a token and invents a `\b`.
+    const start = Math.max(0, at - 1);
+    const window = byteText(bytes.subarray(start, Math.min(bytes.length, at + SECRET_WINDOW + SECRET_OVERLAP)));
     for (const { name, regex } of SECRET_PATTERNS) {
-      if (!found.has(name) && regex.test(window)) found.add(name);
+      if (!found.has(name) && matchesBeyondLeadingByte(regex, window, start < at)) found.add(name);
     }
   }
   return found;
+}
+
+/** Whether `regex` matches `window`, ignoring a match that starts at the extra leading byte. */
+function matchesBeyondLeadingByte(regex: RegExp, window: string, hasLeadingByte: boolean): boolean {
+  if (!hasLeadingByte) return regex.test(window);
+  const global = new RegExp(regex.source, "g");
+  for (let m = global.exec(window); m !== null; m = global.exec(window)) {
+    if (m.index > 0) return true;
+    global.lastIndex = 1;
+  }
+  return false;
 }
 
 function secretsInText(text: string): Set<string> {
@@ -60,10 +73,16 @@ function secretsInText(text: string): Set<string> {
 
 /** Markdown an agent reads as instructions. */
 const isMarkup = (path: string) => /\.(?:md|markdown|mdx)$/i.test(path);
-/** Licence and plain-text documents: agents read them, but shell and URL syntax is ordinary prose there. */
-const isPlainTextDocument = (path: string) =>
-  /\.txt$/i.test(path) || /(?:^|\/)(?:LICEN[CS]E|COPYING|NOTICE|AUTHORS|PATENTS|CONTRIBUTORS)(?:[.-][^/]*)?$/i.test(path);
-const isInstructionDocument = (path: string) => isMarkup(path) || isPlainTextDocument(path);
+/**
+ * Licence files by name: a bare name, optionally with a `-MIT`/`_APACHE-2.0` style suffix and a text
+ * extension. Any other extension (`license.png`, `NOTICE.pdf`) is not one.
+ */
+const LICENSE_NAME =
+  /(?:^|\/)(?:LICEN[CS]E|COPYING|NOTICE|AUTHORS|PATENTS|CONTRIBUTORS)(?:[-_][A-Za-z0-9+]+(?:\.\d+)*)*(?:\.(?:txt|md|markdown|rst))?$/i;
+/** Licence text: shell and URL syntax is ordinary prose there. Other plain text keeps every rule. */
+const isLicenseFile = (path: string, bytes: Uint8Array) => LICENSE_NAME.test(path) && !hasBinaryMagic(bytes);
+const isInstructionDocument = (path: string, bytes: Uint8Array) =>
+  isMarkup(path) || /\.txt$/i.test(path) || isLicenseFile(path, bytes);
 /** Finding kinds that are shell or URL syntax rather than hidden content or instruction override. */
 const SYNTAX_FINDINGS = new Set(["shell-injection", "js-protocol", "data-html"]);
 
@@ -76,7 +95,6 @@ const LEGACY_CODEPAGE = /\.(?:bat|cmd|csv)$/i;
 /** Magic numbers of executables, archives, images and wasm: real binaries, not text in a bad encoding. */
 const BINARY_MAGIC: ReadonlyArray<readonly number[]> = [
   [0x7f, 0x45, 0x4c, 0x46], // ELF
-  [0x4d, 0x5a], // PE "MZ"
   [0xcf, 0xfa, 0xed, 0xfe], // Mach-O
   [0xfe, 0xed, 0xfa, 0xce],
   [0xca, 0xfe, 0xba, 0xbe], // Mach-O fat
@@ -87,7 +105,14 @@ const BINARY_MAGIC: ReadonlyArray<readonly number[]> = [
   [0xff, 0xd8, 0xff], // JPEG
   [0x25, 0x50, 0x44, 0x46], // PDF
 ];
-const hasBinaryMagic = (bytes: Uint8Array) => BINARY_MAGIC.some((magic) => magic.every((b, i) => bytes[i] === b));
+/** "MZ" whose e_lfanew (offset 0x3c) points at "PE\0\0"; a bare "MZ" is just text. */
+function isPortableExecutable(bytes: Uint8Array): boolean {
+  if (bytes[0] !== 0x4d || bytes[1] !== 0x5a || bytes.length < 0x40) return false;
+  const at = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength).getUint32(0x3c, true);
+  return at + 4 <= bytes.length && bytes[at] === 0x50 && bytes[at + 1] === 0x45 && bytes[at + 2] === 0 && bytes[at + 3] === 0;
+}
+const hasBinaryMagic = (bytes: Uint8Array) =>
+  isPortableExecutable(bytes) || BINARY_MAGIC.some((magic) => magic.every((b, i) => bytes[i] === b));
 
 function utf16Bom(bytes: Uint8Array): "le" | "be" | null {
   if (bytes[0] === 0xff && bytes[1] === 0xfe) return "le";
@@ -103,7 +128,9 @@ function decodeUtf16(bytes: Uint8Array, order: "le" | "be"): string | null {
     for (let i = 0; i < body.length; i += 2) [body[i], body[i + 1]] = [body[i + 1], body[i]];
   }
   try {
-    return new TextDecoder("utf-16le", { fatal: true }).decode(body);
+    const text = new TextDecoder("utf-16le", { fatal: true }).decode(body);
+    // workerd does not throw on a lone surrogate even with `fatal`.
+    return (text as string & { isWellFormed(): boolean }).isWellFormed() ? text : null;
   } catch {
     return null;
   }
@@ -126,7 +153,7 @@ function isValidUtf8(bytes: Uint8Array): boolean {
 /** Files that must be readable text: instruction documents, scripts and config (by extension, directory or shebang). */
 function mustBeText(path: string, bytes: Uint8Array): boolean {
   if (
-    isInstructionDocument(path) ||
+    isInstructionDocument(path, bytes) ||
     TEXT_EXTENSIONS.test(path) ||
     /(?:^|\/)\.env(?:\.[^/]*)?$/.test(path) ||
     (bytes[0] === 0x23 && bytes[1] === 0x21) // "#!"
@@ -147,21 +174,24 @@ interface TextRead {
 function readText(path: string, bytes: Uint8Array): TextRead {
   const order = utf16Bom(bytes);
   if (order !== null) {
+    // Too large to decode whole, and its secrets cannot be matched over raw bytes: the caller quarantines it.
     if (bytes.length > MAX_SCANNED_TEXT_BYTES) return { text: null, invalid: false };
     const text = decodeUtf16(bytes, order);
     return { text, invalid: text === null };
   }
   if (bytes.includes(0)) return { text: null, invalid: true };
-  if (!isValidUtf8(bytes)) return { text: null, invalid: !LEGACY_CODEPAGE.test(path) };
-  const needsText = isInstructionDocument(path) && bytes.length <= MAX_SCANNED_TEXT_BYTES;
+  if (!isValidUtf8(bytes)) {
+    // Legacy codepage text (and licence files such as a latin-1 NOTICE) cannot be instruction-scanned, and is not hidden content.
+    return { text: null, invalid: !(LEGACY_CODEPAGE.test(path) || isLicenseFile(path, bytes)) };
+  }
+  const needsText = isInstructionDocument(path, bytes) && bytes.length <= MAX_SCANNED_TEXT_BYTES;
   return { text: needsText ? new TextDecoder("utf-8").decode(bytes) : null, invalid: false };
 }
 
 /** SKILL.md scanner findings for one instruction document, as `danger:<kind>:<path>`. */
-function instructionFindings(path: string, text: string): string[] {
+function instructionFindings(path: string, text: string, skipSyntax: boolean): string[] {
   // A leading BOM is an encoding mark, not hidden content.
   const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
-  const skipSyntax = isPlainTextDocument(path) && !isMarkup(path);
   const out: string[] = [];
   for (const finding of scanContent(body).findings) {
     if (!finding.startsWith("danger:")) continue;
@@ -179,8 +209,9 @@ function instructionFindings(path: string, text: string): string[] {
  * `.bat`/`.cmd`/`.csv` may use a legacy codepage, and recognizable binaries
  * under `scripts/` are not text. Instruction documents also go through the
  * SKILL.md scanner (prompt injection, invisible characters, terminal escapes,
- * shell injection); plain-text and licence files skip the shell/URL syntax
- * rules, and any above `MAX_SCANNED_TEXT_BYTES` are quarantined instead of
+ * shell injection); only licence files skip the shell/URL syntax rules (other
+ * `.txt` files are read by agents as instructions). Instruction documents and
+ * UTF-16 text above `MAX_SCANNED_TEXT_BYTES` are quarantined instead of
  * decoded whole. Any `danger` finding quarantines the release.
  */
 export function scanRelease(files: ReadonlyArray<{ path: string; bytes: Uint8Array }>): ReleaseScanResult {
@@ -191,9 +222,10 @@ export function scanRelease(files: ReadonlyArray<{ path: string; bytes: Uint8Arr
       const { text, invalid } = readText(path, bytes);
       if (invalid) {
         findings.push(`danger:non-utf8-text:${path}`);
-      } else if (isInstructionDocument(path)) {
-        if (bytes.length > MAX_SCANNED_TEXT_BYTES) findings.push(`danger:text-too-large:${path}`);
-        else if (text !== null) findings.push(...instructionFindings(path, text));
+      } else if (bytes.length > MAX_SCANNED_TEXT_BYTES && (isInstructionDocument(path, bytes) || utf16Bom(bytes) !== null)) {
+        findings.push(`danger:text-too-large:${path}`);
+      } else if (text !== null && isInstructionDocument(path, bytes)) {
+        findings.push(...instructionFindings(path, text, isLicenseFile(path, bytes)));
       }
       // UTF-16 interleaves NULs, so its secrets only match in the decoded text.
       if (utf16Bom(bytes) !== null && text !== null) secrets = secretsInText(text);
