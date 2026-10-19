@@ -1,6 +1,7 @@
 /**
  * Signature, key and timestamp rules shared by the signed SkillX release
- * documents (`skillx.release/v1` and `skillx.release-status/v1`).
+ * documents (`skillx.release/v1`, `skillx.release/v2` and
+ * `skillx.release-status/v1`).
  *
  * A document is signed with Ed25519 over the UTF-8 canonical JSON (see
  * `canonical-json.ts`) of every member except `signature`, so `keyId` and
@@ -11,7 +12,7 @@
  * Domain separation: there is no prefix before the payload. Every signed
  * payload holds its own `schemaVersion`, every verifier requires its one
  * schema version and rejects unknown members, and registry release keys sign
- * nothing but these two schemas, so a signature over one document type never
+ * nothing but these schemas, so a signature over one document type never
  * verifies as the other.
  *
  * Served documents are exactly `canonicalJson(document)`, signature included;

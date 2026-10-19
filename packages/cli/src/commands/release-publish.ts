@@ -48,6 +48,22 @@ export function assertRegistryDigests(
   }
 }
 
+const KIT_ORIGINS = ['remote-signed', 'local-dev'] as const;
+
+/**
+ * The `provenance` metadata of a publish: a kit release (`--kit-origin`) must
+ * be `@agentkit/*` and is signed as `skillx.release/v2`; without the flag the
+ * release is provider `skillx` (v1) and `@agentkit/*` stays reserved.
+ */
+export function kitProvenance(publisher: string, kitOrigin: string | undefined): { provider: 'kit'; origin: string } | undefined {
+  if (kitOrigin === undefined) return undefined;
+  if (!(KIT_ORIGINS as readonly string[]).includes(kitOrigin)) {
+    throw new Error(`--kit-origin must be one of: ${KIT_ORIGINS.join(', ')}`);
+  }
+  if (publisher !== 'agentkit') throw new Error('--kit-origin is only for @agentkit/* kit releases');
+  return { provider: 'kit', origin: kitOrigin };
+}
+
 function originUrl(repoRoot: string): string | null {
   const result = spawnSync('git', ['remote', 'get-url', 'origin'], { cwd: repoRoot, encoding: 'utf8' });
   return result.status === 0 ? httpsRepoUrl(result.stdout) : null;
@@ -60,6 +76,7 @@ interface PublishOptions {
   channel: string;
   kind: string;
   repo?: string;
+  kitOrigin?: string;
   script: string[];
   registry?: string;
   json?: boolean;
@@ -77,6 +94,7 @@ export const releasePublishCommand = new Command('publish')
   .option('--channel <channel>', 'stable | beta | alpha', 'stable')
   .option('--kind <kind>', 'skill | hook-pack | bundle', 'skill')
   .option('--repo <https-url>', 'source repository URL for provenance (default: git remote origin)')
+  .option('--kit-origin <origin>', 'publish an @agentkit/* kit release with this origin: remote-signed | local-dev (needs a releases:publish:@agentkit key)')
   .option('--script <path>', 'declare a packaged file as a script (repeatable)', collect, [])
   .option('--registry <url>', 'registry base URL (default: configured base URL)')
   .option('--json', 'print the result as JSON')
@@ -85,6 +103,7 @@ export const releasePublishCommand = new Command('publish')
       const name = NAME_PATTERN.exec(options.name);
       if (!name) throw new Error(`--name must be @publisher/slug, got ${JSON.stringify(options.name)}`);
       const apiKey = getApiKey();
+      const provenance = kitProvenance(name[1], options.kitOrigin);
       if (!apiKey) throw new Error('an API key is required: set SKILLX_API_KEY or run skillx config set api-key <key>');
       if (options.repo !== undefined && httpsRepoUrl(options.repo) !== options.repo) {
         throw new Error('--repo must be an https URL without credentials or a trailing .git');
@@ -102,6 +121,7 @@ export const releasePublishCommand = new Command('publish')
         kind: options.kind,
         sourceProvenance: repo === null ? null : { repo, commit: packed.commit, path: packed.path },
         declaredScripts: [...options.script].sort(),
+        ...(provenance === undefined ? {} : { provenance }),
       };
       const res = await fetch(`${base}/api/v1/packages/@${name[1]}/${name[2]}/releases`, {
         method: 'POST',

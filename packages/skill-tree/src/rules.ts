@@ -14,14 +14,17 @@ export { UNICODE_VERSION, isFormat } from "./unicode-15";
 
 export {
   IDENTITY_PATTERN,
+  KIT_ORIGINS,
   RESERVED_PUBLISHER,
   checkAlias,
   checkDirectoryAlias,
   checkPublisher,
   directoryAliasKey,
   kitIdentity,
+  trustOf,
   validateIdentity,
 } from "./identity";
+export type { KitOrigin, Provenance, Provider, Trust } from "./identity";
 export { frontmatterExposure, skillFileExposure } from "./exposure";
 export type { Exposure, ExposureResult } from "./exposure";
 

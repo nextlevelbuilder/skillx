@@ -3,8 +3,8 @@
  * the `X-SkillX-Release` metadata header and the capped tar body. Nothing
  * here touches storage.
  */
-import { PACKAGE_KINDS, PACKAGE_NAME_PATTERN, RELEASE_CHANNELS, RELEASE_VERSION_PATTERN } from "@skillx/contracts";
-import type { PackageKind, ReleaseChannel, ReleaseSourceProvenance } from "@skillx/contracts";
+import { KIT_ORIGINS, PACKAGE_KINDS, PACKAGE_NAME_PATTERN, RELEASE_CHANNELS, RELEASE_PROVIDERS, RELEASE_VERSION_PATTERN } from "@skillx/contracts";
+import type { KitOrigin, PackageKind, ReleaseChannel, ReleaseProvenance, ReleaseProvider, ReleaseSourceProvenance } from "@skillx/contracts";
 import { ERROR_CODES, SkillTreeError, checkDirectoryAlias, checkPublisher, validateIdentity } from "@skillx/skill-tree";
 import { releaseError } from "./release-http";
 import { MAX_RELEASE_METADATA_HEADER_BYTES } from "./release-limits";
@@ -24,9 +24,11 @@ export interface ReleaseMetadata {
   kind: PackageKind;
   sourceProvenance: ReleaseSourceProvenance | null;
   declaredScripts: string[];
+  /** `kit` releases are signed as `skillx.release/v2`; null means provider `skillx` (v1). */
+  provenance: ReleaseProvenance | null;
 }
 
-const METADATA_FIELDS = new Set(["version", "channel", "kind", "sourceProvenance", "declaredScripts"]);
+const METADATA_FIELDS = new Set(["version", "channel", "kind", "sourceProvenance", "declaredScripts", "provenance"]);
 /** The AgentKit alias prefixes (`ak-plan`, `ak:plan`), compared with ASCII case folding. */
 const RESERVED_ALIAS_PREFIX = /^ak[-:]/i;
 
@@ -36,15 +38,18 @@ function treeErrorToHttp(error: SkillTreeError) {
 }
 
 /**
- * Parses `@handle/slug` from the route. `@agentkit/*` and the `ak-`/`ak:`
- * alias forms are reserved for AgentKit kit content and fail with 403 before
- * any other check; a malformed name fails with 400.
+ * Parses `@handle/slug` from the route for a release of `provider`. For
+ * `skillx`, `@agentkit/*` and the `ak-`/`ak:` alias forms are reserved for
+ * AgentKit kit content and fail with 403 before any other check. A `kit`
+ * release must be `@agentkit/*` (else 400 `identity.invalid`). A malformed
+ * name fails with 400.
  */
-export function parseReleaseName(scope: string | undefined, slug: string | undefined): ReleaseName {
+export function parseReleaseName(scope: string | undefined, slug: string | undefined, provider: ReleaseProvider = "skillx"): ReleaseName {
   if (!scope?.startsWith("@") || !slug) {
     throw releaseError(400, ERROR_CODES.identityInvalid, "package name must be @publisher/slug");
   }
   const handle = scope.slice(1);
+  if (provider === "kit") return parseKitReleaseName(scope, slug);
   if (handle.toLowerCase() === "agentkit") {
     throw releaseError(403, ERROR_CODES.identityReservedPublisher, "the @agentkit publisher is reserved for AgentKit kit content");
   }
@@ -64,6 +69,21 @@ export function parseReleaseName(scope: string | undefined, slug: string | undef
     throw error;
   }
   return { identity, handle, slug };
+}
+
+function parseKitReleaseName(scope: string, slug: string): ReleaseName {
+  const identity = `${scope}/${slug}`;
+  if (!PACKAGE_NAME_PATTERN.test(identity)) {
+    throw releaseError(400, ERROR_CODES.identityInvalid, "package name must be @publisher/slug in lowercase");
+  }
+  try {
+    checkPublisher(identity, "kit");
+    checkDirectoryAlias(identity, slug);
+  } catch (error) {
+    if (error instanceof SkillTreeError) throw treeErrorToHttp(error);
+    throw error;
+  }
+  return { identity, handle: scope.slice(1), slug };
 }
 
 function invalidMetadata(message: string) {
@@ -92,6 +112,37 @@ function oneOf<T extends string>(values: readonly T[], value: unknown, fallback:
   throw invalidMetadata(`${field} must be one of: ${values.join(", ")}`);
 }
 
+function parseProvenance(value: unknown): ReleaseProvenance | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== "object" || Array.isArray(value)) throw invalidMetadata("provenance must be an object or null");
+  const raw = value as Record<string, unknown>;
+  const allowed = raw.provider === "kit" ? ["provider", "origin"] : ["provider"];
+  const unknown = Object.keys(raw).filter((key) => !allowed.includes(key));
+  if (unknown.length > 0) throw invalidMetadata(`unknown provenance field: ${unknown.join(", ")}`);
+  if (raw.provider === "skillx") return null;
+  if (raw.provider !== "kit") throw invalidMetadata(`provenance.provider must be one of: ${RELEASE_PROVIDERS.join(", ")}`);
+  if (typeof raw.origin !== "string" || !(KIT_ORIGINS as readonly string[]).includes(raw.origin)) {
+    throw invalidMetadata(`provenance.origin must be one of: ${KIT_ORIGINS.join(", ")}`);
+  }
+  return { provider: "kit", origin: raw.origin as KitOrigin };
+}
+
+/**
+ * The provider a release request asks for, read before authorization so the
+ * reserved `@agentkit` namespace is decided first. Only `provenance.provider`
+ * is read; a header that does not decode counts as `skillx`, and
+ * `parseReleaseMetadata` reports every invalid value later.
+ */
+export function requestedProvider(header: string | null): ReleaseProvider {
+  try {
+    const provenance = decodeMetadataHeader(header).provenance;
+    const kit = typeof provenance === "object" && provenance !== null && (provenance as Record<string, unknown>).provider === "kit";
+    return kit ? "kit" : "skillx";
+  } catch {
+    return "skillx";
+  }
+}
+
 /**
  * Reads the metadata header. Only the shape is checked here; the signed
  * manifest validator re-checks every value (provenance URL and commit,
@@ -118,6 +169,7 @@ export function parseReleaseMetadata(header: string | null): ReleaseMetadata {
     kind: oneOf(PACKAGE_KINDS, raw.kind, "skill", "kind"),
     sourceProvenance: provenance as ReleaseSourceProvenance | null,
     declaredScripts: scripts as string[],
+    provenance: parseProvenance(raw.provenance),
   };
 }
 

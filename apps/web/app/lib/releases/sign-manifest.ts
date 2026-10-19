@@ -1,5 +1,7 @@
 /**
- * Registry countersigning of `skillx.release/v1` manifests. The Ed25519 key
+ * Registry countersigning of release manifests. A kit release is signed as
+ * `skillx.release/v2` with its `provenance`; every other release stays
+ * `skillx.release/v1`, so existing v1-only verifiers keep reading it. The Ed25519 key
  * is the Worker secret `SKILLX_REGISTRY_SIGNING_KEY` (base64 PKCS #8 DER) and
  * its published ID is `SKILLX_REGISTRY_SIGNING_KEY_ID`. The key is imported
  * non-extractable; no error, log line or response ever includes it.
@@ -8,10 +10,11 @@ import {
   RELEASE_KEY_ID_PATTERN,
   RELEASE_SIGNATURE_ALGORITHM,
   SKILLX_RELEASE_SCHEMA_VERSION,
+  SKILLX_RELEASE_SCHEMA_VERSION_V2,
   canonicalJsonBytes,
   signReleaseManifest,
 } from "@skillx/contracts";
-import type { SkillxReleaseManifest, UnsignedReleaseManifest } from "@skillx/contracts";
+import type { ReleaseProvenance, SkillxReleaseManifest, UnsignedReleaseManifest, UnsignedReleaseManifestV1 } from "@skillx/contracts";
 import { releaseError } from "./release-http";
 
 export interface RegistrySigner {
@@ -50,7 +53,15 @@ export async function loadRegistrySigner(env: SigningEnv): Promise<RegistrySigne
   }
 }
 
-export type ManifestFields = Omit<UnsignedReleaseManifest, "schemaVersion" | "keyId" | "signatureAlgorithm" | "createdAt">;
+export type ManifestFields = Omit<UnsignedReleaseManifestV1, "schemaVersion" | "provenance" | "keyId" | "signatureAlgorithm" | "createdAt"> & {
+  /** `kit` signs v2; `skillx` (or none) signs v1, whose provider is implicitly `skillx`. */
+  provenance: ReleaseProvenance | null;
+};
+
+/** The schema version `fields` are signed under. */
+export function manifestSchemaVersionOf(fields: Pick<ManifestFields, "provenance">): UnsignedReleaseManifest["schemaVersion"] {
+  return fields.provenance?.provider === "kit" ? SKILLX_RELEASE_SCHEMA_VERSION_V2 : SKILLX_RELEASE_SCHEMA_VERSION;
+}
 
 /** RFC 3339 UTC with whole seconds, as the manifest contract requires. */
 export function releaseTimestamp(now: Date): string {
@@ -66,13 +77,12 @@ export async function signRelease(
   signer: RegistrySigner,
   now: Date,
 ): Promise<{ manifest: SkillxReleaseManifest; bytes: Uint8Array<ArrayBuffer> }> {
-  const unsigned: UnsignedReleaseManifest = {
-    schemaVersion: SKILLX_RELEASE_SCHEMA_VERSION,
-    ...fields,
-    createdAt: releaseTimestamp(now),
-    keyId: signer.keyId,
-    signatureAlgorithm: RELEASE_SIGNATURE_ALGORITHM,
-  };
+  const { provenance, ...members } = fields;
+  const signing = { createdAt: releaseTimestamp(now), keyId: signer.keyId, signatureAlgorithm: RELEASE_SIGNATURE_ALGORITHM } as const;
+  const unsigned: UnsignedReleaseManifest =
+    provenance?.provider === "kit"
+      ? { schemaVersion: SKILLX_RELEASE_SCHEMA_VERSION_V2, ...members, provenance, ...signing }
+      : { schemaVersion: SKILLX_RELEASE_SCHEMA_VERSION, ...members, ...signing };
   const manifest = await signReleaseManifest(unsigned, signer.privateKey);
   return { manifest, bytes: canonicalJsonBytes(manifest) };
 }
