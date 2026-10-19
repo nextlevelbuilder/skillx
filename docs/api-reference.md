@@ -1765,8 +1765,10 @@ shown beside them.
 ### `POST /api/mcp`
 
 Remote MCP server (JSON-RPC 2.0, streamable HTTP; `GET` answers 405). Methods:
-`initialize`, `tools/list`, `tools/call`; notifications get `202` with no body. Every tool runs
-as the anonymous viewer: the request's session or API key is never read.
+`initialize`, `tools/list`, `tools/call`; notifications get `202` with no body. Every tool except
+`get_kit` runs as the anonymous viewer: the request's session or API key is never read.
+`get_kit` alone reads an unscoped API key or a session to recognise the owner; a scoped,
+unknown or revoked key is a tool error with `details.code = "invalid_api_key"`.
 
 | Tool | Arguments | Answer |
 |------|-----------|--------|
@@ -1774,6 +1776,7 @@ as the anonymous viewer: the request's session or API key is never read.
 | `get_package` | `slug`, `target?` | Listing detail (alias-aware) and declared compatibility |
 | `get_release` | `package` (`@handle/slug`), `version?` | Public published releases only, through the release access module; private, draft, and unsigned rows are `not_found`, quarantined is `release_quarantined` |
 | `check_compatibility` | `slug`, `target` (`runtime[@version]`) | Version-aware status plus reason codes; returns the canonical slug |
+| `get_kit` | `kit` (`@handle/name`) | One personal kit and its effective revision. The owner reads their own kit at any visibility; anyone else only a `public` kit whose effective revision is reviewed, activated and authored public, otherwise `not_found`. While `SKILLX_PERSONAL_KITS_API` is off it is a tool error with `details.code = "feature_disabled"` |
 
 A miss is `{ "found": false, "code": "not_found" }`. Invalid arguments are a tool
 error with `details.code = "invalid_arguments"`; an unexpected failure is a tool
@@ -1781,6 +1784,12 @@ error with `details.code = "internal_error"` (the cause is only logged).
 Guards: request bodies above 64 KiB get `413`; each client IP is counted on
 `RELEASE_READ_LIMITER` under an `mcp:` key and a refusal is `429` with
 `Retry-After` (a missing binding lets the request through).
+
+**WebMCP.** Where the browser exposes `navigator.modelContext`, pages register read tools
+for in-page agents (`app/lib/webmcp/`): `search_skills`, `get_skill`,
+`check_skill_compatibility`, plus `get_package` and `get_release`, which post a `tools/call`
+to this endpoint and return its answer unchanged (same names, schemas and access codes).
+Without the API nothing is registered.
 
 ## Error Format
 

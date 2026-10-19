@@ -42,6 +42,6 @@ program.addCommand(promoteCommand);
 program.addCommand(releaseCommand);
 for (const command of [installCommand, updateCommand, uninstallCommand, listCommand, syncCommand, mcpCommand]) program.addCommand(command);
 
-// Parse errors exit 2 (and print a usage_error envelope under --json); see docs/cli-output.md.
+// Parse errors exit 2 (and print a usage_error envelope under --json); see docs/cli-reference.md.
 routeUsageErrors(program);
 await program.parseAsync(process.argv);
