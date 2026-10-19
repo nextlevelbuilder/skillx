@@ -7,6 +7,7 @@ export default defineConfig({
   schema: [
     "./app/lib/db/schema.ts",
     "./app/lib/db/registry-schema.ts",
+    "./app/lib/db/registry-publishing-schema.ts",
     "./app/lib/db/entitlements-schema.ts",
     "./app/lib/db/collections-schema.ts",
     "./app/lib/db/personal-kits-schema.ts",

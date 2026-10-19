@@ -58,7 +58,7 @@ async function adminSecretMatches(presented: string, expected: string | undefine
   return diff === 0;
 }
 
-export async function resolveActor(request: Request, env: ReleaseStateEnv): Promise<TransitionActor> {
+export async function resolveActor(request: Request, env: ReleaseStateEnv): Promise<Exclude<TransitionActor, { kind: "publisher_key" }>> {
   const presented = request.headers.get("X-Admin-Secret");
   if (presented !== null) {
     if (!(await adminSecretMatches(presented, env.ADMIN_SECRET))) throw releaseError(401, "invalid_admin_secret", "X-Admin-Secret is not valid");
@@ -165,7 +165,7 @@ class RateLimitedError extends ReleaseHttpError {
 }
 
 /** Counts one write of `caller`; throws 429 when limited, 503 when a fail-closed limiter is unavailable. */
-async function enforceWriteLimit(env: ReleaseStateEnv, caller: string, failClosed: boolean): Promise<void> {
+export async function enforceWriteLimit(env: ReleaseStateEnv, caller: string, failClosed: boolean): Promise<void> {
   const decision = await checkReleaseRateLimit(env.RELEASE_WRITE_LIMITER, caller, {
     binding: "RELEASE_WRITE_LIMITER",
     windowSeconds: RELEASE_WRITE_RATE_WINDOW_SECONDS,
@@ -183,7 +183,7 @@ async function enforceWriteLimit(env: ReleaseStateEnv, caller: string, failClose
  * request leaves no audit row: the append-only audit cannot be flooded faster
  * than the limit allows.
  */
-export async function resolveLimitedActor(request: Request, env: ReleaseStateEnv): Promise<TransitionActor> {
+export async function resolveLimitedActor(request: Request, env: ReleaseStateEnv): Promise<Exclude<TransitionActor, { kind: "publisher_key" }>> {
   if (request.headers.get("X-Admin-Secret") !== null) await enforceWriteLimit(env, rateLimitCaller(request, null), false);
   const actor = await resolveActor(request, env);
   await enforceWriteLimit(env, rateLimitCaller(request, actor.id), actor.kind !== "admin");

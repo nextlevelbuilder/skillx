@@ -8,6 +8,7 @@
 export * from "./schema";
 export * from "./skill-references-schema";
 export * from "./registry-schema";
+export * from "./registry-publishing-schema";
 export * from "./entitlements-schema";
 export * from "./collections-schema";
 export * from "./personal-kits-schema";

@@ -30,6 +30,8 @@ export interface IngestDeps {
   now?: () => Date;
   /** Subrequests one publish may spend; defaults to DEFAULT_RELEASE_SUBREQUEST_BUDGET. */
   subrequestBudget?: number;
+  /** `SKILLX_TOKEN_SECRET`; enables OIDC publish tokens (`sxo_...`). */
+  tokenSecret?: string | null;
 }
 
 interface ReadTree {
@@ -81,7 +83,7 @@ function existingOutcome(identity: string, version: string, existing: ExistingRe
 
 async function ingest(request: Request, params: { scope?: string; slug?: string }, deps: IngestDeps): Promise<Response> {
   const name = parseReleaseName(params.scope, params.slug);
-  const auth = await authorizeReleasePublisher(deps.db, request, name.handle);
+  const auth = await authorizeReleasePublisher(deps.db, request, name.handle, { tokenSecret: deps.tokenSecret, now: deps.now?.() });
   const signer = await deps.loadSigner();
   const metadata = parseReleaseMetadata(request.headers.get(RELEASE_METADATA_HEADER));
   const pkg = await findPackage(deps.db, name.identity);
