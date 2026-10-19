@@ -1,11 +1,12 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { INSTALL_LOCK_FILENAME } from '@skillx/contracts';
-import { installRefs, listInstalled, planRefs, uninstallRef, updateInstalled } from '../lib/install/install-operations.js';
+import { installRefs, listInstalled, ownerOfRef, planRefs, uninstallRef, updateInstalled } from '../lib/install/install-operations.js';
 import type { ApplyOutcome } from '../lib/install/install-operations.js';
 import { usageError } from '../lib/install/install-errors.js';
 import { planLocked, syncLocked } from '../lib/install/sync-locked.js';
-import { readLockFile, writeLockFile } from '../lib/install/lock-file.js';
+import { assertLockScope, dropFromLockFile, existingLock, lockScope, mergeLock, readLockFile, writeLockFile } from '../lib/install/lock-file.js';
+import { parseRefs } from '../lib/install/resolver.js';
 import { contextFrom, printPlan, runInstaller } from './install-runner.js';
 import type { InstallerOptions } from './install-runner.js';
 
@@ -50,8 +51,10 @@ export const installCommand = withCommon(new Command('install'))
       async () => {
         const ctx = contextFrom(options);
         if (options.dryRun) return { dryRun: true as const, ...(await planRefs(ctx, refs)) };
+        const path = options.lock === false ? null : (options.lock ?? INSTALL_LOCK_FILENAME);
+        if (path !== null) assertLockScope(path, parseRefs(refs).kind === 'packages' ? 'packages' : ownerOfRef(refs));
         const outcome = await installRefs(ctx, refs);
-        const lockPath = options.lock === false ? null : writeLockFile(options.lock ?? INSTALL_LOCK_FILENAME, outcome.lock);
+        const lockPath = path === null ? null : writeLockFile(path, mergeLock(existingLock(path), outcome.lock));
         return { ...outcome, lockPath };
       },
       (data) => ('dryRun' in data ? printPlan(data) : printApplied(data, data.lockPath)),
@@ -62,17 +65,39 @@ export const updateCommand = withCommon(new Command('update'))
   .description('Re-resolve installed sources (all, or the one named) and apply the changes')
   .argument('[refs...]', 'an installed source; all when omitted')
   .option('--force', 'reinstall over local edits (backed up)')
+  .option('--lock <file>', 'lock file to refresh when it locks an updated source', INSTALL_LOCK_FILENAME)
+  .option('--no-lock', 'leave the lock file alone')
   .action((refs: string[], options: ApplyOptions) =>
-    runInstaller(options, () => updateInstalled(contextFrom(options), refs), (outcomes) => outcomes.forEach((o) => printApplied(o, null))),
+    runInstaller(
+      options,
+      async () => {
+        const outcomes = await updateInstalled(contextFrom(options), refs);
+        const path = options.lock === false ? null : (options.lock ?? INSTALL_LOCK_FILENAME);
+        let lockPath: string | null = null;
+        for (const o of outcomes) {
+          const existing = path === null ? null : existingLock(path);
+          if (existing !== null && lockScope(existing) === lockScope(o.lock)) lockPath = writeLockFile(path!, mergeLock(existing, o.lock));
+        }
+        return { outcomes, lockPath };
+      },
+      (data) => data.outcomes.forEach((o, i) => printApplied(o, i === data.outcomes.length - 1 ? data.lockPath : null)),
+    ),
   );
 
 export const uninstallCommand = withCommon(new Command('uninstall'))
   .description('Remove a source; skills another source still needs stay, edited and unknown files are kept')
   .argument('<refs...>', 'the source as installed: kit:@handle/kit, collection:<id> or @publisher/package')
-  .action((refs: string[], options: InstallerOptions) =>
+  .option('--lock <file>', 'packages lock file to drop the package from', INSTALL_LOCK_FILENAME)
+  .option('--no-lock', 'leave the lock file alone')
+  .action((refs: string[], options: ApplyOptions) =>
     runInstaller(
       options,
-      () => uninstallRef(contextFrom(options), refs),
+      async () => {
+        const result = await uninstallRef(contextFrom(options), refs);
+        const ref = parseRefs(refs);
+        const lockPath = options.lock === false || ref.kind !== 'packages' ? null : dropFromLockFile(options.lock ?? INSTALL_LOCK_FILENAME, ref.packages[0]!.name);
+        return { ...result, lockPath };
+      },
       (result) => {
         for (const c of result.changed) console.log(`  ${chalk.dim('released')} ${c.alias}`);
         for (const r of result.removed) {
@@ -80,6 +105,7 @@ export const uninstallCommand = withCommon(new Command('uninstall'))
           const kept = [...r.keptModified, ...r.keptUnknown];
           if (kept.length > 0) console.log(chalk.yellow(`    kept ${kept.join(', ')}`));
         }
+        if (result.lockPath) console.log(chalk.dim(`\nlock updated: ${result.lockPath}`));
         console.log(chalk.green(`\n✓ ${result.owner} uninstalled`));
       },
     ),

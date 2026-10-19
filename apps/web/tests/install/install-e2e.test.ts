@@ -1,6 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { lockDigest } from "@skillx/contracts";
 import { installRefs, listInstalled, uninstallRef } from "../../../../packages/cli/src/lib/install/install-operations";
 import { readLockFile, writeLockFile } from "../../../../packages/cli/src/lib/install/lock-file";
@@ -8,6 +8,9 @@ import { readReceipt, scanDir } from "../../../../packages/cli/src/lib/install/i
 import { syncLocked } from "../../../../packages/cli/src/lib/install/sync-locked";
 import { BODY, skillText } from "../personal-kits/kit-harness";
 import { createInstallServer } from "./install-server";
+
+// Each test installs signed releases on several temp machines; under a full parallel run that can pass 5s.
+vi.setConfig({ testTimeout: 30_000 });
 
 type Server = Awaited<ReturnType<typeof createInstallServer>>;
 let s: Server;

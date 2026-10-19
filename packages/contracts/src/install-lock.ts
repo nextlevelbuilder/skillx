@@ -20,8 +20,15 @@ import { sha256Digest } from "./release-signature";
 export const INSTALL_LOCK_SCHEMA = "skillx.lock/v1";
 export const INSTALL_RESOLVER_VERSION = "skillx.install-resolver/1";
 export const INSTALL_LOCK_FILENAME = "skillx.lock.json";
-/** Installed directory name: a lowercase skill alias. */
-export const INSTALL_ALIAS_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+/** Installed directory name: a lowercase skill alias that never ends in a dot. */
+export const INSTALL_ALIAS_PATTERN = /^[a-z0-9](?:[a-z0-9._-]{0,62}[a-z0-9_-])?$/;
+/** Device names Windows refuses as a file or directory name, with or without an extension. */
+const WINDOWS_RESERVED = /^(?:con|prn|aux|nul|com[0-9¹²³]|lpt[0-9¹²³])(?:\..*)?$/;
+
+/** True when `alias` is safe as a skills directory name on every platform. */
+export function isInstallAlias(alias: string): boolean {
+  return INSTALL_ALIAS_PATTERN.test(alias) && !WINDOWS_RESERVED.test(alias);
+}
 const KIT_PATTERN = /^@[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9._-]{0,63}$/;
 const ID_PATTERN = /^[a-z]+_[0-9a-f-]{36}$/;
 const RUNTIME_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
@@ -99,7 +106,7 @@ function checkSource(source: unknown, issues: ValidationIssue[]): void {
 function checkPackage(pkg: unknown, at: string, issues: ValidationIssue[]): void {
   if (!isPlainObject(pkg)) return void issues.push(issue(at, "type", "must be an object"));
   checkKeys(pkg, ["alias", "package", "version", "releaseDigest", "compositionDigest", "overlayDigests"], at, issues);
-  if (!INSTALL_ALIAS_PATTERN.test(String(pkg.alias))) issues.push(issue(`${at}.alias`, "pattern", "must be a lowercase directory alias"));
+  if (!isInstallAlias(String(pkg.alias))) issues.push(issue(`${at}.alias`, "pattern", "must be a lowercase directory alias, not ending in '.' nor a Windows device name"));
   if (!isNonEmptyString(pkg.package) || !PACKAGE_NAME_PATTERN.test(pkg.package)) issues.push(issue(`${at}.package`, "pattern", "must be @publisher/slug"));
   if (!isNonEmptyString(pkg.version) || !SEMVER_PATTERN.test(pkg.version)) issues.push(issue(`${at}.version`, "pattern", "must be an exact semantic version"));
   for (const field of ["releaseDigest", "compositionDigest"] as const) {

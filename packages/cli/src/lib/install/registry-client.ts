@@ -56,7 +56,24 @@ function classify(status: number, what: string): InstallError {
   return new InstallError('api_error', `the registry answered ${status} for ${what}`, { status });
 }
 
+const LOOPBACK = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+/** Only https, or plain http to this machine: credentials never travel in clear text. */
+export function assertSecureRegistry(baseUrl: string): void {
+  let url: URL;
+  try {
+    url = new URL(baseUrl);
+  } catch {
+    throw new InstallError('usage_error', `invalid registry URL ${baseUrl}`);
+  }
+  const loopback = LOOPBACK.has(url.hostname) || url.hostname.endsWith('.localhost');
+  if (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback)) {
+    throw new InstallError('usage_error', `the registry must use https (plain http only for localhost): ${url.origin}`);
+  }
+}
+
 export function createRegistry(options: RegistryOptions): Registry {
+  assertSecureRegistry(options.baseUrl);
   const base = options.baseUrl.replace(/\/+$/, '');
   const doFetch = options.fetch ?? fetch;
 

@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { applyOverlay, canonicalJsonBytes, kitTreeDigest, normalizeCompatibility, verifyReleaseManifest } from '@skillx/contracts';
+import { applyOverlay, canonicalJsonBytes, kitTreeDigest, normalizeCompatibility, validateOverlay, verifyReleaseManifest } from '@skillx/contracts';
 import type { InstallLockPackage, KitTree, SkillOverlay, SkillxPackageManifest, SkillxReleaseManifest } from '@skillx/contracts';
 import { incompatibleError, integrityError } from './install-errors.js';
 import type { Registry } from './registry-client.js';
+import { containedPath } from './safe-fs.js';
 
 /**
  * Fetch and verify one locked package. Nothing is trusted until checked:
@@ -77,16 +78,16 @@ async function fileBytes(deps: FetchDeps, pkg: InstallLockPackage, file: SkillxR
   return bytes;
 }
 
-/** Refuses a tree whose `skillx.json` declares the target runtime unsupported or out of range. */
-function checkCompatibility(tree: VerifiedTree, pkg: InstallLockPackage, runtime: string): void {
-  const manifest = tree.files.find((f) => f.path === 'skillx.json');
-  if (manifest === undefined) return;
+/** Refuses a `skillx.json` that is unreadable or declares the target runtime unsupported or blocked. */
+function checkCompatibility(bytes: Uint8Array | undefined, pkg: InstallLockPackage, runtime: string): void {
+  if (bytes === undefined) return;
   let declared: SkillxPackageManifest;
   try {
-    declared = JSON.parse(new TextDecoder().decode(manifest.bytes)) as SkillxPackageManifest;
+    declared = JSON.parse(new TextDecoder().decode(bytes)) as SkillxPackageManifest;
   } catch {
-    return;
+    throw incompatibleError(`the skillx.json of ${pkg.package}@${pkg.version} is not valid JSON; its compatibility cannot be checked`, { package: pkg.package });
   }
+  if (declared === null || typeof declared !== 'object') throw incompatibleError(`the skillx.json of ${pkg.package}@${pkg.version} is not an object`, { package: pkg.package });
   if (declared.compatible === undefined) return;
   const verdict = normalizeCompatibility({ runtime }, { declaration: declared.compatible, releaseDigest: pkg.releaseDigest });
   if (verdict.status === 'unsupported' || verdict.status === 'blocked') {
@@ -96,8 +97,15 @@ function checkCompatibility(tree: VerifiedTree, pkg: InstallLockPackage, runtime
 
 export async function fetchVerified(deps: FetchDeps, pkg: InstallLockPackage, overlays: readonly SkillOverlay[]): Promise<VerifiedTree> {
   const manifest = await verifiedManifest(deps, pkg);
+  for (const file of manifest.files) containedPath('/', file.path);
   const bytesByPath = new Map<string, Uint8Array>();
-  for (const file of manifest.files) bytesByPath.set(file.path, await fileBytes(deps, pkg, file));
+  // The compatibility declaration is checked before any other file is downloaded.
+  const declaration = manifest.files.find((f) => f.path === 'skillx.json');
+  if (declaration !== undefined) {
+    bytesByPath.set(declaration.path, await fileBytes(deps, pkg, declaration));
+    checkCompatibility(bytesByPath.get(declaration.path), pkg, deps.runtime);
+  }
+  for (const file of manifest.files) if (!bytesByPath.has(file.path)) bytesByPath.set(file.path, await fileBytes(deps, pkg, file));
 
   let tree: KitTree = {
     digest: manifest.releaseDigest,
@@ -111,7 +119,7 @@ export async function fetchVerified(deps: FetchDeps, pkg: InstallLockPackage, ov
       throw integrityError(`overlay ${i + 1} of ${pkg.alias} does not match its locked digest`, { alias: pkg.alias });
     }
     try {
-      tree = await applyOverlay(tree, overlay);
+      tree = await applyOverlay(tree, validateOverlay(overlay));
     } catch (error) {
       throw integrityError(`overlay ${i + 1} of ${pkg.alias} does not apply: ${error instanceof Error ? error.message : String(error)}`, { alias: pkg.alias });
     }
@@ -121,8 +129,11 @@ export async function fetchVerified(deps: FetchDeps, pkg: InstallLockPackage, ov
     throw integrityError(`the composed tree of ${pkg.alias} does not match compositionDigest`, { alias: pkg.alias, expected: pkg.compositionDigest, actual: digest });
   }
   const files: VerifiedFile[] = [];
-  for (const f of tree.files) files.push({ path: f.path, mode: f.mode as VerifiedFile['mode'], sha256: f.sha256, size: f.size, bytes: await tree.read(f.path) });
-  const verified = { digest, files };
-  checkCompatibility(verified, pkg, deps.runtime);
-  return verified;
+  for (const f of tree.files) {
+    containedPath('/', f.path);
+    files.push({ path: f.path, mode: f.mode as VerifiedFile['mode'], sha256: f.sha256, size: f.size, bytes: await tree.read(f.path) });
+  }
+  // An overlay may have changed the declaration: check the composed tree again.
+  if (overlays.length > 0) checkCompatibility(files.find((f) => f.path === 'skillx.json')?.bytes, pkg, deps.runtime);
+  return { digest, files };
 }

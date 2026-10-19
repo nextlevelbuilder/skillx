@@ -6,7 +6,7 @@ import { fetchVerified } from './fetch-verify.js';
 import type { VerifiedTree } from './fetch-verify.js';
 import type { InstallContext } from './install-context.js';
 import { conflictError } from './install-errors.js';
-import { RECEIPT_SCHEMA, readOwners, readReceipt, writeOwners, writeReceipt } from './install-state.js';
+import { RECEIPT_SCHEMA, listReceipts, readOwners, readReceipt, writeOwners, writeReceipt } from './install-state.js';
 import type { InstallReceipt } from './install-state.js';
 import { packagesToFetch, planInstall } from './planner.js';
 import type { InstallPlan } from './planner.js';
@@ -54,11 +54,29 @@ export function planOwned(ctx: InstallContext, owned: Pick<OwnedLock, 'owner' | 
 export interface ApplyResult {
   owner: string;
   planDigest: string;
-  changed: Array<{ alias: string; action: string; backupDir: string | null; preserved: string[] }>;
+  changed: Array<{ alias: string; action: string; backupDir: string | null; preserved: string[]; displaced: string[] }>;
   removed: RemoveResult[];
 }
 
-export const recover = (ctx: InstallContext): Recovery => recoverJournals({ home: ctx.home, runtime: ctx.runtime, stagingDir: ctx.stagingDir });
+/**
+ * Finishes interrupted transactions, then drops owner keys that receipts
+ * name but the owners record does not (a run that stopped after writing
+ * receipts and before recording its owner). A skill left with no owner is
+ * removed with ownership proof, so the next plan starts from a clean slate.
+ */
+export function recover(ctx: InstallContext): Recovery & { orphaned: string[] } {
+  const recovery = recoverJournals({ home: ctx.home, runtime: ctx.runtime, stagingDir: ctx.stagingDir, ...(ctx.hooks ? { hooks: ctx.hooks } : {}) });
+  const known = new Set(Object.keys(readOwners(ctx.home, ctx.runtime).owners));
+  const orphaned: string[] = [];
+  for (const receipt of listReceipts(ctx.home, ctx.runtime)) {
+    const requiredBy = receipt.requiredBy.filter((o) => known.has(o));
+    if (requiredBy.length === receipt.requiredBy.length) continue;
+    orphaned.push(receipt.alias);
+    if (requiredBy.length > 0) writeReceipt(ctx.home, { ...receipt, requiredBy });
+    else removeOwned(ctx.home, ctx.runtime, ctx.skillsDir, receipt);
+  }
+  return { ...recovery, orphaned };
+}
 
 function refuseConflicts(plan: InstallPlan): void {
   if (plan.conflicts === 0) return;
@@ -96,13 +114,13 @@ export async function applyOwned(ctx: InstallContext, owned: OwnedLock, plan: In
         installedAt: tx.now.toISOString(),
       };
       const backup = action.action === 'update' ? action.backup : [];
-      const done = applyTreeChange(tx, { alias: action.alias, tree, receipt, preserve: action.preserve, backup });
+      const done = applyTreeChange(tx, { alias: action.alias, tree, receipt, previous: existing, preserve: action.preserve, backup });
       result.changed.push({ alias: action.alias, action: action.action, ...done });
     } else if (action.action === 'unchanged' && action.addOwner && existing) {
       writeReceipt(ctx.home, { ...existing, requiredBy: [...existing.requiredBy, owned.owner].sort() });
     } else if (action.action === 'release' && existing) {
       writeReceipt(ctx.home, { ...existing, requiredBy: action.remainingOwners });
-      result.changed.push({ alias: action.alias, action: 'release', backupDir: null, preserved: [] });
+      result.changed.push({ alias: action.alias, action: 'release', backupDir: null, preserved: [], displaced: [] });
     } else if (action.action === 'remove' && existing) {
       result.removed.push(removeOwned(ctx.home, ctx.runtime, ctx.skillsDir, existing));
     }

@@ -385,30 +385,43 @@ the release read API; nothing is written until every file is verified.
 
 ```bash
 skillx install <refs...> [--runtime id] [--dry-run] [--force] [--lock file | --no-lock] [--json]
-skillx update [refs...]  [--runtime id] [--force] [--json]
-skillx uninstall <refs...> [--runtime id] [--json]
+skillx update [refs...]  [--runtime id] [--force] [--lock file | --no-lock] [--json]
+skillx uninstall <refs...> [--runtime id] [--lock file | --no-lock] [--json]
 skillx list [--runtime id] [--json]
 skillx sync --locked [--lock file | --from kit:@h/k#rev] [--runtime id] [--dry-run] [--force] [--json]
 skillx mcp [--registry url]
 ```
 
-All accept `--registry <url>` (default: the configured base URL).
+All accept `--registry <url>` (default: the configured base URL). The API key
+is sent only over `https`; plain `http` is refused except for `localhost`,
+`127.0.0.1`, `[::1]` and `*.localhost`.
 
 - **install** resolves the source to exact versions and digests, plans, then
   fetches, verifies and applies. It writes `skillx.lock.json` in the current
-  directory unless `--no-lock`.
+  directory unless `--no-lock`. A lock has one scope: `packages`, or one kit or
+  collection. Package installs merge into a packages lock (by alias); a kit or
+  collection install replaces its own lock. Installing into a lock of another
+  scope is a `usage_error` (pass `--lock other.json` or `--no-lock`).
 - **update** re-resolves installed sources (all, or those named) and applies the
-  difference.
-- **uninstall** drops one source. A skill another source still needs stays.
-  Only files whose SHA-256 still matches the receipt are deleted; edited and
-  unknown files are kept and reported.
+  difference, then refreshes the lock file when its scope was updated.
+- **uninstall** drops one source (and its package from a packages lock). A skill
+  another source still needs stays. Only regular files whose SHA-256 still
+  matches the receipt are deleted; edited and unknown files are kept and
+  reported. Links are never followed: a file reached through a symlink or
+  junction is kept, and a skill directory that is itself a link is left alone.
 - **sync --locked** restores exactly what a lock pins and refuses drift: a kit
-  or collection revision whose re-resolved lock digest differs, a release whose
-  digest differs, or local edits (unless `--force`).
+  revision whose re-resolved lock digest differs, a collection revision whose
+  content digest differs or whose members are not exactly the locked packages
+  (at a member's pinned version or digest), a release whose digest differs, or
+  local edits (unless `--force`).
 - **--force** replaces locally edited skills (the old files are copied to
   `~/.skillx/backups/<runtime>/<alias>/<stamp>`) and installs into unowned
   directories, keeping unknown files. It never overrides a version conflict
-  between two sources sharing a skill.
+  between two sources sharing a skill, and never installs over a skill path that
+  is a link or a file (`unowned_directory`).
+- Aliases match `^[a-z0-9]([a-z0-9._-]{0,62}[a-z0-9_-])?$` (no trailing `.`) and
+  are never a Windows device name (`con`, `prn`, `aux`, `nul`, `com1`-`com9`,
+  `lpt1`-`lpt9`, with or without an extension).
 
 ### Verification and atomic apply
 
@@ -418,14 +431,27 @@ All accept `--registry <url>` (default: the configured base URL).
    `~/.skillx/cache/blobs`).
 3. Kit overlays must match their `overlayDigests`; the composed tree must hash
    to `compositionDigest`.
-4. A `skillx.json` `compatible` block that blocks or omits the runtime refuses
-   the install.
-5. Apply per skill: stage in `<runtime dir>/.skillx-staging/`, write a journal
+4. `skillx.json` is fetched and checked first: a `compatible` block that blocks
+   or omits the runtime, or a `skillx.json` that is not a JSON object, refuses
+   the install (`incompatible`) before other files are downloaded. Every
+   manifest and overlay path must be relative, with no `..`, `.`, empty, `\`
+   or `:` segment; anything else is an `integrity_error`.
+5. Apply per skill: stage in `<runtime dir>/.skillx-staging/`, then re-check
+   the target against the receipt. A file created or edited since planning is
+   a `conflict` (`local_modified`) and nothing is swapped. Write a journal
    (`~/.skillx/journal/<runtime>/<alias>.json`), move the old directory aside,
-   rename stage into place, write the receipt, then drop the backup and journal.
-   Each run first recovers interrupted journals (roll back while the stage
-   exists, roll forward once it is in place), so a killed run converges on
-   rerun. One run at a time per `SKILLX_HOME` (`install.lock`).
+   rename stage into place, write the receipt, then retire the old directory:
+   any file in it that neither the receipt, the new tree nor the backup
+   accounts for (it appeared after the re-check) is copied to
+   `~/.skillx/backups/<runtime>/<alias>/<stamp>` and reported as `displaced`
+   before the directory is deleted. A rename that Windows refuses
+   (`EPERM`/`EBUSY`) is retried with backoff, then rolled back to the old tree
+   and reported as a `conflict`. Each run first recovers interrupted journals
+   (roll back while the stage exists, roll forward once it is in place) and
+   drops `requiredBy` owners no source records any longer (removing a skill
+   left with none), so a killed run converges on rerun. One run at a time per
+   `SKILLX_HOME`: `install.lock` holds the pid, is created atomically, and is
+   taken over only when that process is gone.
 
 ### Trusted signing keys
 
@@ -490,8 +516,11 @@ Newline-delimited JSON-RPC 2.0 on stdio (`initialize`, `ping`, `tools/list`,
 | Tool | Arguments | Effect |
 |------|-----------|--------|
 | `inspect` | `runtime?` | Read-only: skills directory, installed skills, sources |
-| `plan` | `source` or `lock`, `runtime?`, `force?` | Read-only: the plan and its `planDigest` |
-| `apply` | as `plan`, plus `confirm: true` (required), `planDigest?` | Applies; refuses without `confirm`, and with `conflict` when the fresh plan differs from `planDigest` |
+| `plan` | `source` or `lock`, `runtime?` | Read-only: the plan and its `planDigest` |
+| `apply` | as `plan`, plus `confirm: true` and `planDigest` (both required) | Applies the plan the caller saw; `usage_error` without either, `conflict` when the fresh plan differs from `planDigest` |
+
+`force` is not accepted over MCP (`usage_error`); replacing local edits needs
+the CLI's `--force`.
 
 ### Exit codes
 

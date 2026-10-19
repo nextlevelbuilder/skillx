@@ -1,10 +1,10 @@
 import {
-  INSTALL_ALIAS_PATTERN,
   INSTALL_LOCK_SCHEMA,
   INSTALL_RESOLVER_VERSION,
   PACKAGE_NAME_PATTERN,
   canonicalJsonBytes,
   collectionRevisionDigest,
+  isInstallAlias,
   sortLockPackages,
 } from '@skillx/contracts';
 import type { InstallLock, InstallLockPackage, PersonalKitDocument, PersonalKitLock, SkillOverlay } from '@skillx/contracts';
@@ -60,7 +60,7 @@ export const overlayDigestOf = (overlay: SkillOverlay) => `sha256:${sha256Hex(ca
 function checkAliases(packages: readonly InstallLockPackage[]): void {
   const seen = new Set<string>();
   for (const p of packages) {
-    if (!INSTALL_ALIAS_PATTERN.test(p.alias)) throw usageError(`'${p.alias}' (${p.package}) is not a valid skill directory name`);
+    if (!isInstallAlias(p.alias)) throw usageError(`'${p.alias}' (${p.package}) is not a valid skill directory name`);
     if (seen.has(p.alias)) throw usageError(`two packages install as '${p.alias}'`, { alias: p.alias });
     seen.add(p.alias);
   }

@@ -1,12 +1,15 @@
 import { existsSync, readdirSync } from "node:fs";
 import { join } from "node:path";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { CrashPoint } from "../../../../packages/cli/src/lib/install/apply-transaction";
 import { installRefs } from "../../../../packages/cli/src/lib/install/install-operations";
 import { readReceipt, scanDir } from "../../../../packages/cli/src/lib/install/install-state";
 import { handleMessage } from "../../../../packages/cli/src/lib/install/local-mcp";
 import { skillText } from "../personal-kits/kit-harness";
 import { createInstallServer } from "./install-server";
+
+// Each test installs signed releases on several temp machines; under a full parallel run that can pass 5s.
+vi.setConfig({ testTimeout: 30_000 });
 
 type Server = Awaited<ReturnType<typeof createInstallServer>>;
 let s: Server;

@@ -18,6 +18,8 @@ import type { InstallReceipt, OwnersFile } from './install-state.js';
  *   Never forced: one directory cannot hold two versions.
  *
  * Files that are not owned (`unknown`) are always preserved and reported.
+ * A file, symlink or junction where a skill directory belongs is always an
+ * `unowned_directory` conflict: the installer never writes through a link.
  */
 
 export type PlanAction =
@@ -52,9 +54,11 @@ export interface PlanInput {
 function planPackage(input: PlanInput, p: InstallLockPackage, receipt: InstallReceipt | null): PlanAction {
   const local = inspectLocal(join(input.skillsDir, p.alias), receipt);
   const base = { alias: p.alias, package: p.package, version: p.version, compositionDigest: p.compositionDigest };
+  // A file, symlink or junction where the skill directory belongs is never replaced, not even with --force.
+  if (local.unknown.includes('.')) return { action: 'conflict', alias: p.alias, package: p.package, reason: 'unowned_directory', files: ['.'], owners: receipt?.requiredBy ?? [] };
   if (receipt === null) {
     if (!local.exists) return { action: 'install', ...base, preserve: [] };
-    if (!input.force || local.unknown.includes('.')) return { action: 'conflict', alias: p.alias, package: p.package, reason: 'unowned_directory', files: local.unknown, owners: [] };
+    if (!input.force) return { action: 'conflict', alias: p.alias, package: p.package, reason: 'unowned_directory', files: local.unknown, owners: [] };
     return { action: 'install', ...base, preserve: local.unknown };
   }
   const changed = [...local.modified, ...local.missing];
