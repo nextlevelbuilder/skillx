@@ -31,8 +31,15 @@ kit lockfiles) follow the channel rules. Source of truth for the HTTP answers:
 
 The channel is a label on a **published** release, moved with
 `POST .../releases/{version}/promote` (audited). The signed manifest records
-the channel at publish time; the listing, the version route and
-`X-SkillX-Release-Channel` carry the current one.
+the channel at publish time; the listing, the version route and its
+`X-SkillX-Release-Channel` header carry the current one.
+
+The current channel is an **unsigned listing field**: no signature covers a
+promote, so a client treats it as advisory, never as a trust input. It is
+mutable, so the immutable digest-addressed routes (`/releases/{digest}/manifest`,
+`/files/*`, `/artifact`, cached for a year) never send it; only the
+short-lived version route carries the header. A signed channel statement is
+tracked in #100.
 
 A client resolving "latest on channel C" must:
 
@@ -53,8 +60,16 @@ the package owner or an admin.
 A quarantined release waits in `GET /api/v1/admin/quarantine`. An operator
 records a decision with `POST .../releases/{version}/review`:
 
-- **approve** (false positive): `quarantined` → `yanked` → `published` in one
-  atomic, audited batch; the tree serves again everywhere.
+- **approve** (false positive): restores the state the release had before
+  it was quarantined, read from `release_state_audit`, in one atomic, audited
+  batch. A release quarantined while `published` goes `quarantined` →
+  `yanked` → `published` and serves again everywhere. A release quarantined
+  while `yanked` returns to `yanked` only: an approval never undoes a yank.
+  To publish it anyway the admin sends
+  `{"decision":"approve","restoreTo":"published"}` (`restoreTo` is
+  `published` or `yanked`, valid only with `approve`). The approval answers
+  `409 state_conflict` when the release was quarantined again after the
+  operator read it.
 - **reject** (confirmed): the release stays `quarantined`; the decision is
   recorded in `release_reviews`. Yanking it afterwards (`quarantined` →
   `yanked`) lifts the per-tree block for other packages but keeps this release

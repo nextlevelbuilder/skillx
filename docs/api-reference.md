@@ -1097,7 +1097,8 @@ An upload may carry `Idempotency-Key: <1 to 255 printable ASCII characters,
 no spaces>` (an RFC 8941 quoted string is unwrapped). The key is bound, per
 publisher, to the exact request: package name, parsed `X-SkillX-Release`
 metadata and the sha256 of the body. It is stored in
-`release_publish_idempotency` for 24 hours.
+`release_publish_idempotency` for 24 hours; each publish also deletes a small
+batch of expired keys.
 
 - Same key, same request: the first answer (status and JSON body) is replayed
   verbatim with `Idempotent-Replayed: true`; nothing is read from or written
@@ -1109,8 +1110,12 @@ metadata and the sha256 of the body. It is stored in
   after 5 minutes).
 
 Credentials, the name and the metadata are checked before the key is claimed,
-so a rejected request never consumes a key. Answers below `500` are stored; a
-`5xx` releases the key so the same request can be retried. Without the header
+so a rejected request never consumes a key. Only answers that depend on the
+request bytes alone are stored and replayed: `2xx`, `400`, `415` and `409
+release.version_exists`. An upload over the size limit is `413` before
+any key is claimed. Every other answer (`403`, other `409`s, a `413` tree or
+subrequest limit, `422`, `5xx`) releases the key, so the same request runs
+again on retry once the cause is fixed. Without the header
 the route behaves as before (already safe to retry, see above).
 
 #### Trusted publishing (GitHub Actions OIDC)
@@ -1125,7 +1130,8 @@ route (and to the promote route) for 15 minutes; no other route accepts it.
 
 The JWT must be RS256-signed by a key of
 `https://token.actions.githubusercontent.com/.well-known/jwks` (cached 10
-minutes, refetched for an unknown `kid` at most once a minute), have issuer
+minutes, refetched for an unknown `kid` at most once a minute; when a refetch
+fails, keys fetched within the last 70 minutes keep verifying), have issuer
 `https://token.actions.githubusercontent.com`, audience `SKILLX_OIDC_AUDIENCE`
 (default `skillx`), be unexpired (60 s skew, lifetime at most 1 hour) and carry
 `jti`, `sub`, `repository`, `repository_id`, `repository_owner_id`,
@@ -1133,9 +1139,12 @@ minutes, refetched for an unknown `kid` at most once a minute), have issuer
 publisher of the publisher (see [Trusted publishers](#trusted-publishers-admin)):
 the same `repository_id` and `repository`, a `workflow_ref` of
 `<repository>/<workflowPath>@...`, and the configured `ref` (also the ref of the
-workflow file) and `environment` when set. `pull_request*` events are refused.
+workflow file) and `environment` when set. Only `push`, `workflow_dispatch`
+and `release` events may publish; any other `event_name` (`pull_request*`,
+`workflow_run`, `schedule`, `issue_comment`, ...) is `403 oidc.event_forbidden`.
 Each JWT is exchanged once: its `jti` is the primary key of
-`oidc_token_exchanges`.
+`oidc_token_exchanges`, whose rows are kept 7 days (far beyond any accepted
+token lifetime) and then deleted in small batches by later exchanges.
 
 The `sxo_` token is an HMAC (`SKILLX_TOKEN_SECRET`) over the handle, publisher
 id, trusted publisher id, `jti` and expiry. Every use re-reads D1: a revoked
@@ -1559,7 +1568,10 @@ drops them and deletes the `0014_release_status_and_exec.sql` row from
 channel, like an npm dist-tag. Only `package_releases.channel` changes: bytes,
 digests and the signed manifest stay as published (the manifest's `channel`
 records the channel at publish time; the listing, `GET .../releases/{version}`
-and the `X-SkillX-Release-Channel` header carry the current one).
+and its `X-SkillX-Release-Channel` header carry the current one). The current
+channel is unsigned and mutable, so the immutable digest routes (manifest by
+digest, files, artifact) never send that header; see the
+[release resolution policy](./release-resolution-policy.md#channels).
 
 | Caller | May |
 |--------|-----|
@@ -1592,17 +1604,23 @@ on `RELEASE_WRITE_LIMITER`.
   `{"releases": [{"identity", "version", "channel", "releaseDigest", "quarantinedAt", "lastReview": null | {"decision", "reason", "reviewedAt"}}]}`,
   oldest quarantine first, at most 200.
 - `POST /api/v1/packages/@{publisher}/{slug}/releases/{version}/review` with
-  `{"decision": "approve" | "reject", "reason"?: <text>}`.
-  - `approve` lifts the quarantine: `quarantined` → `yanked` → `published` in
-    one atomic batch (the status graph has no direct edge, so the signed status
-    sequence advances by two), one `release_state_audit` row per edge and one
-    `release_reviews` row, all or nothing.
+  `{"decision": "approve" | "reject", "reason"?: <text>, "restoreTo"?: "published" | "yanked"}`.
+  - `approve` lifts the quarantine and restores the state the release had
+    before it, read from `release_state_audit`: a release quarantined while
+    `published` goes `quarantined` → `yanked` → `published` (the status graph
+    has no direct edge, so the signed status sequence advances by two); one
+    quarantined while `yanked` goes `quarantined` → `yanked` and stays yanked.
+    `restoreTo` overrides that choice (`"published"` publishes a release that
+    had been yanked). One `release_state_audit` row per edge and one
+    `release_reviews` row, all or nothing. `restoreTo` with `reject` is
+    `400 invalid_request`.
   - `reject` confirms the quarantine: the release stays `quarantined` (its
     tree stays blocked in every package) and only a `release_reviews` row is
     written. To retire it for good, yank it with the state API
     (`quarantined` → `yanked`).
   - Both are compare-and-set on `quarantined`: a release that is not (or no
-    longer) quarantined is `409 state_conflict` and writes nothing.
+    longer) quarantined, or that an approval finds quarantined again since it
+    read the release, is `409 state_conflict` and writes nothing.
 
 **Response** `200`: `{"identity", "version", "releaseDigest", "decision", "state", "reviewedAt"}`.
 `release_reviews` is append-only (update and delete triggers abort).
