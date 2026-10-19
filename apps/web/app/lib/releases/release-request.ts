@@ -3,10 +3,11 @@
  * the `X-SkillX-Release` metadata header and the capped tar body. Nothing
  * here touches storage.
  */
-import { KIT_ORIGINS, PACKAGE_KINDS, PACKAGE_NAME_PATTERN, RELEASE_CHANNELS, RELEASE_PROVIDERS, RELEASE_VERSION_PATTERN } from "@skillx/contracts";
-import type { KitOrigin, PackageKind, ReleaseChannel, ReleaseProvenance, ReleaseProvider, ReleaseSourceProvenance } from "@skillx/contracts";
+import { PACKAGE_KINDS, PACKAGE_NAME_PATTERN, RELEASE_CHANNELS, RELEASE_VERSION_PATTERN } from "@skillx/contracts";
+import type { PackageKind, ReleaseChannel, ReleaseProvenance, ReleaseProvider, ReleaseSourceProvenance } from "@skillx/contracts";
 import { ERROR_CODES, SkillTreeError, checkDirectoryAlias, checkPublisher, validateIdentity } from "@skillx/skill-tree";
 import { releaseError } from "./release-http";
+import { parseKitReleaseName, parseProvenance, treeErrorToHttp } from "./release-kit";
 import { MAX_RELEASE_METADATA_HEADER_BYTES } from "./release-limits";
 
 export const RELEASE_METADATA_HEADER = "X-SkillX-Release";
@@ -31,11 +32,6 @@ export interface ReleaseMetadata {
 const METADATA_FIELDS = new Set(["version", "channel", "kind", "sourceProvenance", "declaredScripts", "provenance"]);
 /** The AgentKit alias prefixes (`ak-plan`, `ak:plan`), compared with ASCII case folding. */
 const RESERVED_ALIAS_PREFIX = /^ak[-:]/i;
-
-function treeErrorToHttp(error: SkillTreeError) {
-  const reserved = error.code === ERROR_CODES.identityReservedPublisher || error.code === ERROR_CODES.identityReservedAlias;
-  return releaseError(reserved ? 403 : 400, error.code, error.message);
-}
 
 /**
  * Parses `@handle/slug` from the route for a release of `provider`. For
@@ -71,21 +67,6 @@ export function parseReleaseName(scope: string | undefined, slug: string | undef
   return { identity, handle, slug };
 }
 
-function parseKitReleaseName(scope: string, slug: string): ReleaseName {
-  const identity = `${scope}/${slug}`;
-  if (!PACKAGE_NAME_PATTERN.test(identity)) {
-    throw releaseError(400, ERROR_CODES.identityInvalid, "package name must be @publisher/slug in lowercase");
-  }
-  try {
-    checkPublisher(identity, "kit");
-    checkDirectoryAlias(identity, slug);
-  } catch (error) {
-    if (error instanceof SkillTreeError) throw treeErrorToHttp(error);
-    throw error;
-  }
-  return { identity, handle: scope.slice(1), slug };
-}
-
 function invalidMetadata(message: string) {
   return releaseError(400, "release.invalid_metadata", message);
 }
@@ -110,21 +91,6 @@ function oneOf<T extends string>(values: readonly T[], value: unknown, fallback:
   if (value === undefined) return fallback;
   if (typeof value === "string" && (values as readonly string[]).includes(value)) return value as T;
   throw invalidMetadata(`${field} must be one of: ${values.join(", ")}`);
-}
-
-function parseProvenance(value: unknown): ReleaseProvenance | null {
-  if (value === undefined || value === null) return null;
-  if (typeof value !== "object" || Array.isArray(value)) throw invalidMetadata("provenance must be an object or null");
-  const raw = value as Record<string, unknown>;
-  const allowed = raw.provider === "kit" ? ["provider", "origin"] : ["provider"];
-  const unknown = Object.keys(raw).filter((key) => !allowed.includes(key));
-  if (unknown.length > 0) throw invalidMetadata(`unknown provenance field: ${unknown.join(", ")}`);
-  if (raw.provider === "skillx") return null;
-  if (raw.provider !== "kit") throw invalidMetadata(`provenance.provider must be one of: ${RELEASE_PROVIDERS.join(", ")}`);
-  if (typeof raw.origin !== "string" || !(KIT_ORIGINS as readonly string[]).includes(raw.origin)) {
-    throw invalidMetadata(`provenance.origin must be one of: ${KIT_ORIGINS.join(", ")}`);
-  }
-  return { provider: "kit", origin: raw.origin as KitOrigin };
 }
 
 /**

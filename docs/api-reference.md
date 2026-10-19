@@ -817,9 +817,10 @@ Other providers or origins are `unsupported_value`, a missing `origin` is
 `required` and extra members are `unknown_field`. `origin` is a claim that
 the registry countersigns, not a kit signature: a verifier MUST NOT derive
 trust `signed-kit` from a SkillX signature. `releaseTrust(manifest,
-{kitSignatureVerified})` returns `signed-kit` only for `origin:
-"remote-signed"` when the caller verified the AgentKit kit signature of that
-exact tree itself; every other release is `local-unverified`. Golden vectors:
+{kitVerifiedReleaseDigest})` returns `signed-kit` only for `origin:
+"remote-signed"` when the caller verified the AgentKit kit signature of the
+tree whose digest equals the manifest `releaseDigest`; every other release is
+`local-unverified`. Golden vectors:
 `packages/contracts/src/fixtures/release-manifest-v2.json` (same test key and
 canonical form as the v1 vectors).
 
@@ -1022,7 +1023,9 @@ Unscoped keys are rejected (`auth.scope_missing`).
 active, admin-provisioned `agentkit` publisher (`POST /api/v1/publishers`).
 They are signed as `skillx.release/v2`; the `ak-` slug forms are allowed for
 them. Kit provenance on any other publisher is `400 identity.invalid`; every
-release without it is signed as `skillx.release/v1`.
+release without it is signed as `skillx.release/v1`. Republishing an existing
+kit version with the same tree but a different `origin` is `409
+release.version_exists`.
 
 **Processing**, each step rejecting before the next runs: name and reserved
 namespaces, key and ownership, signing key, metadata, capped body, tar read

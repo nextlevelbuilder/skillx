@@ -2,31 +2,27 @@
  * Release ingest: `POST /api/v1/packages/@handle/slug/releases`.
  *
  * Order (each step rejects before any later one runs):
- * name and reserved namespaces (for the provider the metadata asks for) -> scoped key and publisher ownership ->
+ * name and reserved namespaces (for the requested provider) -> scoped key and publisher ownership ->
  * signing key -> metadata -> capped upload -> tar read with limits and tree
  * digest -> version conflict -> subrequest budget -> exec manifest -> scan -> signed manifest -> R2 artifact, blobs
  * and manifest (create-only) -> D1 row (last). Release bytes are stored
- * exactly as uploaded; nothing is sanitized.
- *
- * Kit releases: metadata `provenance: {provider: "kit", origin}` is the only
- * way to publish `@agentkit/*`. It still needs a key scoped
- * `releases:publish:@agentkit` whose owner owns the active, admin-provisioned
- * `agentkit` publisher, and it is signed as `skillx.release/v2`. Every other
- * release is signed as `skillx.release/v1`.
+ * exactly as uploaded; nothing is sanitized. Kit releases (`@agentkit/*`,
+ * see release-kit.ts) are signed as `skillx.release/v2`, all others as v1.
  */
 import { ReleaseManifestError } from "@skillx/contracts";
-import { ERROR_CODES, SkillTreeError, readTarTree } from "@skillx/skill-tree";
-import type { TreeManifest } from "@skillx/skill-tree";
+import type { ReleaseProvenance } from "@skillx/contracts";
 import { authorizeReleasePublisher, type AuthorizedPublisher } from "./release-auth";
 import { checkExecManifest } from "./release-exec";
 import { ReleaseHttpError, errorResponse, releaseError } from "./release-http";
-import { BLOB_WRITE_CONCURRENCY, MAX_RELEASE_UPLOAD_BYTES, RELEASE_SERVER_TREE_LIMITS, assertSubrequestBudget } from "./release-limits";
+import { BLOB_WRITE_CONCURRENCY, MAX_RELEASE_UPLOAD_BYTES, assertSubrequestBudget } from "./release-limits";
 import { RELEASE_METADATA_HEADER, parseReleaseMetadata, parseReleaseName, readUploadBody, requestedProvider } from "./release-request";
 import { scanRelease } from "./release-scan";
+import { readTree, sha256Hex } from "./release-tree-read";
 import { findPackage, findRelease, insertRelease } from "./release-store";
 import type { ExistingRelease } from "./release-store";
 import { artifactKey, blobKey, forEachLimited, manifestKey, putCreateOnly } from "./r2-create-only";
-import { manifestSchemaVersionOf, signRelease } from "./sign-manifest";
+import { assertSameKitProvenance } from "./release-kit";
+import { signRelease } from "./sign-manifest";
 import type { RegistrySigner } from "./sign-manifest";
 
 export interface IngestDeps {
@@ -43,43 +39,14 @@ export interface IngestDeps {
 /** What the idempotent route already read and authorized, so ingest neither buffers the body nor authenticates twice. */
 export type PreparedUpload = { auth: AuthorizedPublisher; body: Uint8Array };
 type Params = { scope?: string; slug?: string };
+type Kit = { bucket: R2Bucket; provenance: ReleaseProvenance | null };
 
-interface ReadTree {
-  tree: TreeManifest;
-  contents: Map<string, Uint8Array>;
-}
-
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes as Uint8Array<ArrayBuffer>);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** Streams the uncompressed tar through the shared reader; every unsafe entry fails here, before storage. */
-async function readTree(body: Uint8Array): Promise<ReadTree> {
-  const seen = new Map<string, Uint8Array>();
-  try {
-    const tree = await readTarTree(body, {
-      compression: "none",
-      limits: RELEASE_SERVER_TREE_LIMITS,
-      onFileContent: (path, content) => void seen.set(path, content),
-    });
-    const contents = new Map<string, Uint8Array>();
-    for (const file of tree.files) {
-      const bytes = seen.get(file.path);
-      if (bytes === undefined || bytes.length !== file.size) throw new Error(`tree reader lost the content of ${file.path}`);
-      contents.set(file.path, bytes);
-    }
-    return { tree, contents };
-  } catch (error) {
-    if (!(error instanceof SkillTreeError)) throw error;
-    throw releaseError(error.code === ERROR_CODES.limitExceeded ? 413 : 422, error.code, error.message);
-  }
-}
-
-function existingOutcome(identity: string, version: string, existing: ExistingRelease, releaseDigest: string): Response {
+/** The replay answer for an existing version: same tree (and, for a kit release, same provenance) or 409. */
+async function existingOutcome(identity: string, version: string, existing: ExistingRelease, releaseDigest: string, kit: Kit): Promise<Response> {
   if (existing.releaseDigest !== releaseDigest) {
     throw releaseError(409, "release.version_exists", `${identity}@${version} already exists with different content`);
   }
+  if (kit.provenance !== null) await assertSameKitProvenance(kit.bucket, existing.manifestKey, kit.provenance, `${identity}@${version}`);
   return Response.json({
     identity,
     version,
@@ -108,7 +75,8 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
   const body = prepared?.body ?? (await readUploadBody(request, MAX_RELEASE_UPLOAD_BYTES));
   const { tree, contents } = await readTree(body);
   const existing = await findRelease(deps.db, name.identity, metadata.version);
-  if (existing !== null) return existingOutcome(name.identity, metadata.version, existing, tree.digest);
+  const kit = { bucket: deps.bucket, provenance: metadata.provenance };
+  if (existing !== null) return existingOutcome(name.identity, metadata.version, existing, tree.digest, kit);
 
   // Budget first: an oversized publish is refused before the scan reads or the signer touches anything.
   const blobs = [...new Map(tree.files.map((f) => [f.sha256, contents.get(f.path)!])).entries()];
@@ -169,7 +137,7 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
     version: metadata.version,
     channel: metadata.channel,
     state: scan.state,
-    manifestSchemaVersion: manifestSchemaVersionOf(metadata),
+    manifestSchemaVersion: signed.manifest.schemaVersion,
     artifactKey: artifactKey(artifactHex),
     artifactDigest: `sha256:${artifactHex}`,
     artifactSize: body.length,
@@ -185,7 +153,7 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
     const winner = await findRelease(deps.db, name.identity, metadata.version);
     // The release insert matched no package row: one with this name was created concurrently by another publisher or kind.
     if (winner === null) throw releaseError(409, "release.kind_conflict", `${name.identity} was created concurrently with another kind or publisher`);
-    return existingOutcome(name.identity, metadata.version, winner, tree.digest);
+    return existingOutcome(name.identity, metadata.version, winner, tree.digest, kit);
   }
   return Response.json({
     identity: name.identity,

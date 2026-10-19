@@ -11,7 +11,7 @@
  * `origin` records where the kit content came from; it is a claim the
  * registry countersigns, not a kit signature. A SkillX signature never makes
  * a kit release `signed-kit`: `releaseTrust` grants that only when the caller
- * verified the AgentKit kit signature itself.
+ * verified the AgentKit kit signature of that exact tree itself.
  */
 
 import { KIT_ORIGINS, trustOf } from "@skillx/skill-tree/rules";
@@ -70,25 +70,26 @@ export function releaseProvenanceOf(manifest: { provenance?: ReleaseProvenance }
 
 export interface ReleaseTrustOptions {
   /**
-   * True only when the caller verified the AgentKit kit signature of this
-   * exact tree. The SkillX registry signature never counts.
+   * The `releaseDigest` of the tree whose AgentKit kit signature the caller
+   * verified itself. The SkillX registry signature never counts.
    */
-  kitSignatureVerified?: boolean;
+  kitVerifiedReleaseDigest?: string;
 }
 
 /**
- * Lifecycle trust of a verified release manifest. A `skillx` release is
- * always `local-unverified` (a registry signature is not a publisher
- * signature). A `kit` release is `signed-kit` only when its origin is
- * `remote-signed` and `kitSignatureVerified` is true; otherwise it is
- * `local-unverified`, as for a `local-dev` kit.
+ * Lifecycle trust of a verified, structurally valid release manifest (it
+ * throws `SkillTreeError` on an identity the manifest rules reject). A
+ * `skillx` release is always `local-unverified`: a registry signature is not
+ * a publisher signature. A `kit` release is `signed-kit` only when its origin
+ * is `remote-signed` and `kitVerifiedReleaseDigest` equals its
+ * `releaseDigest`; otherwise it is `local-unverified`, as for a `local-dev` kit.
  */
 export function releaseTrust(
-  manifest: { identity: string; provenance?: ReleaseProvenance },
+  manifest: { identity: string; releaseDigest: string; provenance?: ReleaseProvenance },
   options: ReleaseTrustOptions = {},
 ): Trust {
   const provenance = releaseProvenanceOf(manifest);
   if (provenance.provider === "skillx") return trustOf(manifest.identity, { provider: "skillx", verified: true });
-  const signed = provenance.origin === "remote-signed" && options.kitSignatureVerified === true;
+  const signed = provenance.origin === "remote-signed" && options.kitVerifiedReleaseDigest === manifest.releaseDigest;
   return trustOf(manifest.identity, { provider: "kit", origin: signed ? "remote-signed" : "local-dev" });
 }

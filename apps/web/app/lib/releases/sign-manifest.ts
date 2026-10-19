@@ -58,11 +58,6 @@ export type ManifestFields = Omit<UnsignedReleaseManifestV1, "schemaVersion" | "
   provenance: ReleaseProvenance | null;
 };
 
-/** The schema version `fields` are signed under. */
-export function manifestSchemaVersionOf(fields: Pick<ManifestFields, "provenance">): UnsignedReleaseManifest["schemaVersion"] {
-  return fields.provenance?.provider === "kit" ? SKILLX_RELEASE_SCHEMA_VERSION_V2 : SKILLX_RELEASE_SCHEMA_VERSION;
-}
-
 /** RFC 3339 UTC with whole seconds, as the manifest contract requires. */
 export function releaseTimestamp(now: Date): string {
   return `${now.toISOString().slice(0, 19)}Z`;

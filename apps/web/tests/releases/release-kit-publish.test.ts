@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { releaseTrust, validateReleaseManifest, verifyReleaseManifest } from "@skillx/contracts";
+import { releaseTrust, validateReleaseManifest, verifyReleaseManifest, verifyReleaseStatus } from "@skillx/contracts";
 import type { SkillxReleaseManifest } from "@skillx/contracts";
 import { loader as manifestLoader } from "~/routes/api.v1.release-manifest";
 import { FakeRateLimiter } from "./fake-rate-limiter";
 import { RELEASE_READ_RATE_LIMIT } from "~/lib/releases/release-rate-limit";
-import { createHarness, file, tarOf, TEST_KEY_ID } from "./release-harness";
+import { readReleaseStatus } from "~/lib/releases/release-status-issue";
+import { NOW, createHarness, file, tarOf, TEST_KEY_ID } from "./release-harness";
 
 /** Kit releases: `@agentkit/*` content published with kit provenance and signed as `skillx.release/v2`. */
 
@@ -106,5 +107,37 @@ describe("kit release publish", () => {
       metadata: kitMetadata({ provider: "kit", origin: "registry-signed" }),
     });
     expect(res).toMatchObject({ status: 400, body: { error: { code: "release.invalid_metadata" } } });
+  });
+
+  it("answers an identical kit replay with 200 and a different origin with 409", async () => {
+    const publish = (origin: string) =>
+      h.upload("@agentkit/review", tarOf(skillFiles()), { key: agentkitKey, metadata: kitMetadata({ provider: "kit", origin }) });
+    expect((await publish("local-dev")).body.created).toBe(true);
+    expect(await publish("local-dev")).toMatchObject({ status: 200, body: { created: false } });
+    const upgraded = await publish("remote-signed");
+    expect(upgraded).toMatchObject({ status: 409, body: { error: { code: "release.version_exists" } } });
+    expect(upgraded.body.error.message).toContain("kit origin local-dev");
+  });
+
+  it("rejects a kit provenance without origin after authorization", async () => {
+    const res = await h.upload("@agentkit/review", tarOf(skillFiles()), { key: agentkitKey, metadata: kitMetadata({ provider: "kit" }) });
+    expect(res).toMatchObject({ status: 400, body: { error: { code: "release.invalid_metadata" } } });
+    expect(h.r2.putLog).toEqual([]);
+  });
+
+  it("issues a signed release status that verifies against the v2 manifest", async () => {
+    await h.upload("@agentkit/review", tarOf(skillFiles()), { key: agentkitKey, metadata: kitMetadata() });
+    const request = new Request("https://skillx.test/api/v1/packages/@agentkit/review/releases/1.0.0/status");
+    const ctx = { db: h.deps.db, bucket: h.deps.bucket, userId: null, request };
+    const now = new Date(NOW.getTime() + 3600_000);
+    const res = await readReleaseStatus(ctx, { scope: "@agentkit", slug: "review", version: "1.0.0" }, {
+      loadSigner: h.deps.loadSigner,
+      activeKeyId: TEST_KEY_ID,
+      now: () => now,
+    });
+    expect(res.status).toBe(200);
+    const keys = new Map([[TEST_KEY_ID, h.signingKey.publicKey]]);
+    const bytes = new Uint8Array(await res.arrayBuffer());
+    expect(await verifyReleaseStatus(bytes, keys, { manifest: storedManifest().manifest, now, previous: null })).toEqual({ valid: true, issues: [] });
   });
 });
