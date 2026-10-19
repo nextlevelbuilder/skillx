@@ -40,8 +40,9 @@ function detectGitRemote(): { owner: string; repo: string } | null {
   }
 }
 
-/** Parse explicit "owner/repo" argument */
-function parseRepoArg(arg: string): { owner: string; repo: string } | null {
+/** Parse an explicit "owner/repo" or GitHub URL argument */
+export function parseRepoArg(arg: string): { owner: string; repo: string } | null {
+  if (arg.includes('github.com')) return parseGitRemoteUrl(arg);
   const parts = arg.split('/');
   if (parts.length === 2 && parts[0] && parts[1]) {
     return { owner: parts[0], repo: parts[1] };
@@ -49,13 +50,14 @@ function parseRepoArg(arg: string): { owner: string; repo: string } | null {
   return null;
 }
 
-export const publishCommand = new Command('publish')
-  .description('Publish skills from a GitHub repo to SkillX marketplace')
-  .argument('[repo]', 'owner/repo (auto-detects from git remote if omitted)')
-  .option('-p, --path <path>', 'Specific skill subfolder path')
-  .option('-s, --scan', 'Scan entire repo for all SKILL.md files')
-  .option('--dry-run', 'Show what would be published without calling API')
-  .action(async (repoArg: string | undefined, options: { path?: string; scan?: boolean; dryRun?: boolean }) => {
+export interface ImportOptions {
+  path?: string;
+  scan?: boolean;
+  dryRun?: boolean;
+}
+
+/** Registers the skills of a GitHub repository with the marketplace (POST /api/skills/register). */
+export async function runImport(repoArg: string | undefined, options: ImportOptions): Promise<void> {
     try {
       // Require API key
       const apiKey = getApiKey();
@@ -79,7 +81,7 @@ export const publishCommand = new Command('publish')
         remote = detectGitRemote();
         if (!remote) {
           console.error(chalk.red('\nCould not detect GitHub repo from git remote.'));
-          console.error(chalk.dim('Specify explicitly: skillx publish owner/repo'));
+          console.error(chalk.dim('Specify explicitly: skillx import owner/repo'));
           process.exit(1);
         }
         console.log(chalk.dim(`Detected repo: ${remote.owner}/${remote.repo}`));
@@ -147,7 +149,15 @@ export const publishCommand = new Command('publish')
       }
       process.exit(1);
     }
-  });
+}
+
+export const importCommand = new Command('import')
+  .description('Import (register) skills from a GitHub repo into the SkillX marketplace')
+  .argument('[repo]', 'owner/repo or GitHub URL (auto-detects from git remote if omitted)')
+  .option('-p, --path <path>', 'Specific skill subfolder path')
+  .option('-s, --scan', 'Scan entire repo for all SKILL.md files')
+  .option('--dry-run', 'Show what would be imported without calling API')
+  .action(runImport);
 
 function displayResult(res: RegisterResponse, owner: string, repo: string): void {
   // Single skill mode

@@ -65,27 +65,3 @@ export function packSummary(packed: PackedRelease) {
   };
 }
 
-export const releasePackCommand = new Command('pack')
-  .description('Pack a skill from git at an exact commit into a deterministic release tar')
-  .argument('<source>', 'package directory (packs HEAD) or git ref (with --path)')
-  .requiredOption('-o, --out <file>', 'output tar file')
-  .option('-p, --path <dir>', 'package directory inside the repository, for a git ref')
-  .option('--json', 'print the result as JSON')
-  .action(async (input: string, options: { out: string; path?: string; json?: boolean }) => {
-    try {
-      const packed = await packRelease(input, { packagePath: options.path });
-      warnPackNotes(packed);
-      writeFileSync(options.out, packed.tar);
-      const summary = { ...packSummary(packed), out: options.out };
-      if (options.json) {
-        console.log(JSON.stringify(summary, null, 2));
-        return;
-      }
-      console.log(summary.releaseDigest);
-      console.error(chalk.dim(`commit ${summary.commit}${summary.path ? ` path ${summary.path}` : ''}`));
-      console.error(chalk.dim(`${summary.fileCount} files, ${summary.treeSize} bytes -> ${summary.out} (${summary.artifactDigest})`));
-    } catch (error) {
-      console.error(chalk.red(`release pack failed: ${error instanceof Error ? error.message : String(error)}`));
-      process.exit(1);
-    }
-  });

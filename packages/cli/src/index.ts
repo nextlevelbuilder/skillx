@@ -8,6 +8,10 @@ import { checkCommand } from './commands/check.js';
 import { reportCommand } from './commands/report.js';
 import { configCommand } from './commands/config.js';
 import { publishCommand } from './commands/publish.js';
+import { importCommand } from './commands/import.js';
+import { validateCommand } from './commands/validate.js';
+import { createPackCommand } from './commands/pack.js';
+import { promoteCommand } from './commands/promote.js';
 import { releaseCommand } from './commands/release-publish.js';
 
 /** Injected at build time from packages/cli/package.json by tsup (see tsup.config.ts). */
@@ -27,7 +31,11 @@ program.addCommand(inspectCommand);
 program.addCommand(checkCommand);
 program.addCommand(reportCommand);
 program.addCommand(configCommand);
+program.addCommand(importCommand);
+program.addCommand(validateCommand);
+program.addCommand(createPackCommand());
 program.addCommand(publishCommand);
+program.addCommand(promoteCommand);
 program.addCommand(releaseCommand);
 
 program.parse(process.argv);
