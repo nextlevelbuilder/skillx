@@ -9,6 +9,7 @@ import {
   VERIFICATION_EVIDENCE_FIXTURES,
 } from "./fixtures";
 import { RELEASE_MANIFEST_FIXTURES } from "./fixtures/release-fixtures";
+import { RELEASE_MANIFEST_V2_FIXTURES } from "./fixtures/release-v2-fixtures";
 import { RELEASE_STATUS_FIXTURES } from "./fixtures/release-status-fixtures";
 import * as contracts from "./index";
 import { validateReleaseManifest } from "./release-manifest";
@@ -38,7 +39,7 @@ const VALIDATOR_BY_GROUP: Record<string, (input: unknown) => { valid: boolean; i
 };
 
 /** Every fixture case, including the test-only signed-release fixtures the root export leaves out. */
-const EVERY_FIXTURE = [...ALL_FIXTURES, ...RELEASE_MANIFEST_FIXTURES, ...RELEASE_STATUS_FIXTURES];
+const EVERY_FIXTURE = [...ALL_FIXTURES, ...RELEASE_MANIFEST_FIXTURES, ...RELEASE_MANIFEST_V2_FIXTURES, ...RELEASE_STATUS_FIXTURES];
 
 describe("skillx.package/v1 fixtures", () => {
   it("covers both a valid and a rejected case for every contract group", () => {
@@ -53,6 +54,7 @@ describe("skillx.package/v1 fixtures", () => {
 
   it("keeps the test-only signed-release fixtures out of the package root", () => {
     expect("RELEASE_MANIFEST_FIXTURES" in contracts).toBe(false);
+    expect("RELEASE_MANIFEST_V2_FIXTURES" in contracts).toBe(false);
     expect("RELEASE_STATUS_FIXTURES" in contracts).toBe(false);
     expect(ALL_FIXTURES.some((f) => f.group === "release-manifest" || f.group === "release-status")).toBe(false);
   });

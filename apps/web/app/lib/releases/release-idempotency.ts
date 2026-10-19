@@ -26,7 +26,7 @@ import type { IngestDeps } from "./ingest-release";
 import { authorizeReleasePublisher } from "./release-auth";
 import { ReleaseHttpError, errorResponse, releaseError } from "./release-http";
 import { MAX_RELEASE_UPLOAD_BYTES } from "./release-limits";
-import { RELEASE_METADATA_HEADER, parseReleaseMetadata, parseReleaseName, readUploadBody } from "./release-request";
+import { RELEASE_METADATA_HEADER, parseReleaseMetadata, parseReleaseName, readUploadBody, requestedProvider } from "./release-request";
 import type { ReleaseMetadata } from "./release-request";
 
 export const IDEMPOTENCY_HEADER = "Idempotency-Key";
@@ -52,10 +52,15 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
   return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Binds a key to the package, the parsed metadata (fixed field order) and the exact body bytes. */
+/**
+ * Binds a key to the package, the parsed metadata (fixed field order) and the exact body bytes.
+ * Kit provenance is appended only when present, so a `skillx` release keeps the fingerprint it always had.
+ */
 export async function requestFingerprint(identity: string, metadata: ReleaseMetadata, body: Uint8Array): Promise<string> {
-  const { version, channel, kind, sourceProvenance, declaredScripts } = metadata;
-  const text = JSON.stringify([identity, version, channel, kind, sourceProvenance, declaredScripts, await sha256Hex(body)]);
+  const { version, channel, kind, sourceProvenance, declaredScripts, provenance } = metadata;
+  const fields: unknown[] = [identity, version, channel, kind, sourceProvenance, declaredScripts, await sha256Hex(body)];
+  if (provenance !== null) fields.push(provenance);
+  const text = JSON.stringify(fields);
   return `sha256:${await sha256Hex(new TextEncoder().encode(text))}`;
 }
 
@@ -126,9 +131,10 @@ function replay(stored: StoredKey): Response {
 
 async function publishOnce(request: Request, params: { scope?: string; slug?: string }, deps: IngestDeps, key: string): Promise<Response> {
   const now = deps.now?.() ?? new Date();
-  const name = parseReleaseName(params.scope, params.slug);
+  const header = request.headers.get(RELEASE_METADATA_HEADER);
+  const name = parseReleaseName(params.scope, params.slug, requestedProvider(header));
   const auth = await authorizeReleasePublisher(deps.db, request, name.handle, { tokenSecret: deps.tokenSecret, now });
-  const metadata = parseReleaseMetadata(request.headers.get(RELEASE_METADATA_HEADER));
+  const metadata = parseReleaseMetadata(header);
   const body = await readUploadBody(request, MAX_RELEASE_UPLOAD_BYTES);
   const fingerprint = await requestFingerprint(name.identity, metadata, body);
 

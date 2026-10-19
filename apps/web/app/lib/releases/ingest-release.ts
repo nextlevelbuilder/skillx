@@ -2,25 +2,31 @@
  * Release ingest: `POST /api/v1/packages/@handle/slug/releases`.
  *
  * Order (each step rejects before any later one runs):
- * name and reserved namespaces -> scoped key and publisher ownership ->
+ * name and reserved namespaces (for the provider the metadata asks for) -> scoped key and publisher ownership ->
  * signing key -> metadata -> capped upload -> tar read with limits and tree
  * digest -> version conflict -> subrequest budget -> exec manifest -> scan -> signed manifest -> R2 artifact, blobs
  * and manifest (create-only) -> D1 row (last). Release bytes are stored
  * exactly as uploaded; nothing is sanitized.
+ *
+ * Kit releases: metadata `provenance: {provider: "kit", origin}` is the only
+ * way to publish `@agentkit/*`. It still needs a key scoped
+ * `releases:publish:@agentkit` whose owner owns the active, admin-provisioned
+ * `agentkit` publisher, and it is signed as `skillx.release/v2`. Every other
+ * release is signed as `skillx.release/v1`.
  */
-import { ReleaseManifestError, SKILLX_RELEASE_SCHEMA_VERSION } from "@skillx/contracts";
+import { ReleaseManifestError } from "@skillx/contracts";
 import { ERROR_CODES, SkillTreeError, readTarTree } from "@skillx/skill-tree";
 import type { TreeManifest } from "@skillx/skill-tree";
 import { authorizeReleasePublisher, type AuthorizedPublisher } from "./release-auth";
 import { checkExecManifest } from "./release-exec";
 import { ReleaseHttpError, errorResponse, releaseError } from "./release-http";
 import { BLOB_WRITE_CONCURRENCY, MAX_RELEASE_UPLOAD_BYTES, RELEASE_SERVER_TREE_LIMITS, assertSubrequestBudget } from "./release-limits";
-import { RELEASE_METADATA_HEADER, parseReleaseMetadata, parseReleaseName, readUploadBody } from "./release-request";
+import { RELEASE_METADATA_HEADER, parseReleaseMetadata, parseReleaseName, readUploadBody, requestedProvider } from "./release-request";
 import { scanRelease } from "./release-scan";
 import { findPackage, findRelease, insertRelease } from "./release-store";
 import type { ExistingRelease } from "./release-store";
 import { artifactKey, blobKey, forEachLimited, manifestKey, putCreateOnly } from "./r2-create-only";
-import { signRelease } from "./sign-manifest";
+import { manifestSchemaVersionOf, signRelease } from "./sign-manifest";
 import type { RegistrySigner } from "./sign-manifest";
 
 export interface IngestDeps {
@@ -86,10 +92,11 @@ function existingOutcome(identity: string, version: string, existing: ExistingRe
 }
 
 async function ingest(request: Request, params: Params, deps: IngestDeps, prepared?: PreparedUpload): Promise<Response> {
-  const name = parseReleaseName(params.scope, params.slug);
+  const header = request.headers.get(RELEASE_METADATA_HEADER);
+  const name = parseReleaseName(params.scope, params.slug, requestedProvider(header));
   const auth = prepared?.auth ?? (await authorizeReleasePublisher(deps.db, request, name.handle, { tokenSecret: deps.tokenSecret, now: deps.now?.() }));
   const signer = await deps.loadSigner();
-  const metadata = parseReleaseMetadata(request.headers.get(RELEASE_METADATA_HEADER));
+  const metadata = parseReleaseMetadata(header);
   const pkg = await findPackage(deps.db, name.identity);
   if (pkg !== null && pkg.publisherId !== auth.publisherId) {
     throw releaseError(403, "publisher.not_owner", `${name.identity} belongs to another publisher`);
@@ -129,6 +136,7 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
         publisher: { handle: name.handle, verifiedBy: "admin" },
         sourceProvenance: metadata.sourceProvenance,
         declaredScripts: metadata.declaredScripts,
+        provenance: metadata.provenance,
       },
       signer,
       now,
@@ -161,7 +169,7 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
     version: metadata.version,
     channel: metadata.channel,
     state: scan.state,
-    manifestSchemaVersion: SKILLX_RELEASE_SCHEMA_VERSION,
+    manifestSchemaVersion: manifestSchemaVersionOf(metadata),
     artifactKey: artifactKey(artifactHex),
     artifactDigest: `sha256:${artifactHex}`,
     artifactSize: body.length,

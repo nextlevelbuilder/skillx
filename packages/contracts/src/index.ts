@@ -12,6 +12,7 @@ export * from "./compatibility";
 export * from "./package-manifest";
 export * from "./canonical-json";
 export * from "./release-manifest";
+export * from "./release-provenance";
 export * from "./release-status";
 export * from "./strict-json";
 export * from "./exec-capabilities";

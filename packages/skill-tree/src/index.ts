@@ -35,6 +35,7 @@ export type { RandomAccessSource } from "./zip-records";
 
 export {
   IDENTITY_PATTERN,
+  KIT_ORIGINS,
   RESERVED_PUBLISHER,
   checkAlias,
   checkDirectoryAlias,
