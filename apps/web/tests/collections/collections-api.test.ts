@@ -1,54 +1,5 @@
-import { beforeEach, describe, expect, it } from "vitest";
-import { releasePublishScope } from "~/lib/auth/api-key-scopes";
-import { action, loader } from "~/routes/api.v1.collections";
-import { FakeRateLimiter } from "../releases/fake-rate-limiter";
-import { createHarness } from "../releases/release-harness";
-
-type Harness = Awaited<ReturnType<typeof createHarness>>;
-let h: Harness;
-let ownerKey: string;
-let otherKey: string;
-let scopedKey: string;
-
-const DIGEST = `sha256:${"a".repeat(64)}`;
-
-beforeEach(async () => {
-  h = await createHarness();
-  ownerKey = await h.createKey("user-a", null);
-  otherKey = await h.createKey("user-b", null);
-  scopedKey = await h.createKey("user-a", [releasePublishScope("alpha")]);
-});
-
-interface CallOptions {
-  key?: string | null;
-  env?: Record<string, unknown>;
-  method?: string;
-  headers?: Record<string, string>;
-}
-
-async function call(path: string, body?: unknown, o: CallOptions = {}) {
-  const method = o.method ?? (body === undefined ? "GET" : "POST");
-  const headers = new Headers({ "Content-Type": "application/json", ...o.headers });
-  const key = o.key === undefined ? ownerKey : o.key;
-  if (key !== null) headers.set("Authorization", `Bearer ${key}`);
-  const [, , , , id, ...rest] = path.split("/");
-  const params = { ...(id === undefined ? {} : { id }), ...(rest.length === 0 ? {} : { "*": rest.join("/") }) };
-  const request = new Request(`https://skillx.test${path}`, { method, headers, body: method === "GET" ? undefined : JSON.stringify(body ?? {}) });
-  const env = {
-    SKILLX_COLLECTIONS_API: "1",
-    DB: h.deps.db,
-    RELEASE_READ_LIMITER: new FakeRateLimiter(10_000),
-    RELEASE_WRITE_LIMITER: new FakeRateLimiter(10_000),
-    ADMIN_SECRET: "test-admin-secret-0123456789",
-    ...o.env,
-  };
-  const args = { request, params, context: { cloudflare: { env } } } as never;
-  const res = method === "GET" ? await loader(args) : await action(args);
-  return { status: res.status, body: (await res.json()) as Record<string, any> };
-}
-
-const create = (extra: Record<string, unknown> = {}) =>
-  call("/api/v1/collections", { slug: "starter", name: "Starter", members: [{ packageName: "@alpha/demo", version: "1.0.0" }], config: { scope: "user" }, ...extra });
+import { describe, expect, it } from "vitest";
+import { ADMIN_SECRET, DIGEST, call, create, h, otherKey, scopedKey } from "./collections-harness";
 
 describe("collections API", () => {
   it("is 404 while the flag is off", async () => {
@@ -126,7 +77,7 @@ describe("collections API", () => {
     expect((await call("/api/v1/collections", { slug: "x" }, { key: scopedKey })).status).toBe(401);
     expect((await call("/api/v1/collections", { slug: "x" }, { key: null })).status).toBe(401);
     expect((await call("/api/v1/collections", undefined, { key: null })).status).toBe(401);
-    const admin = await call("/api/v1/collections", { slug: "x" }, { key: null, headers: { "X-Admin-Secret": "test-admin-secret-0123456789" } });
+    const admin = await call("/api/v1/collections", { slug: "x" }, { key: null, headers: { "X-Admin-Secret": ADMIN_SECRET } });
     expect(admin).toMatchObject({ status: 403, body: { error: { code: "collection.owner_only" } } });
   });
 

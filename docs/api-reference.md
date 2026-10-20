@@ -1395,6 +1395,8 @@ numbered revisions; per-user overlays and activation stay with personal kits.
 | GET | `/:id/revisions/:n` or `/latest` | Reader | `{revision}` |
 | POST | `/:id/members` | Owner | `{expectedRevision, add?: Member[], remove?: string[]}` → 201 `{revision}` |
 | POST | `/:id/clone` | Reader | `{slug?, name?, visibility?, revisionNumber?}` → 201 new private collection of the caller |
+| GET | `/:id/moderation` | Admin | `{collection, revision, history}` (state, latest revision, newest 100 audited attempts) |
+| POST | `/:id/moderation` | Admin | `{from, to, reason?}` (`active` ⇄ `hidden`) → `{collection}` |
 
 - **Auth**: owner writes need a session or an unscoped account API key; scoped
   keys are refused. A session write from another origin is `403 cross_origin`
@@ -1402,6 +1404,23 @@ numbered revisions; per-user overlays and activation stay with personal kits.
   `RELEASE_READ_LIMITER`.
 - **Visibility**: `private` (default; non-owners get 404), `unlisted` and
   `public` (anyone may read and clone).
+- **Per-account cap**: one account keeps at most 100 collections
+  (`SKILLX_COLLECTIONS_MAX_PER_USER` overrides it with a positive integer). A
+  create or clone over the cap answers `409 collection.limit_reached` and
+  writes nothing; deleting a collection frees a slot. The cap is enforced in
+  the insert itself, so concurrent creates cannot pass it.
+- **Moderation**: an operator (`X-Admin-Secret` only; accounts get
+  `403 collection.admin_only`) hides a collection with
+  `POST /:id/moderation {from: "active", to: "hidden", reason?}` and lifts it
+  with the reverse edge. A hidden collection answers 404 to everyone but its
+  owner, whatever its visibility, and changing the visibility does not lift
+  it. The owner still reads and edits it and sees
+  `collection.moderation = {state: "hidden", reason, at}`, but cannot clone it
+  (`403 collection.hidden`) or delete it (`409 collection.hidden`; it keeps its
+  slot under the cap). The change is compare-and-set: a stale `from`
+  answers `409 collection.moderation_conflict`. Every compare-and-set attempt
+  (`applied` or `stale`) is appended to
+  `release_state_audit` with `subject_kind = 'collection'`.
 - **Members**: `{packageName, version?, digest?, optional?}`. A member without
   `version` follows the newest stable release at install time; a pinned one is
   exact, and a `digest` must equal that release's `releaseDigest`.
@@ -1415,6 +1434,8 @@ numbered revisions; per-user overlays and activation stay with personal kits.
 Database: migration `0019_collection_revision_lineage` adds
 `collection_revisions.revision_digest`, `collections.cloned_from_revision_id`
 and the `collection_revisions_immutable` trigger (rollback SQL in its header).
+Migration `0020_collection_moderation` adds `collections.moderation_state`
+(default `active`), `moderation_reason` and `moderated_at`.
 
 ### Changing release and publisher state
 

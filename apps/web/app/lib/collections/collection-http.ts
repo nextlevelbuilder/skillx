@@ -14,7 +14,17 @@ import { checkReleaseRateLimit, rateLimitCaller } from "~/lib/releases/release-r
 import { resolveViewer } from "~/lib/releases/release-read";
 import { NO_STORE, failureHeaders, readJsonObject, resolveLimitedActor } from "~/lib/releases/release-state-http";
 
-export type CollectionEnv = Env & { SKILLX_COLLECTIONS_API?: string };
+export type CollectionEnv = Env & { SKILLX_COLLECTIONS_API?: string; SKILLX_COLLECTIONS_MAX_PER_USER?: string };
+
+/** Collections one account may keep when `SKILLX_COLLECTIONS_MAX_PER_USER` is unset; below the 200-row listing page. */
+export const DEFAULT_COLLECTIONS_PER_USER = 100;
+
+/** The per-account cap: `SKILLX_COLLECTIONS_MAX_PER_USER` when it is a positive integer, the default otherwise. */
+export function collectionLimit(env: { SKILLX_COLLECTIONS_MAX_PER_USER?: string }): number {
+  const raw = (env.SKILLX_COLLECTIONS_MAX_PER_USER ?? "").trim();
+  const value = /^\d{1,6}$/.test(raw) ? Number(raw) : 0;
+  return value > 0 ? value : DEFAULT_COLLECTIONS_PER_USER;
+}
 
 /** A full revision (256 members) fits easily; larger bodies are refused before parsing. */
 export const MAX_COLLECTION_BODY_BYTES = 256 * 1024;
@@ -40,7 +50,7 @@ export class CollectionValidationError extends ReleaseHttpError {
 }
 
 export interface CollectionCaller {
-  /** The signed-in user, or null for an anonymous read. */
+  /** The signed-in user, or null for an anonymous read or an operator (admin secret) call. */
   userId: string | null;
   env: CollectionEnv;
   request: Request;
@@ -58,7 +68,7 @@ export function requireRevisionNumber(raw: unknown, field = "expectedRevision"):
 export async function serveCollections(
   request: Request,
   env: CollectionEnv,
-  access: "read" | "write",
+  access: "read" | "write" | "admin",
   handler: (caller: CollectionCaller) => Promise<Response>,
   now: () => Date = () => new Date(),
 ): Promise<Response> {
@@ -73,8 +83,13 @@ export async function serveCollections(
       }
     } else {
       const actor = await resolveLimitedActor(request, env);
-      if (actor.kind !== "user") throw releaseError(403, "collection.owner_only", "collections are written by their owner, not by operators");
-      userId = actor.id;
+      if (access === "admin") {
+        if (actor.kind !== "admin") throw releaseError(403, "collection.admin_only", "this action is reserved to operators");
+        userId = null;
+      } else {
+        if (actor.kind !== "user") throw releaseError(403, "collection.owner_only", "collections are written by their owner, not by operators");
+        userId = actor.id;
+      }
     }
     return await handler({ userId, env, request, now: now() });
   } catch (error) {

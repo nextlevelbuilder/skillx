@@ -13,6 +13,10 @@ export const collections = sqliteTable(
     latest_revision_number: integer("latest_revision_number").notNull().default(0),
     // Lineage of a clone: the source revision it was copied from (no FK: the source may be deleted).
     cloned_from_revision_id: text("cloned_from_revision_id"),
+    // Operator moderation: a `hidden` collection reads as 404 to everyone but its owner, whatever its visibility.
+    moderation_state: text("moderation_state").notNull().default("active"), // active | hidden
+    moderation_reason: text("moderation_reason"),
+    moderated_at: integer("moderated_at", { mode: "timestamp_ms" }),
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updated_at: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
   },

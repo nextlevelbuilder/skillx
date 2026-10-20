@@ -8,66 +8,19 @@
 import { collectionRevisionDigest, sortCollectionMembers, validateCollectionContent } from "@skillx/contracts";
 import type { CollectionConfig, CollectionMember } from "@skillx/contracts";
 import { releaseError } from "~/lib/releases/release-http";
-import { CollectionValidationError, collectionNotFound } from "./collection-http";
+import { CollectionValidationError, collectionLimit, collectionNotFound } from "./collection-http";
 import type { CollectionCaller } from "./collection-http";
-
-export interface CollectionRow {
-  id: string;
-  owner_id: string;
-  slug: string;
-  name: string;
-  visibility: string;
-  latest_revision_number: number;
-  cloned_from_revision_id: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
-export interface CollectionRevisionRow {
-  id: string;
-  collection_id: string;
-  revision_number: number;
-  members_json: string;
-  config_json: string | null;
-  revision_digest: string | null;
-  created_at: number;
-}
+import { isHidden } from "./collection-views";
+import type { CollectionRevisionRow, CollectionRow } from "./collection-views";
 
 export const newId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
-const iso = (ms: number) => new Date(ms).toISOString();
-
-export function collectionView(row: CollectionRow, userId: string | null) {
-  return {
-    id: row.id,
-    slug: row.slug,
-    name: row.name,
-    visibility: row.visibility,
-    owned: row.owner_id === userId,
-    latestRevisionNumber: row.latest_revision_number,
-    clonedFromRevisionId: row.cloned_from_revision_id,
-    createdAt: iso(row.created_at),
-    updatedAt: iso(row.updated_at),
-  };
-}
-
-export function revisionView(row: CollectionRevisionRow) {
-  return {
-    id: row.id,
-    collectionId: row.collection_id,
-    revisionNumber: row.revision_number,
-    revisionDigest: row.revision_digest,
-    members: JSON.parse(row.members_json) as CollectionMember[],
-    config: (row.config_json === null ? {} : JSON.parse(row.config_json)) as CollectionConfig,
-    createdAt: iso(row.created_at),
-  };
-}
 
 const db = (c: CollectionCaller) => c.env.DB;
 
-/** The collection when the caller may read it (owner, or not private); otherwise the 404 of an unknown one. */
+/** The collection when the caller may read it (owner, or not private and not hidden); otherwise the 404 of an unknown one. */
 export async function readableCollection(c: CollectionCaller, id: string): Promise<CollectionRow> {
   const row = await db(c).prepare("SELECT * FROM collections WHERE id = ?").bind(id).first<CollectionRow>();
-  if (row === null || (row.visibility === "private" && row.owner_id !== c.userId)) throw collectionNotFound();
+  if (row === null || (row.owner_id !== c.userId && (row.visibility === "private" || isHidden(row)))) throw collectionNotFound();
   return row;
 }
 
@@ -119,13 +72,23 @@ function insertRevision(c: CollectionCaller, collectionId: string, number: numbe
 }
 
 const isUniqueViolation = (error: unknown) => error instanceof Error && /UNIQUE constraint failed/i.test(error.message);
+const isForeignKeyViolation = (error: unknown) => error instanceof Error && /FOREIGN KEY constraint failed/i.test(error.message);
+const limitReached = (limit: number) =>
+  releaseError(409, "collection.limit_reached", `you already have ${limit} collections, the most one account may keep; delete one first`);
 
-/** Creates a collection with revision 1. A slug the owner already uses is 409 `collection.slug_exists`. */
+/**
+ * Creates a collection with revision 1. A slug the owner already uses is 409
+ * `collection.slug_exists`; an owner at the cap is 409 `collection.limit_reached`.
+ * The cap is checked by the insert itself, so concurrent creates cannot pass it:
+ * a refused collection insert leaves the revision without its parent, the
+ * foreign key fails the batch, and nothing is written.
+ */
 export async function insertCollection(
   c: CollectionCaller,
   fields: { slug: string; name: string; visibility: string; clonedFrom: string | null },
   content: Content,
 ): Promise<{ collection: CollectionRow; revision: CollectionRevisionRow }> {
+  const limit = collectionLimit(c.env);
   const now = c.now.getTime();
   const collection: CollectionRow = {
     id: newId("col"),
@@ -142,12 +105,15 @@ export async function insertCollection(
   try {
     await db(c).batch([
       db(c)
-        .prepare("INSERT INTO collections (id, owner_id, slug, name, visibility, latest_revision_number, cloned_from_revision_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)")
-        .bind(collection.id, collection.owner_id, collection.slug, collection.name, collection.visibility, collection.cloned_from_revision_id, now, now),
+        .prepare(
+          "INSERT INTO collections (id, owner_id, slug, name, visibility, latest_revision_number, cloned_from_revision_id, created_at, updated_at) SELECT ?, ?, ?, ?, ?, 1, ?, ?, ? WHERE (SELECT count(*) FROM collections WHERE owner_id = ?) < ?",
+        )
+        .bind(collection.id, collection.owner_id, collection.slug, collection.name, collection.visibility, collection.cloned_from_revision_id, now, now, collection.owner_id, limit),
       revision.statement,
     ]);
   } catch (error) {
     if (isUniqueViolation(error)) throw releaseError(409, "collection.slug_exists", `you already have a collection named ${fields.slug}`);
+    if (isForeignKeyViolation(error)) throw limitReached(limit);
     throw error;
   }
   return { collection, revision: revision.row };

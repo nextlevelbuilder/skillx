@@ -9,9 +9,9 @@ import type { CollectionMember } from "@skillx/contracts";
 import { notFoundResponse, releaseError } from "~/lib/releases/release-http";
 import { badRequest, json, readBody, requireRevisionNumber, serveCollections } from "./collection-http";
 import type { CollectionCaller, CollectionEnv } from "./collection-http";
+import { moderateCollection, readModeration } from "./collection-moderation";
 import {
   appendRevision,
-  collectionView,
   deleteCollection,
   findRevision,
   insertCollection,
@@ -20,9 +20,9 @@ import {
   ownedCollection,
   prepareContent,
   readableCollection,
-  revisionView,
   updateMetadata,
 } from "./collection-store";
+import { collectionView, isHidden, revisionView } from "./collection-views";
 
 const SLUG = /^[a-z0-9][a-z0-9-]{0,63}$/;
 const ID = /^col_[0-9a-f-]{36}$/;
@@ -61,6 +61,8 @@ export function editMembers(base: CollectionMember[], add: unknown, remove: unkn
 type Handler = (c: CollectionCaller, id: string, args: string[]) => Promise<Response>;
 interface RouteDef {
   pattern: RegExp;
+  /** Every method of the route needs the admin secret. */
+  admin?: true;
   get?: Handler;
   post?: Handler;
   patch?: Handler;
@@ -78,7 +80,10 @@ const ROUTES: RouteDef[] = [
       return json({ collection: collectionView(updated, c.userId) });
     },
     delete: async (c, id) => {
-      await deleteCollection(c, await ownedCollection(c, id));
+      const row = await ownedCollection(c, id);
+      // Deleting would let the owner re-post the content unmoderated; a hidden one stays and keeps its slot.
+      if (isHidden(row)) throw releaseError(409, "collection.hidden", "a collection hidden by moderation cannot be deleted");
+      await deleteCollection(c, row);
       return json({ deleted: true, id });
     },
   },
@@ -117,6 +122,7 @@ const ROUTES: RouteDef[] = [
     pattern: /^clone$/,
     post: async (c, id) => {
       const source = await readableCollection(c, id);
+      if (isHidden(source)) throw releaseError(403, "collection.hidden", "a collection hidden by moderation cannot be cloned");
       const b = await readBody(c.request, ["slug", "name", "visibility", "revisionNumber"]);
       const number = b.revisionNumber === undefined ? source.latest_revision_number : requireRevisionNumber(b.revisionNumber, "revisionNumber");
       const from = revisionView(await findRevision(c, id, number));
@@ -127,6 +133,12 @@ const ROUTES: RouteDef[] = [
       );
       return json({ collection: collectionView(created.collection, c.userId), revision: revisionView(created.revision) }, 201);
     },
+  },
+  {
+    pattern: /^moderation$/,
+    admin: true,
+    get: (c, id) => readModeration(c, id),
+    post: (c, id) => moderateCollection(c, id),
   },
 ];
 
@@ -168,7 +180,7 @@ export function serveCollectionRequest(request: Request, env: CollectionEnv, par
   return serveCollections(
     request,
     env,
-    method === "get" ? "read" : "write",
+    route?.admin ? "admin" : method === "get" ? "read" : "write",
     async (c) => {
       const id = params.id ?? "";
       if (route === undefined || !ID.test(id)) return notFoundResponse();

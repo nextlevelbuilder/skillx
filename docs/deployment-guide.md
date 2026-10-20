@@ -488,6 +488,26 @@ to `"0"`, redeploy, then run the header SQL of
 `0019_collection_revision_lineage.sql` (drops the trigger and both columns,
 clears the `d1_migrations` row).
 
+**Migration 0020 and collection moderation.** `0020_collection_moderation`
+adds `collections.moderation_state` (`NOT NULL DEFAULT 'active'`) and the
+nullable `moderation_reason` and `moderated_at`. It is additive and either
+deploy order works: the collection code reads a missing `moderation_state` as
+`active`, and only the admin route `/api/v1/collections/:id/moderation` needs
+the columns (it answers 500 until the migration is applied). Apply it with
+`pnpm run db:migrate:remote` after a backup. Hide a collection with:
+
+```bash
+curl -X POST "https://skillx.sh/api/v1/collections/$ID/moderation" \
+  -H "X-Admin-Secret: $ADMIN_SECRET" -H 'Content-Type: application/json' \
+  -d '{"from":"active","to":"hidden","reason":"spam"}'
+```
+
+The per-account collection cap defaults to 100; set the var
+`SKILLX_COLLECTIONS_MAX_PER_USER` to change it. Rollback: deploy the previous
+code, then run the header SQL of `0020_collection_moderation.sql`. Code before
+0020 ignores `moderation_state`, so a rollback un-hides content: first run
+`UPDATE collections SET visibility = 'private' WHERE moderation_state = 'hidden'`.
+
 The CLI installer (`skillx install`, `sync --locked`, `mcp`) needs no server
 change beyond the release read API, but it verifies manifest signatures
 against keys the user trusts (see [CLI reference](./cli-reference.md#trusted-signing-keys)).

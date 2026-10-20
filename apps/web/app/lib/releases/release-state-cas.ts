@@ -7,7 +7,7 @@
  */
 import type { TransitionInput } from "./release-transitions";
 
-export type SubjectKind = "release" | "publisher" | "release_channel";
+export type SubjectKind = "release" | "publisher" | "release_channel" | "collection";
 export type AttemptOutcome = "denied" | "invalid";
 export type CasOutcome = "applied" | "stale" | "denied";
 
@@ -43,6 +43,7 @@ const TARGETS = {
   release: { table: "package_releases", column: "release_state" },
   publisher: { table: "publishers", column: "state" },
   release_channel: { table: "package_releases", column: "channel" },
+  collection: { table: "collections", column: "moderation_state" },
 } as const;
 
 export const AUDIT_COLUMNS = "id, subject_kind, subject_id, actor_kind, actor_id, from_state, to_state, outcome, reason, created_at";
