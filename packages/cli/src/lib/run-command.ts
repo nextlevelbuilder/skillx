@@ -33,6 +33,8 @@ export interface RunOptions<T> {
   exitCode?: (data: T) => ExitCode;
   /** Wording for errors whose subject varies by command. */
   errors?: ErrorContext;
+  /** Human failures read `<label> failed: <message>` instead of `✗ <message>`. */
+  failureLabel?: string;
 }
 
 /** Writes an envelope (or human text) and sets the exit code. */
@@ -41,16 +43,17 @@ export function emit<T>(
   json: boolean,
   human: (data: T) => void,
   exitCode?: ExitCode,
+  failureLabel?: string,
 ): void {
   if (json) console.log(serialize(envelope));
   else if (envelope.ok) human(envelope.data);
-  else printFailure(envelope);
+  else printFailure(envelope, failureLabel);
   process.exitCode = exitCode ?? exitCodeFor(envelope);
 }
 
 /** Human rendering of a failure: the message, then the hint when there is one. */
-export function printFailure(envelope: CliFailure): void {
-  console.error(chalk.red(`\n✗ ${envelope.error.message}`));
+export function printFailure(envelope: CliFailure, label?: string): void {
+  console.error(chalk.red(label ? `${label} failed: ${envelope.error.message}` : `\n✗ ${envelope.error.message}`));
   if (envelope.error.hint) console.error(chalk.dim(envelope.error.hint));
 }
 
@@ -84,14 +87,14 @@ export async function runCommand<T>(
 
   const code = envelope.ok && options.exitCode ? options.exitCode(envelope.data) : undefined;
   if (options.json || !envelope.ok) {
-    emit(envelope, options.json, () => {}, code);
+    emit(envelope, options.json, () => {}, code, options.failureLabel);
     return;
   }
   try {
     await human(envelope.data);
     process.exitCode = code ?? EXIT_CODES.ok;
   } catch (error) {
-    emit(fromError(error, options.errors), false, () => {});
+    emit(fromError(error, options.errors), false, () => {}, undefined, options.failureLabel);
   }
 }
 

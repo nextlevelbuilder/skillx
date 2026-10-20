@@ -19,7 +19,11 @@ export const EXIT_CODES = {
   usage: 2,
   /** The skill does not exist. */
   notFound: 3,
-  /** `check` only: the skill exists but the target may not act on it. A success envelope, not an error code. */
+  /**
+   * The skill exists but the target may not act on it. `check` answers it on a
+   * success envelope (`data.actionable: false`); the installer fails with the
+   * `incompatible` error code.
+   */
   incompatible: 4,
   /** Credentials are missing or rejected. */
   auth: 5,
@@ -36,6 +40,7 @@ export type ExitCode = (typeof EXIT_CODES)[keyof typeof EXIT_CODES];
 export type CliErrorCode =
   | 'usage_error'
   | 'not_found'
+  | 'incompatible'
   | 'auth_error'
   | 'network_error'
   | 'rate_limited'
@@ -47,6 +52,7 @@ export type CliErrorCode =
 const EXIT_BY_CODE: Record<CliErrorCode, ExitCode> = {
   usage_error: EXIT_CODES.usage,
   not_found: EXIT_CODES.notFound,
+  incompatible: EXIT_CODES.incompatible,
   auth_error: EXIT_CODES.auth,
   network_error: EXIT_CODES.network,
   rate_limited: EXIT_CODES.rateLimited,

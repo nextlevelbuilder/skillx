@@ -1,8 +1,9 @@
 import { Command } from 'commander';
 import { execSync } from 'node:child_process';
 import chalk from 'chalk';
-import ora from 'ora';
 import { apiRequest, ApiError } from '../lib/api-client.js';
+import { CliError } from '../lib/output.js';
+import { runCommand } from '../lib/run-command.js';
 import { getApiKey } from '../utils/config-store.js';
 
 interface RegisterResponse {
@@ -54,101 +55,73 @@ export interface ImportOptions {
   path?: string;
   scan?: boolean;
   dryRun?: boolean;
+  json?: boolean;
+}
+
+type ImportResult =
+  | { dryRun: true; owner: string; repo: string; request: Record<string, unknown> }
+  | { dryRun: false; owner: string; repo: string; detected: boolean; response: RegisterResponse };
+
+/** Resolves the repository and registers it, or describes the request under --dry-run. */
+async function importRepo(repoArg: string | undefined, options: ImportOptions): Promise<ImportResult> {
+  const remote = repoArg ? parseRepoArg(repoArg) : detectGitRemote();
+  if (!remote) {
+    throw repoArg
+      ? new CliError('usage_error', `Invalid repo format: "${repoArg}". Expected: owner/repo`)
+      : new CliError('usage_error', 'Could not detect GitHub repo from git remote.', { hint: 'Specify explicitly: skillx import owner/repo' });
+  }
+
+  // Arguments are checked before credentials, so a bad call is a usage error either way.
+  if (!getApiKey()) {
+    throw new CliError('auth_error', 'API key required to import skills.', {
+      hint: 'Run `skillx config set-key` or set SKILLX_API_KEY. Get a key at https://skillx.sh/settings',
+    });
+  }
+
+  const request: Record<string, unknown> = { owner: remote.owner, repo: remote.repo };
+  if (options.path) request.skill_path = options.path;
+  else if (options.scan) request.scan = true;
+  if (options.dryRun) return { dryRun: true, ...remote, request };
+
+  try {
+    const response = await apiRequest<RegisterResponse>('/api/skills/register', { method: 'POST', body: JSON.stringify(request) });
+    return { dryRun: false, ...remote, detected: !repoArg, response };
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 403) {
+      throw new CliError('auth_error', 'Permission denied. You must have access to this GitHub repo.', {
+        details: { status: 403 },
+        hint: 'Make sure your GitHub account is a collaborator or owner of the repo.',
+      });
+    }
+    throw error;
+  }
+}
+
+function renderImport(result: ImportResult, options: ImportOptions): void {
+  if (!result.dryRun) {
+    if (result.detected) console.log(chalk.dim(`Detected repo: ${result.owner}/${result.repo}`));
+    displayResult(result.response, result.owner, result.repo);
+    return;
+  }
+  console.log(chalk.bold('\nDry run — would publish:'));
+  console.log(`  Repository: ${chalk.cyan(`${result.owner}/${result.repo}`)}`);
+  if (options.path) console.log(`  Skill path: ${chalk.cyan(options.path)}`);
+  else if (options.scan) console.log(`  Mode: ${chalk.cyan('Scan all SKILL.md files')}`);
+  else console.log(`  Mode: ${chalk.cyan('Auto-detect (root skill or scan)')}`);
+  console.log(chalk.dim('\nRemove --dry-run to publish.'));
 }
 
 /** Registers the skills of a GitHub repository with the marketplace (POST /api/skills/register). */
-export async function runImport(repoArg: string | undefined, options: ImportOptions): Promise<void> {
-    try {
-      // Require API key
-      const apiKey = getApiKey();
-      if (!apiKey) {
-        console.error(chalk.red('\nAPI key required to publish skills.'));
-        console.error(chalk.dim('Set your API key with: skillx config set api-key <key>'));
-        console.error(chalk.dim('Get an API key at: https://skillx.sh/settings'));
-        process.exit(1);
-      }
-
-      // Resolve owner/repo
-      let remote: { owner: string; repo: string } | null = null;
-
-      if (repoArg) {
-        remote = parseRepoArg(repoArg);
-        if (!remote) {
-          console.error(chalk.red(`\nInvalid repo format: "${repoArg}". Expected: owner/repo`));
-          process.exit(1);
-        }
-      } else {
-        remote = detectGitRemote();
-        if (!remote) {
-          console.error(chalk.red('\nCould not detect GitHub repo from git remote.'));
-          console.error(chalk.dim('Specify explicitly: skillx import owner/repo'));
-          process.exit(1);
-        }
-        console.log(chalk.dim(`Detected repo: ${remote.owner}/${remote.repo}`));
-      }
-
-      // Build request body
-      const body: Record<string, unknown> = {
-        owner: remote.owner,
-        repo: remote.repo,
-      };
-
-      if (options.path) {
-        body.skill_path = options.path;
-      } else if (options.scan) {
-        body.scan = true;
-      }
-
-      // Dry run — just show what would happen
-      if (options.dryRun) {
-        console.log(chalk.bold('\nDry run — would publish:'));
-        console.log(`  Repository: ${chalk.cyan(`${remote.owner}/${remote.repo}`)}`);
-        if (options.path) {
-          console.log(`  Skill path: ${chalk.cyan(options.path)}`);
-        } else if (options.scan) {
-          console.log(`  Mode: ${chalk.cyan('Scan all SKILL.md files')}`);
-        } else {
-          console.log(`  Mode: ${chalk.cyan('Auto-detect (root skill or scan)')}`);
-        }
-        console.log(chalk.dim('\nRemove --dry-run to publish.'));
-        return;
-      }
-
-      // Call register API
-      const spinner = ora('Publishing to SkillX...').start();
-
-      try {
-        const res = await apiRequest<RegisterResponse>('/api/skills/register', {
-          method: 'POST',
-          body: JSON.stringify(body),
-        });
-        spinner.stop();
-        displayResult(res, remote.owner, remote.repo);
-      } catch (err) {
-        spinner.stop();
-        throw err;
-      }
-    } catch (error) {
-      if (error instanceof ApiError) {
-        if (error.status === 401) {
-          console.error(chalk.red('\nAuthentication failed. Check your API key.'));
-          console.error(chalk.dim('Update with: skillx config set api-key <key>'));
-        } else if (error.status === 403) {
-          console.error(chalk.red('\nPermission denied. You must have access to this GitHub repo.'));
-          console.error(chalk.dim('Make sure your GitHub account is a collaborator or owner of the repo.'));
-        } else if (error.status === 404) {
-          console.error(chalk.red('\nNo SKILL.md found in the repository.'));
-          console.error(chalk.dim('Create a SKILL.md file in your repo and try again.'));
-        } else {
-          console.error(chalk.red(`\nAPI Error: ${error.message}`));
-        }
-      } else if (error instanceof Error) {
-        console.error(chalk.red(`\nError: ${error.message}`));
-      } else {
-        console.error(chalk.red('\nAn unexpected error occurred'));
-      }
-      process.exit(1);
-    }
+export function runImport(repoArg: string | undefined, options: ImportOptions): Promise<void> {
+  return runCommand(
+    {
+      json: options.json === true,
+      ...(options.dryRun ? {} : { spinner: 'Publishing to SkillX...' }),
+      errors: { notFoundMessage: 'No SKILL.md found in the repository.' },
+    },
+    () => importRepo(repoArg, options),
+    (result) => renderImport(result, options),
+  );
 }
 
 export const importCommand = new Command('import')
@@ -157,6 +130,7 @@ export const importCommand = new Command('import')
   .option('-p, --path <path>', 'Specific skill subfolder path')
   .option('-s, --scan', 'Scan entire repo for all SKILL.md files')
   .option('--dry-run', 'Show what would be imported without calling API')
+  .option('--json', 'emit a machine-readable envelope instead of text')
   .action(runImport);
 
 function displayResult(res: RegisterResponse, owner: string, repo: string): void {

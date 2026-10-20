@@ -257,6 +257,39 @@ describe("built cli", { timeout: 30_000 }, () => {
     }
   });
 
+  /** Leaf commands from `--help`, walked recursively (`config set-key`, `release pack`, ...). */
+  async function leafCommands(path: string[] = []): Promise<string[][]> {
+    const help = (await cli(...path, "--help")).stdout;
+    const section = help.split(/^Commands:$/m)[1];
+    if (section === undefined) return [path];
+    const names = [...section.matchAll(/^  (\S+)/gm)].map((m) => m[1]!).filter((name) => name !== "help");
+    return (await Promise.all(names.map((name) => leafCommands([...path, name])))).flat();
+  }
+
+  it("offers --json on every command but the stdio MCP server", async () => {
+    const leaves = await leafCommands();
+    expect(leaves.length).toBeGreaterThan(20);
+    const missing = [];
+    for (const leaf of leaves) {
+      if (leaf.join(" ") === "mcp") continue; // speaks MCP on stdio; there is no single result to wrap
+      if (!(await cli(...leaf, "--help")).stdout.includes("--json")) missing.push(leaf.join(" "));
+    }
+    expect(missing).toEqual([]);
+  });
+
+  it.each([
+    [["install", "notaref"], "usage_error", 2],
+    [["list", "--runtime", "zzz"], "usage_error", 2],
+    [["validate", "./nope"], "usage_error", 2],
+    [["pack", "./nope", "--out", "x.tar"], "usage_error", 2],
+    [["promote", "bad", "--to", "stable"], "usage_error", 2],
+    [["import", "not-a-repo"], "usage_error", 2],
+  ])("answers a failing `%s` with one %s envelope and exit %i", async (args, code, exit) => {
+    const result = await cliExit(...args, "--json");
+    expect(result.code).toBe(exit);
+    expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, error: { code } });
+  });
+
   it("reports a parse error as usage_error with exit 2", async () => {
     const { code, stdout } = await cliExit("check", "some-skill", "--json");
     expect(code).toBe(2);

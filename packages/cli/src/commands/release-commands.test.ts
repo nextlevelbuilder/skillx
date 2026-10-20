@@ -40,8 +40,10 @@ describe('promote', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sx_key');
 
     fetchMock.mockResolvedValueOnce(json({ error: { code: 'promote.demotion_forbidden', message: 'no' } }, 403));
-    await expect(runPromote('@alpha/demo@1.0.0', { to: 'beta', registry: 'https://reg.test' })).rejects.toMatchObject({ failure: { error: { code: 'auth_error' } } });
-    await expect(runPromote('@alpha/demo@1.0.0', { to: 'nightly', registry: 'https://reg.test' })).rejects.toMatchObject({ failure: { error: { code: 'usage_error' } } });
+    await expect(runPromote('@alpha/demo@1.0.0', { to: 'beta', registry: 'https://reg.test' })).rejects.toMatchObject({ code: 'auth_error' });
+    await expect(runPromote('@alpha/demo@1.0.0', { to: 'nightly', registry: 'https://reg.test' })).rejects.toMatchObject({ code: 'usage_error' });
+    fetchMock.mockResolvedValueOnce(json({ error: { code: 'rate_limited', message: 'slow down' } }, 429));
+    await expect(runPromote('@alpha/demo@1.0.0', { to: 'beta', registry: 'https://reg.test' })).rejects.toMatchObject({ code: 'rate_limited' });
   });
 });
 
@@ -59,6 +61,6 @@ describe('OIDC credential', () => {
 
   it('fails as auth_error outside GitHub Actions', async () => {
     vi.stubEnv('ACTIONS_ID_TOKEN_REQUEST_URL', '');
-    await expect(publishCredential('https://reg.test', 'a', { oidc: true })).rejects.toMatchObject({ failure: { error: { code: 'auth_error' } } });
+    await expect(publishCredential('https://reg.test', 'a', { oidc: true })).rejects.toMatchObject({ code: 'auth_error' });
   });
 });

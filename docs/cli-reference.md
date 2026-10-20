@@ -171,6 +171,7 @@ warning on stderr, and will be removed.
 | `-p, --path <path>` | Specific skill subfolder path | — |
 | `-s, --scan` | Scan entire repo for all SKILL.md files | `false` |
 | `--dry-run` | Preview what would be imported without calling API | `false` |
+| `--json` | Envelope with the request (dry run) or the register response | `false` |
 
 **Resolution Logic:**
 - No flags → auto-detect (root SKILL.md or scan all)
@@ -193,12 +194,10 @@ skillx import --dry-run
 
 ### Release commands: `validate`, `pack`, `publish`, `promote`
 
-These commands work on immutable, digest-pinned releases. With `--json` they
-print exactly one envelope on stdout, `{"ok": true, "data": {...}}` or
-`{"ok": false, "error": {"code", "message", "details"?, "hint"?}}`, and the
-exit code follows it: `0` ok, `1` registry or unexpected error, `2` usage
-(invalid input or a package the registry would reject), `3` not found, `5`
-credentials missing or rejected, `6` network. `skillx release pack` and
+These commands work on immutable, digest-pinned releases. Like every other
+command they take `--json` and follow
+[JSON Output and Exit Codes](#json-output-and-exit-codes); `2` covers invalid
+input and a package the registry would reject. `skillx release pack` and
 `skillx release publish` remain as aliases of `skillx pack` and
 `skillx publish <dir>`.
 
@@ -562,20 +561,12 @@ the CLI's `--force`.
 
 ### Exit codes
 
-Installer commands print a `{ok, data}` / `{ok, error}` envelope with `--json`.
-
-| Code | Error | Meaning |
-|------|-------|---------|
-| 0 | — | Success |
-| 1 | `integrity_error`, `api_error` | Verification failed (nothing written), or the API failed |
-| 2 | `usage_error` | Bad ref, flag or lock |
-| 3 | `not_found` | Package, release, kit or collection not found |
-| 4 | `incompatible` | The release refuses the runtime |
-| 5 | `auth_error` | Credentials missing or rejected |
-| 6 | `network_error` | Registry unreachable |
-| 8 | `conflict` | Local edits, unowned directory, a link inside a skill, shared version, drift, stale plan, or a path in use |
-
-Code 7 is reserved for `rate_limited` in the shared CLI envelope.
+Installer commands use the shared envelope and the one exit-code table in
+[JSON Output and Exit Codes](#json-output-and-exit-codes). The codes they add
+are `1` `integrity_error` (verification failed, nothing written), `4`
+`incompatible` (the release refuses the runtime) and `8` `conflict` (local
+edits, an unowned directory, a link inside a skill, a shared version, drift, a
+stale plan, or a path in use).
 
 ---
 
@@ -604,9 +595,10 @@ Code 7 is reserved for `rate_limited` in the shared CLI envelope.
 
 ## JSON Output and Exit Codes
 
-Every command except `publish` and `release *` (which print their own JSON) accepts
-`--json` and then writes exactly one envelope to stdout; spinners and prompts never reach
-stdout in that mode.
+Every command, the release and installer commands included, accepts `--json` and then
+writes exactly one envelope to stdout; spinners and prompts never reach stdout in that mode.
+The one exception is `skillx mcp`, which speaks MCP on stdio and has no single result to
+wrap.
 
 ```json
 { "ok": true, "data": { "...": "command-specific payload" } }
@@ -619,15 +611,16 @@ carries the same answer, so a script can branch without parsing either form:
 | Exit | `error.code` | Meaning |
 |------|--------------|---------|
 | `0` | — | Success (`check`: the target may be acted on) |
-| `1` | `api_error`, `unexpected_error` | The API failed without a better class, or a bug |
+| `1` | `api_error`, `unexpected_error`, `integrity_error` | The API failed without a better class, a bug, or a release failed verification (nothing written) |
 | `2` | `usage_error` | Invalid arguments or options, unknown command, missing argument |
-| `3` | `not_found` | The skill or resource does not exist |
-| `4` | — | `check` only: `ok: true` with `data.actionable: false`; the skill exists but the target may not act on it |
+| `3` | `not_found` | The skill, package, release, kit or collection does not exist |
+| `4` | `incompatible` | The target may not act on the skill. `check` answers it on a success envelope (`data.actionable: false`); the installer fails with `incompatible` |
 | `5` | `auth_error` | API key missing or rejected (`401`/`403`); the hint names `skillx config set-key` |
 | `6` | `network_error` | The API could not be reached |
 | `7` | `rate_limited` | The API answered `429`; retry later |
+| `8` | `conflict` | Installer only: the change would overwrite something it does not own (see [Exit codes](#exit-codes)) |
 
-Exit `4` is an answer, not a failure, so its envelope is a success. Only flags before `--`
+For `check`, exit `4` is an answer, not a failure, so its envelope is a success. Only flags before `--`
 count: `skillx check -- --json` treats `--json` as an operand.
 
 Parse failures follow the same table: with `--json` on the command line, an unknown option

@@ -39,7 +39,7 @@ export const publishCommand = withReleasePublishOptions(
 ).action(async (source: string | undefined, options: PublishOptions) => {
   if (publishMode(source, options) === 'import') {
     console.error(chalk.yellow(IMPORT_DEPRECATION));
-    await runImport(source, { path: options.path, scan: options.scan, dryRun: options.dryRun });
+    await runImport(source, { path: options.path, scan: options.scan, dryRun: options.dryRun, json: options.json });
     return;
   }
   await runCommand('publish', options.json, () => runReleasePublish(source ?? '.', options), renderPublished);

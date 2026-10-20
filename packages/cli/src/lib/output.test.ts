@@ -32,6 +32,9 @@ describe("exit codes", () => {
   it("is 2 for a usage error and 3 for a missing skill", () => {
     expect(exitCodeFor(failure("usage_error", "no"))).toBe(EXIT_CODES.usage);
     expect(exitCodeFor(failure("not_found", "no"))).toBe(EXIT_CODES.notFound);
+    expect(exitCodeFor(failure("incompatible", "no"))).toBe(EXIT_CODES.incompatible);
+    expect(exitCodeFor(failure("integrity_error", "no"))).toBe(EXIT_CODES.error);
+    expect(exitCodeFor(failure("conflict", "no"))).toBe(EXIT_CODES.conflict);
   });
 });
 

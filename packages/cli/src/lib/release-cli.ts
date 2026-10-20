@@ -4,39 +4,22 @@
  * whose failures map onto that vocabulary, and the publish credential (an API
  * key, or a GitHub Actions OIDC token exchanged for a short-lived one).
  */
-import chalk from 'chalk';
-import { exitCodeFor, failure, fromError, serialize, success } from './output.js';
-import type { CliErrorCode, CliFailure } from './output.js';
+import { CliError } from './output.js';
+import { runCommand as runShared } from './run-command.js';
 import { getApiKey } from '../utils/config-store.js';
 
-/** A failure that already knows its envelope code. */
-export class CliError extends Error {
-  readonly failure: CliFailure;
-
-  constructor(code: CliErrorCode, message: string, extra: { details?: unknown; hint?: string } = {}) {
-    super(message);
-    this.failure = failure(code, message, extra);
-  }
-}
+export { CliError };
 
 export const usageError = (message: string) => new CliError('usage_error', message);
 
 /**
- * Runs one command. With `--json` stdout carries exactly one envelope, success
- * or failure; without it `render` prints for humans and errors go to stderr.
+ * Runs one release command through the shared `runCommand`: with `--json`
+ * stdout carries exactly one envelope, success or failure; without it `render`
+ * prints for humans and errors go to stderr, prefixed with the command label.
  * The exit code follows the envelope either way.
  */
 export async function runCommand<T>(label: string, json: boolean | undefined, work: () => Promise<T>, render: (data: T) => void): Promise<void> {
-  try {
-    const data = await work();
-    if (json) console.log(serialize(success(data)));
-    else render(data);
-  } catch (error) {
-    const envelope = error instanceof CliError ? error.failure : fromError(error);
-    if (json) console.log(serialize(envelope));
-    else console.error(chalk.red(`${label} failed: ${envelope.error.message}`));
-    process.exitCode = exitCodeFor(envelope);
-  }
+  await runShared({ json: json === true, failureLabel: label }, work, render);
 }
 
 const NAME_PATTERN = /^@([a-z0-9][a-z0-9._-]*)\/([a-z0-9][a-z0-9._-]*)$/;
@@ -70,6 +53,7 @@ export async function registryFetch(url: string, init: RequestInit): Promise<Rec
   const details = { status: res.status, code: error?.code ?? null };
   if (res.status === 401 || res.status === 403) throw new CliError('auth_error', message, { details });
   if (res.status === 404) throw new CliError('not_found', message, { details });
+  if (res.status === 429) throw new CliError('rate_limited', message, { details, hint: 'Retry later.' });
   throw new CliError('api_error', message, { details });
 }
 

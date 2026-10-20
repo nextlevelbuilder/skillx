@@ -1,17 +1,17 @@
-import type { CliErrorCode } from '../output.js';
+import { CliError, type CliErrorCode } from '../output.js';
 
 /**
  * A classified installer failure. `code` is an envelope error code, so a
  * command maps it to its exit code without parsing the message; `details`
  * is machine-readable context (never file contents or credentials).
  */
-export class InstallError extends Error {
+export class InstallError extends CliError {
   constructor(
-    readonly code: CliErrorCode,
+    code: CliErrorCode,
     message: string,
     readonly details?: unknown,
   ) {
-    super(message);
+    super(code, message, details === undefined ? {} : { details });
     this.name = 'InstallError';
   }
 }
