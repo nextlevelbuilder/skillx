@@ -473,8 +473,8 @@ document in R2 under `statuses/sha256/`. Rollback: the header SQL of
 and the `collection_revisions_immutable` trigger, which aborts every `UPDATE`
 of a stored revision. It is additive; apply it (`pnpm run db:migrate:remote`,
 after a backup) before deploying code with `SKILLX_COLLECTIONS_API` set to
-`"1"`. The flag is `"0"` in `apps/web/wrangler.jsonc`, so `/api/v1/collections`
-answers 404 until it is enabled. Revisions written before 0019 have no digest;
+`"1"`. Production runs with the flag `"1"` in `apps/web/wrangler.jsonc`;
+with `"0"`, `/api/v1/collections` answers 404. Revisions written before 0019 have no digest;
 the CLI then trusts the member list it recomputes. Rollback: set the flag back
 to `"0"`, redeploy, then run the header SQL of
 `0019_collection_revision_lineage.sql` (drops the trigger and both columns,
