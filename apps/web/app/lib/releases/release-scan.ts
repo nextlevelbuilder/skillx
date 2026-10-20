@@ -48,21 +48,37 @@ function secretsInBytes(bytes: Uint8Array): Set<string> {
   for (let at = 0; at < bytes.length; at += SECRET_WINDOW) {
     // Start one byte early so a window never opens in the middle of a token and invents a `\b`.
     const start = Math.max(0, at - 1);
-    const window = byteText(bytes.subarray(start, Math.min(bytes.length, at + SECRET_WINDOW + SECRET_OVERLAP)));
+    const end = Math.min(bytes.length, at + SECRET_WINDOW + SECRET_OVERLAP);
+    const window = byteText(bytes.subarray(start, end));
     for (const { name, regex } of SECRET_PATTERNS) {
-      if (!found.has(name) && matchesBeyondLeadingByte(regex, window, start < at)) found.add(name);
+      if (!found.has(name) && matchesInsideWindow(regex, window, start < at, end < bytes.length, at + SECRET_WINDOW - start)) {
+        found.add(name);
+      }
     }
   }
   return found;
 }
 
-/** Whether `regex` matches `window`, ignoring a match that starts at the extra leading byte. */
-function matchesBeyondLeadingByte(regex: RegExp, window: string, hasLeadingByte: boolean): boolean {
-  if (!hasLeadingByte) return regex.test(window);
+/**
+ * Whether `regex` matches `window` for real. The window edges are not file edges, so a match that
+ * starts at the extra leading byte, or lies wholly in the overlap and ends at a non-final window's
+ * end, could be an artifact of the cut (the edge acts as `\b`); the next window sees those bytes in
+ * context. A longer match that began before the overlap is kept: the next window opens mid-token.
+ * `overlapAt` is the window index where the overlap begins.
+ */
+function matchesInsideWindow(
+  regex: RegExp,
+  window: string,
+  cutAtStart: boolean,
+  cutAtEnd: boolean,
+  overlapAt: number,
+): boolean {
   const global = new RegExp(regex.source, "g");
   for (let m = global.exec(window); m !== null; m = global.exec(window)) {
-    if (m.index > 0) return true;
-    global.lastIndex = 1;
+    const artifact =
+      (cutAtStart && m.index === 0) || (cutAtEnd && m.index >= overlapAt && m.index + m[0].length === window.length);
+    if (!artifact) return true;
+    global.lastIndex = m.index + 1;
   }
   return false;
 }
@@ -74,15 +90,21 @@ function secretsInText(text: string): Set<string> {
 /** Markdown an agent reads as instructions. */
 const isMarkup = (path: string) => /\.(?:md|markdown|mdx)$/i.test(path);
 /**
- * Licence files by name: a bare name, optionally with a `-MIT`/`_APACHE-2.0` style suffix and a text
- * extension. Any other extension (`license.png`, `NOTICE.pdf`) is not one.
+ * Licence files by name: a bare upper-case name, optionally with an upper-case `-MIT`/`-APACHE-2.0`
+ * style suffix and a `.txt`/`.md` extension. Free suffixes (`NOTICE-install`), other extensions
+ * (`LICENSE.rst`, `NOTICE.pdf`) and lower-case names are not licence files.
  */
-const LICENSE_NAME =
+const LICENSE_NAME = /(?:^|\/)(?:LICENSE|LICENCE|COPYING|NOTICE|AUTHORS)(?:-[A-Z0-9][A-Z0-9.+-]*)?(?:\.(?:txt|md|markdown))?$/;
+/**
+ * Licence-like names in any spelling (`NOTICE-install`, `LICENSE_MIT`, `PATENTS`, `copying`): read as
+ * documents and scanned in full, but without the exemptions the canonical names get.
+ */
+const LICENSE_LIKE =
   /(?:^|\/)(?:LICEN[CS]E|COPYING|NOTICE|AUTHORS|PATENTS|CONTRIBUTORS)(?:[-_][A-Za-z0-9+]+(?:\.\d+)*)*(?:\.(?:txt|md|markdown|rst))?$/i;
 /** Licence text: shell and URL syntax is ordinary prose there. Other plain text keeps every rule. */
 const isLicenseFile = (path: string, bytes: Uint8Array) => LICENSE_NAME.test(path) && !hasBinaryMagic(bytes);
 const isInstructionDocument = (path: string, bytes: Uint8Array) =>
-  isMarkup(path) || /\.txt$/i.test(path) || isLicenseFile(path, bytes);
+  isMarkup(path) || /\.txt$/i.test(path) || (LICENSE_LIKE.test(path) && !hasBinaryMagic(bytes));
 /** Finding kinds that are shell or URL syntax rather than hidden content or instruction override. */
 const SYNTAX_FINDINGS = new Set(["shell-injection", "js-protocol", "data-html"]);
 
@@ -167,6 +189,8 @@ function mustBeText(path: string, bytes: Uint8Array): boolean {
 interface TextRead {
   /** Decoded text, kept only when an instruction scan or a UTF-16 secret scan needs it. */
   text: string | null;
+  /** Latin-1 reading of a non-UTF-8 licence file, soft hyphens removed (invisible there): a latin-1 reader sees NBSP and joined words the lossy UTF-8 text hides. */
+  latin1?: string;
   /** The file is not readable as the text it must be. */
   invalid: boolean;
 }
@@ -181,8 +205,13 @@ function readText(path: string, bytes: Uint8Array): TextRead {
   }
   if (bytes.includes(0)) return { text: null, invalid: true };
   if (!isValidUtf8(bytes)) {
-    // Legacy codepage text (and licence files such as a latin-1 NOTICE) cannot be instruction-scanned, and is not hidden content.
-    return { text: null, invalid: !(LEGACY_CODEPAGE.test(path) || isLicenseFile(path, bytes)) };
+    if (LEGACY_CODEPAGE.test(path)) return { text: null, invalid: false };
+    // A latin-1 NOTICE is legitimate, but it is still scanned under both readings. Markup never gets this allowance.
+    if (isLicenseFile(path, bytes) && !isMarkup(path)) {
+      if (bytes.length > MAX_SCANNED_TEXT_BYTES) return { text: null, invalid: false };
+      return { text: new TextDecoder("utf-8").decode(bytes), latin1: byteText(bytes).replaceAll("­", ""), invalid: false };
+    }
+    return { text: null, invalid: true };
   }
   const needsText = isInstructionDocument(path, bytes) && bytes.length <= MAX_SCANNED_TEXT_BYTES;
   return { text: needsText ? new TextDecoder("utf-8").decode(bytes) : null, invalid: false };
@@ -209,8 +238,11 @@ function instructionFindings(path: string, text: string, skipSyntax: boolean): s
  * `.bat`/`.cmd`/`.csv` may use a legacy codepage, and recognizable binaries
  * under `scripts/` are not text. Instruction documents also go through the
  * SKILL.md scanner (prompt injection, invisible characters, terminal escapes,
- * shell injection); only licence files skip the shell/URL syntax rules (other
- * `.txt` files are read by agents as instructions). Instruction documents and
+ * shell injection); only licence files skip the shell/URL syntax rules, which
+ * includes licence markup such as `LICENSE.md` (other `.txt` files are read by
+ * agents as instructions). A latin-1 licence file is scanned under both its
+ * lossy UTF-8 and its latin-1 reading; invalid UTF-8 in any markup file is
+ * quarantined. Instruction documents and
  * UTF-16 text above `MAX_SCANNED_TEXT_BYTES` are quarantined instead of
  * decoded whole. Any `danger` finding quarantines the release.
  */
@@ -219,13 +251,15 @@ export function scanRelease(files: ReadonlyArray<{ path: string; bytes: Uint8Arr
   for (const { path, bytes } of files) {
     let secrets: Set<string> | null = null;
     if (mustBeText(path, bytes)) {
-      const { text, invalid } = readText(path, bytes);
+      const { text, latin1, invalid } = readText(path, bytes);
       if (invalid) {
         findings.push(`danger:non-utf8-text:${path}`);
       } else if (bytes.length > MAX_SCANNED_TEXT_BYTES && (isInstructionDocument(path, bytes) || utf16Bom(bytes) !== null)) {
         findings.push(`danger:text-too-large:${path}`);
       } else if (text !== null && isInstructionDocument(path, bytes)) {
-        findings.push(...instructionFindings(path, text, isLicenseFile(path, bytes)));
+        const skipSyntax = isLicenseFile(path, bytes);
+        const readings = latin1 === undefined ? [text] : [text, latin1];
+        findings.push(...new Set(readings.flatMap((reading) => instructionFindings(path, reading, skipSyntax))));
       }
       // UTF-16 interleaves NULs, so its secrets only match in the decoded text.
       if (utf16Bom(bytes) !== null && text !== null) secrets = secretsInText(text);
