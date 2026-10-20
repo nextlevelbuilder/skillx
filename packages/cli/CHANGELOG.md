@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.6.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.5.0...skillx-sh-v0.6.0) (2026-10-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* **registry:** `skillx release publish --json` (now an alias of `skillx publish <dir>`) prints the `{"ok": true, "data": {...}}` / `{"ok": false, "error": {...}}` envelope instead of the bare release object, and failures use the documented exit codes instead of always 1. Read the release from `.data`.
+
+### Features
+
+* collections API and verified CLI installer with lockfile, sync and local MCP ([#35](https://github.com/nextlevelbuilder/skillx/issues/35) phase 3) ([#98](https://github.com/nextlevelbuilder/skillx/issues/98)) ([2c5a892](https://github.com/nextlevelbuilder/skillx/commit/2c5a89204eed0ffaaf1736e59a60fe19bec03638))
+* finish Phase 1 discovery (CLI envelope, get_kit, WebMCP mirror, contracts in CLI) ([#97](https://github.com/nextlevelbuilder/skillx/issues/97)) ([79f98fb](https://github.com/nextlevelbuilder/skillx/commit/79f98fbaaf1d28bf26ddf5b19e7a76ca736a1367))
+* **registry:** release CLI, idempotent publish, promote, quarantine review, signed downloads and GitHub OIDC trusted publishing ([#99](https://github.com/nextlevelbuilder/skillx/issues/99)) ([5fc3077](https://github.com/nextlevelbuilder/skillx/commit/5fc3077d2aa539a717fe69e259daf8648d9ccf6d))
+
+
+### Bug Fixes
+
+* **cli:** print "Nothing to update." when update finds nothing installed ([#118](https://github.com/nextlevelbuilder/skillx/issues/118)) ([bb57346](https://github.com/nextlevelbuilder/skillx/commit/bb5734639e438bd16e7506ec6838d9b6ac2cf6c7))
+
 ## [0.5.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.4.1...skillx-sh-v0.5.0) (2026-10-16)
 
 
