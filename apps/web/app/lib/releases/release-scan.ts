@@ -95,10 +95,16 @@ const isMarkup = (path: string) => /\.(?:md|markdown|mdx)$/i.test(path);
  * (`LICENSE.rst`, `NOTICE.pdf`) and lower-case names are not licence files.
  */
 const LICENSE_NAME = /(?:^|\/)(?:LICENSE|LICENCE|COPYING|NOTICE|AUTHORS)(?:-[A-Z0-9][A-Z0-9.+-]*)?(?:\.(?:txt|md|markdown))?$/;
+/**
+ * Licence-like names in any spelling (`NOTICE-install`, `LICENSE_MIT`, `PATENTS`, `copying`): read as
+ * documents and scanned in full, but without the exemptions the canonical names get.
+ */
+const LICENSE_LIKE =
+  /(?:^|\/)(?:LICEN[CS]E|COPYING|NOTICE|AUTHORS|PATENTS|CONTRIBUTORS)(?:[-_][A-Za-z0-9+]+(?:\.\d+)*)*(?:\.(?:txt|md|markdown|rst))?$/i;
 /** Licence text: shell and URL syntax is ordinary prose there. Other plain text keeps every rule. */
 const isLicenseFile = (path: string, bytes: Uint8Array) => LICENSE_NAME.test(path) && !hasBinaryMagic(bytes);
 const isInstructionDocument = (path: string, bytes: Uint8Array) =>
-  isMarkup(path) || /\.txt$/i.test(path) || isLicenseFile(path, bytes);
+  isMarkup(path) || /\.txt$/i.test(path) || (LICENSE_LIKE.test(path) && !hasBinaryMagic(bytes));
 /** Finding kinds that are shell or URL syntax rather than hidden content or instruction override. */
 const SYNTAX_FINDINGS = new Set(["shell-injection", "js-protocol", "data-html"]);
 
