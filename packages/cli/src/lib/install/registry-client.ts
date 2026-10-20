@@ -53,6 +53,7 @@ const DIGEST = /^sha256:[0-9a-f]{64}$/;
 function classify(status: number, what: string): InstallError {
   if (status === 404) return new InstallError('not_found', `${what} was not found`, { status });
   if (status === 401 || status === 403) return new InstallError('auth_error', `the registry refused ${what}`, { status });
+  if (status === 429) return new InstallError('rate_limited', `the registry rate limited ${what}`, { status }, 'Retry later.');
   return new InstallError('api_error', `the registry answered ${status} for ${what}`, { status });
 }
 

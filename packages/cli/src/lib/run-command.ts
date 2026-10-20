@@ -35,6 +35,8 @@ export interface RunOptions<T> {
   errors?: ErrorContext;
   /** Human failures read `<label> failed: <message>` instead of `✗ <message>`. */
   failureLabel?: string;
+  /** Human mode only: prints what a failure's details add, after its message and hint. */
+  failureDetails?: (envelope: CliFailure) => void;
 }
 
 /** Writes an envelope (or human text) and sets the exit code. */
@@ -88,13 +90,16 @@ export async function runCommand<T>(
   const code = envelope.ok && options.exitCode ? options.exitCode(envelope.data) : undefined;
   if (options.json || !envelope.ok) {
     emit(envelope, options.json, () => {}, code, options.failureLabel);
+    if (!options.json && !envelope.ok) options.failureDetails?.(envelope);
     return;
   }
   try {
     await human(envelope.data);
     process.exitCode = code ?? EXIT_CODES.ok;
   } catch (error) {
-    emit(fromError(error, options.errors), false, () => {}, undefined, options.failureLabel);
+    const failed = fromError(error, options.errors);
+    emit(failed, false, () => {}, undefined, options.failureLabel);
+    options.failureDetails?.(failed);
   }
 }
 

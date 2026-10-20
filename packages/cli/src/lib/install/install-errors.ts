@@ -10,8 +10,9 @@ export class InstallError extends CliError {
     code: CliErrorCode,
     message: string,
     readonly details?: unknown,
+    hint?: string,
   ) {
-    super(code, message, details === undefined ? {} : { details });
+    super(code, message, { ...(details === undefined ? {} : { details }), ...(hint ? { hint } : {}) });
     this.name = 'InstallError';
   }
 }

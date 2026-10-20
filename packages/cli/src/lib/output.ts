@@ -124,6 +124,8 @@ export function exitCodeFor(envelope: CliEnvelope<unknown>): ExitCode {
 export interface ErrorContext {
   /** Replaces the generic 404 message, e.g. "Skill not found: foo". */
   notFoundMessage?: string;
+  /** A hint for that 404, e.g. what to create before retrying. */
+  notFoundHint?: string;
 }
 
 /**
@@ -140,6 +142,7 @@ export function fromError(error: unknown, context: ErrorContext = {}): CliFailur
     if (error.status === 404) {
       return failure('not_found', context.notFoundMessage ?? 'The requested resource was not found.', {
         details: { status: 404 },
+        ...(context.notFoundHint ? { hint: context.notFoundHint } : {}),
       });
     }
     if (error.status === 401 || error.status === 403) {

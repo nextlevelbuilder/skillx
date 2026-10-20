@@ -65,7 +65,7 @@ export async function validatePackage(input: string, options: ValidateOptions) {
   if (options.releaseVersion !== undefined && !SEMVER.test(options.releaseVersion)) problems.push(`--release-version must be SemVer without build metadata, got ${options.releaseVersion}`);
   if (!KINDS.includes(options.kind)) problems.push(`--kind must be one of: ${KINDS.join(', ')}`);
   if (!CHANNELS.includes(options.channel)) problems.push(`--channel must be one of: ${CHANNELS.join(', ')}`);
-  const packed = await packOrFail(input, options.path);
+  const packed = await packOrFail(input, options.path, 'validate');
   const skill = options.kind === 'skill' ? readSkill(packed, problems) : null;
   if (problems.length > 0) {
     throw new CliError('usage_error', `${problems.length} problem(s): ${problems.join('; ')}`, { details: { problems } });

@@ -290,6 +290,31 @@ describe("built cli", { timeout: 30_000 }, () => {
     expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, error: { code } });
   });
 
+  it("names the command that could not pack the source", async () => {
+    for (const [command, extra] of [["validate", []], ["pack", ["--out", "x.tar"]]] as const) {
+      const { stdout } = await cliExit(command, "./nope", ...extra, "--json");
+      expect(JSON.parse(stdout).error.message).toMatch(new RegExp(`^cannot ${command} \\./nope:`));
+    }
+  });
+
+  it("answers a registry 429 as rate_limited (exit 7) on install and promote alike", async () => {
+    const server = createServer((req, res) => {
+      req.resume();
+      res.writeHead(429, { "Content-Type": "application/json" }).end(JSON.stringify({ error: { code: "rate_limited", message: "slow down" } }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const registry = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      for (const args of [["install", "@alpha/demo", "--runtime", "claude-code"], ["promote", "@alpha/demo@1.0.0", "--to", "stable"]]) {
+        const result = await cliExit(...args, "--registry", registry, "--json");
+        expect(result.code).toBe(7);
+        expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, error: { code: "rate_limited" } });
+      }
+    } finally {
+      server.close();
+    }
+  });
+
   it("reports a parse error as usage_error with exit 2", async () => {
     const { code, stdout } = await cliExit("check", "some-skill", "--json");
     expect(code).toBe(2);

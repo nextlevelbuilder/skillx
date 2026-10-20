@@ -117,7 +117,7 @@ export function runImport(repoArg: string | undefined, options: ImportOptions): 
     {
       json: options.json === true,
       ...(options.dryRun ? {} : { spinner: 'Publishing to SkillX...' }),
-      errors: { notFoundMessage: 'No SKILL.md found in the repository.' },
+      errors: { notFoundMessage: 'No SKILL.md found in the repository.', notFoundHint: 'Create a SKILL.md file in your repo and try again.' },
     },
     () => importRepo(repoArg, options),
     (result) => renderImport(result, options),

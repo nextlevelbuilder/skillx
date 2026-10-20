@@ -87,7 +87,7 @@ export async function runReleasePublish(input: string, options: ReleasePublishOp
     throw usageError('--repo must be an https URL without credentials or a trailing .git');
   }
   const base = resolveRegistry(options.registry);
-  const packed = await packOrFail(input, options.path);
+  const packed = await packOrFail(input, options.path, 'publish');
   const credential = await publishCredential(base, name.handle, options);
   const repo = options.repo ?? originUrl(packed.source.repoRoot);
   if (repo === null) console.error(chalk.yellow('warning: no https origin remote; the release will record no source provenance'));

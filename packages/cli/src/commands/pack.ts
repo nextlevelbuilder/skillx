@@ -5,15 +5,15 @@ import { CliError, runCommand } from '../lib/release-cli.js';
 import { packRelease, packSummary, warnPackNotes } from './release-pack.js';
 import type { PackedRelease } from './release-pack.js';
 
-/** Packs, turning a source the registry would reject into a usage error (exit 2). */
-export async function packOrFail(input: string, packagePath?: string): Promise<PackedRelease> {
+/** Packs, turning a source the registry would reject into a usage error (exit 2); `verb` names the command in it. */
+export async function packOrFail(input: string, packagePath?: string, verb = 'pack'): Promise<PackedRelease> {
   try {
     const packed = await packRelease(input, { packagePath });
     warnPackNotes(packed);
     return packed;
   } catch (error) {
     if (error instanceof CliError) throw error;
-    throw new CliError('usage_error', `cannot pack ${input}: ${error instanceof Error ? error.message : String(error)}`);
+    throw new CliError('usage_error', `cannot ${verb} ${input}: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 

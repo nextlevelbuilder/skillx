@@ -219,7 +219,7 @@ skillx publish owner/repo                     # Register/publish from GitHub
 skillx publish owner/repo --path path/to/skill  # Single skill path
 skillx publish owner/repo --scan              # Scan entire repo
 skillx publish --dry-run                      # Validation only (requires auth)
-skillx config set api-key sk_...
+skillx config set-key                         # prompts; or pipe the key on stdin
 skillx report --outcome success --duration 1234
 ```
 

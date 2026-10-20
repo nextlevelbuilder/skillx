@@ -62,6 +62,11 @@ describe("fromError", () => {
     expect(fromError(new TypeError("x.toFixed is not a function")).error.code).toBe("unexpected_error");
   });
 
+  it("adds the command's hint to a 404", () => {
+    const envelope = fromError(new ApiError(404, "nope"), { notFoundMessage: "No SKILL.md found.", notFoundHint: "Create one." });
+    expect(envelope.error).toMatchObject({ code: "not_found", message: "No SKILL.md found.", hint: "Create one." });
+  });
+
   it("maps a 429 to rate_limited, which a caller retries", () => {
     const envelope = fromError(new ApiError(429, "slow down"));
     expect(envelope.error.code).toBe("rate_limited");

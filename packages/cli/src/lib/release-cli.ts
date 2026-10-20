@@ -92,7 +92,7 @@ export async function publishCredential(base: string, handle: string, options: C
   }
   const apiKey = getApiKey();
   if (!apiKey) {
-    throw new CliError('auth_error', 'an API key is required', { hint: 'Set SKILLX_API_KEY, run `skillx config set api-key <key>`, or use --oidc in GitHub Actions.' });
+    throw new CliError('auth_error', 'an API key is required', { hint: 'Set SKILLX_API_KEY, run `skillx config set-key`, or use --oidc in GitHub Actions.' });
   }
   return apiKey;
 }
