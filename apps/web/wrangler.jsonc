@@ -68,9 +68,9 @@
     // Subrequests (D1 + R2 calls) one release publish may spend; above it the upload is refused with 413
     // before any R2 write. Workers Paid allows 10,000 per request; on a free account (1,000) set ~600.
     "SKILLX_RELEASE_SUBREQUEST_BUDGET": "5000",
-    // Personal kit API (/api/v1/kits/@handle/name/...). "0" = off (404 everywhere); rollback = set "0" and redeploy.
+    // Personal kit API (/api/v1/kits/@handle/name/...). "0" = off (404 everywhere); rollback = set "0" and redeploy. Needs migrations 0015 and 0016.
     "SKILLX_PERSONAL_KITS_API": "1",
-    // Collections API (/api/v1/collections/...). "0" = off (404 everywhere); rollback = set "0" and redeploy. Needs migration 0019.
+    // Collections API (/api/v1/collections/...). "0" = off (404 everywhere); rollback = set "0" and redeploy. Needs migrations 0009 and 0019.
     "SKILLX_COLLECTIONS_API": "1"
   }
 }

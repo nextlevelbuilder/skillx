@@ -467,6 +467,14 @@ document in R2 under `statuses/sha256/`. Rollback: the header SQL of
 `0014_release_status_and_exec.sql` (drops both columns, clears the
 `d1_migrations` row); deploy the previous code first.
 
+**Personal kits API.** `/api/v1/kits/...` needs migrations 0015 and 0016
+(personal kit tables and proposals) plus the release read stack
+(`SKILLX_RELEASES_API`). Production runs with `SKILLX_PERSONAL_KITS_API` set to
+`"1"` in `apps/web/wrangler.jsonc`. Before enabling it on another deployment,
+confirm that `wrangler d1 migrations list skillx-db --remote` reports nothing
+pending. Rollback: set the flag to `"0"` and redeploy; every route answers 404
+and stored kits stay untouched.
+
 **Migration 0019 and the collections API.**
 `0019_collection_revision_lineage` adds two nullable columns
 (`collection_revisions.revision_digest`, `collections.cloned_from_revision_id`)
