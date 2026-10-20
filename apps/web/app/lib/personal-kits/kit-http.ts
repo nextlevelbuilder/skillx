@@ -104,7 +104,7 @@ export function withIfMatch(request: Request, body: Record<string, unknown>): Re
   const raw = request.headers.get("If-Match");
   if (raw === null) return body;
   const m = IF_MATCH.exec(raw.trim());
-  if (m === null) throw badRequest('If-Match must be one kit generation, as its ETag "g<n>" or <n>');
+  if (m === null) throw badRequest('If-Match must be one kit generation, as its ETag "g<n>" (or W/"g<n>") or <n>');
   const generation = Number(m[1] ?? m[2]);
   if (body.expectedGeneration !== undefined && body.expectedGeneration !== generation) throw badRequest("If-Match and expectedGeneration name different generations");
   return { ...body, expectedGeneration: generation };
