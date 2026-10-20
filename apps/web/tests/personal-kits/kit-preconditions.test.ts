@@ -29,6 +29,16 @@ describe("If-Match on kit writes", () => {
     expect(activate.status).toBe(200);
   });
 
+  it("accepts the weak form of the ETag that a compressing proxy hands back, and still checks the generation", async () => {
+    const first = await store(k.doc([await k.entry("@alpha/demo", "1.0.0", MINE)]), {}, { "If-Match": 'W/"g0"' });
+    expect(first.status).toBe(201);
+    const stale = await store(k.doc([await k.entry("@alpha/demo", "1.0.0")]), {}, { "If-Match": 'W/"g0"' });
+    expect(stale.status).toBe(412);
+    expect(stale.body.error.code).toBe("kit.generation_conflict");
+    const second = await store(k.doc([await k.entry("@alpha/demo", "1.0.0")]), {}, { "If-Match": 'W/"g1"' });
+    expect(second.status).toBe(201);
+  });
+
   it("answers a stale If-Match with 412 and writes nothing, while a stale body field stays 409", async () => {
     await store(k.doc([await k.entry("@alpha/demo", "1.0.0", MINE)]), { expectedGeneration: 0 });
     const before = k.count("personal_kit_revisions") + k.count("personal_kit_audit");
@@ -53,12 +63,14 @@ describe("If-Match on kit writes", () => {
 
   it("refuses a malformed If-Match or one that disagrees with the body, before any write", async () => {
     const document = k.doc([await k.entry("@alpha/demo", "1.0.0", MINE)]);
-    for (const value of ["*", 'W/"g0"', '"g0", "g1"', "-1", "g"]) {
+    for (const value of ["*", 'W/g0', 'w/"g0"', '"g0", "g1"', "-1", "g"]) {
       const res = await store(document, {}, { "If-Match": value });
       expect(res.status, value).toBe(400);
       expect(res.body.error.code).toBe("invalid_request");
     }
     const split = await store(document, { expectedGeneration: 1 }, { "If-Match": '"g0"' });
+    const weakSplit = await store(document, { expectedGeneration: 1 }, { "If-Match": 'W/"g0"' });
+    expect(weakSplit.status).toBe(400);
     expect(split.status).toBe(400);
     const agree = await store(document, { expectedGeneration: 0 }, { "If-Match": '"g0"' });
     expect(agree.status).toBe(201);

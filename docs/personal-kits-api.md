@@ -20,8 +20,9 @@ without an explicit user approval.
 ## Authentication, ownership and limits
 
 - Callers authenticate with a session or an **unscoped** API key. Scoped keys,
-  such as `releases:publish:@h`, get 401. The admin secret is not accepted
-  (404). A write in a web session (no `Authorization` header) must come from
+  such as `releases:publish:@h`, get 401. The admin secret is not an
+  identity here: a write that presents it gets 404, and a read with only the
+  admin secret is anonymous (401). A write in a web session (no `Authorization` header) must come from
   the site's own origin; otherwise it gets 403 `cross_origin` before the
   session is read.
 - A kit is visible only to its owner. Every other caller gets the JSON 404,
@@ -172,9 +173,10 @@ ancestor appears as `{kit, revisionDigest, foreign: true}`.
 Every kit has a `generation`. `GET` returns it, with an `ETag` of `"g<n>"`.
 
 - Every write carries the expected generation, as `If-Match: "g<n>"` (the
-  ETag; a bare `<n>` is also accepted) or as `expectedGeneration` in the body
-  (kept for compatibility). Both may be sent when they agree; a disagreement,
-  a list, `*` or a weak tag is 400 `invalid_request`. A stale generation
+  ETag; a bare `<n>` is also accepted, and so is the weak form `W/"g<n>"`
+  that Cloudflare substitutes when it compresses the `GET`) or as
+  `expectedGeneration` in the body (kept for compatibility). Both may be sent
+  when they agree; a disagreement, a list or `*` is 400 `invalid_request`. A stale generation
   writes nothing and fails with 412 `kit.generation_conflict` when it came
   with `If-Match`, or 409 `kit.generation_conflict` when it came in the body.
   A first write (a kit that does not exist yet) expects generation 0.
