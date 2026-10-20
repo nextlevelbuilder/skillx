@@ -419,7 +419,8 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
   collection install replaces its own lock. Installing into a lock of another
   scope is a `usage_error` (pass `--lock other.json` or `--no-lock`).
 - **update** re-resolves installed sources (all, or those named) and applies the
-  difference, then refreshes the lock file when its scope was updated.
+  difference, then refreshes the lock file when its scope was updated. With
+  nothing installed it prints `Nothing to update.` (`--json`: empty `outcomes`).
 - **uninstall** drops a kit, a collection, or one or more packages; each
   explicit package is its own source (`packages:@scope/name`), whether it was
   installed alone, with others, or by `sync --locked` from a packages lock.

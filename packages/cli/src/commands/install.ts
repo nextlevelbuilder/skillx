@@ -38,6 +38,12 @@ function printApplied(outcome: ApplyOutcome, lockPath: string | null): void {
   console.log(chalk.green('\n✓ done'));
 }
 
+/** Human mode for `update`: each applied source, or one line when nothing is installed. */
+export function printUpdated(data: { outcomes: ApplyOutcome[]; lockPath: string | null }): void {
+  if (data.outcomes.length === 0) console.log(chalk.dim('Nothing to update.'));
+  data.outcomes.forEach((o, i) => printApplied(o, i === data.outcomes.length - 1 ? data.lockPath : null));
+}
+
 export const installCommand = withCommon(new Command('install'))
   .description('Install a kit revision, a collection or packages into a runtime skills directory')
   .argument('<refs...>', 'kit:@handle/kit[#revisionId] | collection:<id>[#n] | @publisher/package[@version]...')
@@ -80,7 +86,7 @@ export const updateCommand = withCommon(new Command('update'))
         }
         return { outcomes, lockPath };
       },
-      (data) => data.outcomes.forEach((o, i) => printApplied(o, i === data.outcomes.length - 1 ? data.lockPath : null)),
+      printUpdated,
     ),
   );
 
