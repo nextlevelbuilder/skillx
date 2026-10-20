@@ -24,12 +24,13 @@ const PROMPT_INJECTION_PATTERNS = [
  * Prompt-injection rules run on normalized text, because readers drop or
  * space out characters the raw regexes would see: default-ignorable code
  * points (soft hyphen, zero-width and bidi controls) render as nothing, and
- * U+0085 (NEL) and U+FFFD (a lossy decode's replacement character) as a
- * break. An ignorable character may sit inside a word ("Ig\u00ADnore") or
- * between words, so both the stripped and the spaced form are checked.
+ * U+0085 (NEL), U+FFFD (a lossy decode's replacement character) and the
+ * Hangul fillers (ignorable, yet drawn as a blank) as a break. An ignorable
+ * character may sit inside a word ("Ig\u00ADnore") or between words, so both
+ * the stripped and the spaced form are checked.
  */
 const DEFAULT_IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu;
-const EXTRA_SEPARATORS = /[\u0085\uFFFD]/g;
+const EXTRA_SEPARATORS = /[\u0085\uFFFD\u115F\u1160\u3164\uFFA0]/g;
 function injectionCandidates(content: string): string[] {
   const separated = content.replace(EXTRA_SEPARATORS, " ");
   return [separated.replace(DEFAULT_IGNORABLE, ""), separated.replace(DEFAULT_IGNORABLE, " ")];

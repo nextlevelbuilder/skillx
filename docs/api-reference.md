@@ -1034,7 +1034,7 @@ The scan only decides the initial state. Any of these makes the release
   content from the scan while agents still read the file;
 - prompt injection or another `danger` rule of the SKILL.md scanner in an
   instruction document (injection rules also see through soft hyphens and
-  other default-ignorable code points, U+0085 and U+FFFD).
+  other default-ignorable code points, Hangul fillers, U+0085 and U+FFFD).
 
 Findings are `danger:<rule>:<path>` and never echo the matched text.
 

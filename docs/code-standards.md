@@ -582,7 +582,7 @@ const sanitized = sanitizeContent(skillContent);
 - Prompt injection patterns ("ignore all previous instructions", etc.), matched after
   normalizing separators readers drop or space out: default-ignorable code points
   (soft hyphen, zero-width, bidi controls) are both stripped and spaced, and
-  U+0085 (NEL) and U+FFFD count as whitespace
+  U+0085 (NEL), U+FFFD and the Hangul fillers count as whitespace
 - ANSI escape sequences
 - Shell injection vectors
 - HTML/XML tags (script, iframe, form)
