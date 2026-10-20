@@ -436,6 +436,10 @@ describe("release read: release and publisher state", () => {
     expect(fileRes.headers.get("X-SkillX-Release-State")).toBe("yanked");
     const artifact = await api.artifact(digest);
     expect(artifact.headers.get("X-SkillX-Release-State")).toBe("yanked");
+    // The channel moves with promote: only the short-lived manifest answer carries it.
+    expect(manifest.headers.get("X-SkillX-Release-Channel")).toBe("stable");
+    expect(fileRes.headers.get("X-SkillX-Release-Channel")).toBeNull();
+    expect(artifact.headers.get("X-SkillX-Release-Channel")).toBeNull();
     expect(await bytesOf(artifact)).toEqual(tar);
     const list = await (await api.list("@alpha/demo")).json();
     expect(list.releases).toEqual([expect.objectContaining({ version: "1.0.0", state: "yanked" })]);

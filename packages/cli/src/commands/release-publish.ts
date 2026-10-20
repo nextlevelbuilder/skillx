@@ -1,10 +1,10 @@
 import { Command } from 'commander';
 import { spawnSync } from 'node:child_process';
 import chalk from 'chalk';
-import { getApiKey, getBaseUrl } from '../utils/config-store.js';
-import { packRelease, packSummary, releasePackCommand, warnPackNotes } from './release-pack.js';
-
-const NAME_PATTERN = /^@([a-z0-9][a-z0-9._-]*)\/([a-z0-9][a-z0-9._-]*)$/;
+import { getBaseUrl } from '../utils/config-store.js';
+import { CliError, parsePackageName, publishCredential, registryFetch, runCommand, usageError } from '../lib/release-cli.js';
+import { createPackCommand, packOrFail } from './pack.js';
+import { packSummary } from './release-pack.js';
 
 /** HTTPS form of a git remote without credentials, or null when it has none. */
 export function httpsRepoUrl(remote: string): string | null {
@@ -53,92 +53,102 @@ function originUrl(repoRoot: string): string | null {
   return result.status === 0 ? httpsRepoUrl(result.stdout) : null;
 }
 
-interface PublishOptions {
-  name: string;
-  releaseVersion: string;
+export interface ReleasePublishOptions {
+  name?: string;
+  releaseVersion?: string;
   path?: string;
   channel: string;
   kind: string;
   repo?: string;
   script: string[];
   registry?: string;
+  idempotencyKey?: string;
+  oidc?: boolean;
+  oidcAudience?: string;
   json?: boolean;
 }
 
 const collect = (value: string, previous: string[]) => [...previous, value];
 
-export const releasePublishCommand = new Command('publish')
-  .description('Pack a skill from git and upload it as an immutable SkillX release (needs a releases:publish API key)')
-  .argument('<source>', 'package directory (packs HEAD) or git ref (with --path)')
-  .requiredOption('-n, --name <@publisher/slug>', 'package name')
-  // Not --version: the root program owns that flag in every position.
-  .requiredOption('--release-version <semver>', 'release version, e.g. 1.0.0')
-  .option('-p, --path <dir>', 'package directory inside the repository, for a git ref')
-  .option('--channel <channel>', 'stable | beta | alpha', 'stable')
-  .option('--kind <kind>', 'skill | hook-pack | bundle', 'skill')
-  .option('--repo <https-url>', 'source repository URL for provenance (default: git remote origin)')
-  .option('--script <path>', 'declare a packaged file as a script (repeatable)', collect, [])
-  .option('--registry <url>', 'registry base URL (default: configured base URL)')
-  .option('--json', 'print the result as JSON')
-  .action(async (input: string, options: PublishOptions) => {
-    try {
-      const name = NAME_PATTERN.exec(options.name);
-      if (!name) throw new Error(`--name must be @publisher/slug, got ${JSON.stringify(options.name)}`);
-      const apiKey = getApiKey();
-      if (!apiKey) throw new Error('an API key is required: set SKILLX_API_KEY or run skillx config set api-key <key>');
-      if (options.repo !== undefined && httpsRepoUrl(options.repo) !== options.repo) {
-        throw new Error('--repo must be an https URL without credentials or a trailing .git');
-      }
+/** Registry base URL from --registry or the configured base URL; a bad one is a usage error. */
+export function resolveRegistry(raw: string | undefined): string {
+  try {
+    return registryBaseUrl(raw ?? getBaseUrl());
+  } catch (error) {
+    throw usageError((error as Error).message);
+  }
+}
 
-      const base = registryBaseUrl(options.registry ?? getBaseUrl());
-      const packed = await packRelease(input, { packagePath: options.path });
-      warnPackNotes(packed);
-      const repo = options.repo ?? originUrl(packed.source.repoRoot);
-      if (repo === null) console.error(chalk.yellow('warning: no https origin remote; the release will record no source provenance'));
+/** Packs `input` and uploads it as release `--name`@`--release-version`; the registry must store the same tree. */
+export async function runReleasePublish(input: string, options: ReleasePublishOptions) {
+  const name = parsePackageName(options.name);
+  if (!options.releaseVersion) throw usageError('--release-version is required, e.g. 1.0.0');
+  if (options.repo !== undefined && httpsRepoUrl(options.repo) !== options.repo) {
+    throw usageError('--repo must be an https URL without credentials or a trailing .git');
+  }
+  const base = resolveRegistry(options.registry);
+  const packed = await packOrFail(input, options.path);
+  const credential = await publishCredential(base, name.handle, options);
+  const repo = options.repo ?? originUrl(packed.source.repoRoot);
+  if (repo === null) console.error(chalk.yellow('warning: no https origin remote; the release will record no source provenance'));
 
-      const metadata = {
-        version: options.releaseVersion,
-        channel: options.channel,
-        kind: options.kind,
-        sourceProvenance: repo === null ? null : { repo, commit: packed.commit, path: packed.path },
-        declaredScripts: [...options.script].sort(),
-      };
-      const res = await fetch(`${base}/api/v1/packages/@${name[1]}/${name[2]}/releases`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          'Content-Type': 'application/x-tar',
-          'X-SkillX-Release': Buffer.from(JSON.stringify(metadata), 'utf8').toString('base64'),
-        },
-        body: packed.tar,
-      });
-      const text = await res.text();
-      let body: Record<string, unknown> = {};
-      try {
-        body = JSON.parse(text) as Record<string, unknown>;
-      } catch {
-        // Non-JSON answers are reported below with their status.
-      }
-      if (!res.ok) {
-        const error = body.error as { code?: string; message?: string } | undefined;
-        throw new Error(`registry answered ${res.status}${error?.code ? ` ${error.code}` : ''}: ${error?.message ?? text.slice(0, 300)}`);
-      }
-      assertRegistryDigests(packed, body);
-      const result = { ...packSummary(packed), ...body };
-      if (options.json) {
-        console.log(JSON.stringify(result, null, 2));
-        return;
-      }
-      console.log(chalk.bold.green(`${body.created ? 'Published' : 'Already published'} ${options.name}@${options.releaseVersion}`));
-      console.log(`  releaseDigest: ${chalk.cyan(String(body.releaseDigest))}`);
-      console.log(`  state: ${body.state === 'published' ? chalk.green('published') : chalk.yellow(String(body.state))}`);
-    } catch (error) {
-      console.error(chalk.red(`release publish failed: ${error instanceof Error ? error.message : String(error)}`));
-      process.exit(1);
-    }
+  const metadata = {
+    version: options.releaseVersion,
+    channel: options.channel,
+    kind: options.kind,
+    sourceProvenance: repo === null ? null : { repo, commit: packed.commit, path: packed.path },
+    declaredScripts: [...options.script].sort(),
+  };
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${credential}`,
+    'Content-Type': 'application/x-tar',
+    'X-SkillX-Release': Buffer.from(JSON.stringify(metadata), 'utf8').toString('base64'),
+  };
+  if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
+  const body = await registryFetch(`${base}/api/v1/packages/@${name.handle}/${name.slug}/releases`, { method: 'POST', headers, body: packed.tar });
+  try {
+    assertRegistryDigests(packed, body);
+  } catch (error) {
+    throw new CliError('api_error', (error as Error).message, { details: { local: packSummary(packed) } });
+  }
+  return { ...packSummary(packed), ...body, name: name.name } as ReturnType<typeof packSummary> & Record<string, unknown> & { name: string };
+}
+
+export function renderPublished(result: Awaited<ReturnType<typeof runReleasePublish>>): void {
+  console.log(chalk.bold.green(`${result.created ? 'Published' : 'Already published'} ${result.name}@${String(result.version)}`));
+  console.log(`  releaseDigest: ${chalk.cyan(String(result.releaseDigest))}`);
+  console.log(`  state: ${result.state === 'published' ? chalk.green('published') : chalk.yellow(String(result.state))}`);
+}
+
+/** The release publish options, shared by `skillx publish` and `skillx release publish`. */
+export function withReleasePublishOptions(command: Command): Command {
+  return command
+    .option('-n, --name <@publisher/slug>', 'package name (release mode)')
+    // Not --version: the root program owns that flag in every position.
+    .option('--release-version <semver>', 'release version, e.g. 1.0.0 (release mode)')
+    .option('-p, --path <dir>', 'package directory inside the repository, for a git ref')
+    .option('--channel <channel>', 'stable | beta | alpha', 'stable')
+    .option('--kind <kind>', 'skill | hook-pack | bundle', 'skill')
+    .option('--repo <https-url>', 'source repository URL for provenance (default: git remote origin)')
+    .option('--script <path>', 'declare a packaged file as a script (repeatable)', collect, [])
+    .option('--registry <url>', 'registry base URL (default: configured base URL)')
+    .option('--idempotency-key <key>', 'Idempotency-Key header: a retry with the same key replays the first answer')
+    .option('--oidc', 'authenticate with the GitHub Actions OIDC token (trusted publishing) instead of an API key')
+    .option('--oidc-audience <aud>', 'audience requested for the OIDC token', 'skillx')
+    .option('--json', 'print the result as a JSON envelope');
+}
+
+export function createReleasePublishCommand(): Command {
+  return withReleasePublishOptions(
+    new Command('publish')
+      .description('Pack a skill from git and upload it as an immutable SkillX release (alias of `skillx publish <dir>`)')
+      .argument('<source>', 'package directory (packs HEAD) or git ref (with --path)'),
+  ).action(async (input: string, options: ReleasePublishOptions) => {
+    await runCommand('release publish', options.json, () => runReleasePublish(input, options), renderPublished);
   });
+}
 
 export const releaseCommand = new Command('release')
-  .description('Build and publish immutable, digest-pinned releases')
-  .addCommand(releasePackCommand)
-  .addCommand(releasePublishCommand);
+  .description('Aliases of `skillx pack` and `skillx publish <dir>`')
+  .addCommand(createPackCommand())
+  .addCommand(createReleasePublishCommand());

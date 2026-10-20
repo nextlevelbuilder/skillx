@@ -8,7 +8,13 @@ import { checkCommand } from './commands/check.js';
 import { reportCommand } from './commands/report.js';
 import { configCommand } from './commands/config.js';
 import { publishCommand } from './commands/publish.js';
+import { importCommand } from './commands/import.js';
+import { validateCommand } from './commands/validate.js';
+import { createPackCommand } from './commands/pack.js';
+import { promoteCommand } from './commands/promote.js';
 import { releaseCommand } from './commands/release-publish.js';
+import { installCommand, listCommand, syncCommand, uninstallCommand, updateCommand } from './commands/install.js';
+import { mcpCommand } from './commands/mcp.js';
 
 /** Injected at build time from packages/cli/package.json by tsup (see tsup.config.ts). */
 declare const __SKILLX_VERSION__: string;
@@ -27,7 +33,12 @@ program.addCommand(inspectCommand);
 program.addCommand(checkCommand);
 program.addCommand(reportCommand);
 program.addCommand(configCommand);
+program.addCommand(importCommand);
+program.addCommand(validateCommand);
+program.addCommand(createPackCommand());
 program.addCommand(publishCommand);
+program.addCommand(promoteCommand);
 program.addCommand(releaseCommand);
+for (const command of [installCommand, updateCommand, uninstallCommand, listCommand, syncCommand, mcpCommand]) program.addCommand(command);
 
 program.parse(process.argv);

@@ -81,10 +81,10 @@ export const releaseStateAudit = sqliteTable(
   "release_state_audit",
   {
     id: text("id").primaryKey(),
-    subject_kind: text("subject_kind").notNull(), // release | publisher
-    subject_id: text("subject_id").notNull(), // package_releases.id or publishers.id
-    actor_kind: text("actor_kind").notNull(), // admin | user
-    actor_id: text("actor_id").notNull(), // 'admin' (shared ADMIN_SECRET) or the user id
+    subject_kind: text("subject_kind").notNull(), // release | publisher | release_channel | trusted_publisher
+    subject_id: text("subject_id").notNull(), // package_releases.id, publishers.id or trusted_publishers.id
+    actor_kind: text("actor_kind").notNull(), // admin | user | publisher_key (scoped key or OIDC publish token)
+    actor_id: text("actor_id").notNull(), // 'admin' (shared ADMIN_SECRET), the user id, the API key id, or oidc:<jti>
     from_state: text("from_state").notNull(), // the state the actor expected (compare-and-set); "none" for a publisher creation
     to_state: text("to_state").notNull(),
     outcome: text("outcome").notNull(), // applied | stale | denied | invalid

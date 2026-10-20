@@ -81,15 +81,15 @@ describe("built cli", () => {
   it("packs a skill with YAML frontmatter through the skill-tree reader", async () => {
     const out = join(root, "smoke.tar");
     const { stdout } = await cli("release", "pack", skillDir, "--out", out, "--json");
-    const summary = JSON.parse(stdout) as { releaseDigest: string; artifactDigest: string; fileCount: number };
+    const summary = (JSON.parse(stdout) as { ok: true; data: { releaseDigest: string; artifactDigest: string; fileCount: number } }).data;
     expect(summary.releaseDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
     expect(summary.fileCount).toBe(2);
     expect(`sha256:${createHash("sha256").update(readFileSync(out)).digest("hex")}`).toBe(summary.artifactDigest);
   });
 
   it("publishes a release to a loopback stub registry", async () => {
-    const packDigest = (JSON.parse((await cli("release", "pack", skillDir, "--out", join(root, "pub.tar"), "--json")).stdout) as { releaseDigest: string }).releaseDigest;
-    const received: { url?: string; auth?: string; type?: string; digest?: string } = {};
+    const packDigest = (JSON.parse((await cli("pack", skillDir, "--out", join(root, "pub.tar"), "--json")).stdout) as { data: { releaseDigest: string } }).data.releaseDigest;
+    const received: { url?: string; auth?: string; type?: string; digest?: string; idempotency?: string } = {};
     const server = createServer((req, res) => {
       const chunks: Buffer[] = [];
       req.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -100,6 +100,7 @@ describe("built cli", () => {
           auth: req.headers.authorization,
           type: req.headers["content-type"],
           digest: `sha256:${createHash("sha256").update(body).digest("hex")}`,
+          idempotency: req.headers["idempotency-key"],
         });
         const meta = JSON.parse(Buffer.from(String(req.headers["x-skillx-release"]), "base64").toString("utf8")) as { version: string };
         res.writeHead(201, { "Content-Type": "application/json" });
@@ -111,18 +112,56 @@ describe("built cli", () => {
     try {
       const { port } = server.address() as AddressInfo;
       const { stdout } = await cli(
-        "release", "publish", skillDir,
+        "publish", skillDir,
         "--name", "@smoke/smoke-skill",
         "--release-version", "1.0.0",
         "--repo", "https://github.com/example/smoke",
         "--registry", `http://127.0.0.1:${port}`,
+        "--idempotency-key", "smoke-run-1",
         "--json",
       );
-      const result = JSON.parse(stdout) as { releaseDigest: string; artifactDigest: string; state: string };
+      const result = (JSON.parse(stdout) as { ok: true; data: { releaseDigest: string; artifactDigest: string; state: string } }).data;
       expect(result).toMatchObject({ releaseDigest: packDigest, artifactDigest: received.digest, state: "published" });
-      expect(received).toMatchObject({ url: "/api/v1/packages/@smoke/smoke-skill/releases", auth: "Bearer sx_test_smoke_key", type: "application/x-tar" });
+      expect(received).toMatchObject({ url: "/api/v1/packages/@smoke/smoke-skill/releases", auth: "Bearer sx_test_smoke_key", type: "application/x-tar", idempotency: "smoke-run-1" });
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
+  });
+
+  it("validates and packs the same tree to the same digest on every run", async () => {
+    const runs = [];
+    for (const i of [1, 2]) {
+      const validated = JSON.parse((await cli("validate", skillDir, "--name", "@smoke/smoke-skill", "--release-version", "1.0.0", "--json")).stdout);
+      const packed = JSON.parse((await cli("pack", skillDir, "--out", join(root, `twice-${i}.tar`), "--json")).stdout);
+      expect(validated).toMatchObject({ ok: true, data: { valid: true, skill: { name: "smoke-skill" } } });
+      runs.push([validated.data.releaseDigest, packed.data.releaseDigest, packed.data.artifactDigest]);
+    }
+    expect(runs[0][0]).toBe(runs[0][1]);
+    expect(runs[1]).toEqual(runs[0]);
+    expect(readFileSync(join(root, "twice-1.tar"))).toEqual(readFileSync(join(root, "twice-2.tar")));
+  });
+
+  it("answers usage (2) and auth (5) failures with an envelope and exit code", async () => {
+    const bad = await cli("validate", skillDir, "--release-version", "v1", "--json").catch((e) => e);
+    expect(bad.code).toBe(2);
+    expect(JSON.parse(bad.stdout)).toMatchObject({ ok: false, error: { code: "usage_error" } });
+    const noKey = await execFileAsync(process.execPath, [BIN, "publish", skillDir, "--name", "@smoke/s", "--release-version", "1.0.0", "--registry", "http://127.0.0.1:9", "--json"], {
+      cwd: root,
+      env: { ...childEnv, SKILLX_API_KEY: "" },
+      encoding: "utf8",
+    }).catch((e) => e);
+    expect(noKey.code).toBe(5);
+    expect(JSON.parse(noKey.stdout).error.code).toBe("auth_error");
+  });
+
+  it("keeps `publish owner/repo` as a deprecated import and exposes the aliases", async () => {
+    const { stdout, stderr } = await cli("publish", "example/smoke", "--dry-run");
+    expect(stderr).toContain("deprecated");
+    expect(stderr).toContain("skillx import");
+    expect(stdout).toContain("example/smoke");
+    expect((await cli("import", "example/smoke", "--dry-run")).stderr).not.toContain("deprecated");
+    const help = (await cli("--help")).stdout;
+    for (const command of ["import", "validate", "pack", "publish", "promote", "release"]) expect(help).toContain(command);
+    expect((await cli("promote", "--help")).stdout).toContain("--to <channel>");
   });
 });

@@ -21,6 +21,13 @@ declare global {
      * vars that are missing from the config, and only secrets survive it.
      */
     SKILLX_REGISTRY_REVOKED_KEY_IDS?: string;
+    /**
+     * HMAC secret (at least 32 characters) for short-lived tokens: OIDC publish tokens
+     * (`sxo_`) and signed artifact download URLs. Secret; unset disables both features.
+     */
+    SKILLX_TOKEN_SECRET?: string;
+    /** Audience a GitHub Actions OIDC token must carry; defaults to `skillx`. */
+    SKILLX_OIDC_AUDIENCE?: string;
   }
 }
 

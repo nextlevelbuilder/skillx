@@ -1,11 +1,14 @@
 /**
  * Authorization of a release upload: a scoped publisher API key
  * (`releases:publish:@<handle>`) whose owner owns the active publisher of the
- * package handle. Sessions and legacy unscoped keys are not accepted.
+ * package handle, or a short-lived OIDC publish token (`sxo_...`, minted by
+ * the trusted publishing exchange) for exactly that handle. Sessions and
+ * legacy unscoped keys are not accepted.
  */
 import { hashApiKey, hashScopedApiKey } from "~/lib/auth/api-key-utils";
 import { parseStoredScopes, releasePublishScope } from "~/lib/auth/api-key-scopes";
 import { releaseError } from "./release-http";
+import { verifyOidcPublishToken } from "./trusted-publish-token";
 
 export interface AuthorizedPublisher {
   publisherId: string;
@@ -27,9 +30,25 @@ function scopeMissing(handle: string) {
   return releaseError(403, "auth.scope_missing", `this API key does not hold the ${releasePublishScope(handle)} scope`);
 }
 
-export async function authorizeReleasePublisher(db: D1Database, request: Request, handle: string): Promise<AuthorizedPublisher> {
+export interface PublisherAuthOptions {
+  /** `SKILLX_TOKEN_SECRET`; without it OIDC publish tokens are refused. */
+  tokenSecret?: string | null;
+  now?: Date;
+}
+
+export async function authorizeReleasePublisher(
+  db: D1Database,
+  request: Request,
+  handle: string,
+  options: PublisherAuthOptions = {},
+): Promise<AuthorizedPublisher> {
   const header = request.headers.get("Authorization") ?? "";
   const token = header.startsWith("Bearer ") ? header.slice(7).trim() : "";
+  if (token.startsWith("sxo_")) {
+    const authorized = await verifyOidcPublishToken(db, token, handle, options.tokenSecret ?? null, options.now ?? new Date());
+    if (authorized === null) throw unauthorized();
+    return authorized;
+  }
   if (!API_KEY_PATTERN.test(token)) throw unauthorized();
 
   const key = await db.prepare(KEY_QUERY).bind(await hashScopedApiKey(token)).first<KeyRow>();

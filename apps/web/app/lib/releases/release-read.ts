@@ -124,6 +124,13 @@ function stateHeaders(release: ReadableRelease): Record<string, string> {
   };
 }
 
+/**
+ * The current channel moves with promote and is not signed, so it is sent
+ * only on short-lived answers, never on the year-long immutable file and
+ * artifact responses.
+ */
+const channelHeader = (release: ReadableRelease) => ({ "X-SkillX-Release-Channel": release.channel });
+
 const DOWNLOAD_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "Content-Security-Policy": "default-src 'none'; sandbox",
@@ -171,6 +178,7 @@ async function manifestResponse(ctx: ReadContext, release: ReadableRelease): Pro
     "Cache-Control": cacheControl(release, SHORT_TTL_SECONDS, false),
     "X-Content-Type-Options": "nosniff",
     ...stateHeaders(release),
+    ...channelHeader(release),
   });
 }
 
@@ -208,7 +216,7 @@ export async function readManifestByVersion(ctx: ReadContext, params: Params): P
  * that pin one release of the tree; a malformed value is 400, an unknown or
  * mismatched one 404.
  */
-async function resolveDigestTarget(ctx: ReadContext, params: Params): Promise<ReadableRelease> {
+export async function resolveDigestTarget(ctx: ReadContext, params: Params): Promise<ReadableRelease> {
   const digest = parseReleaseDigest(params.digest);
   const query = new URL(ctx.request.url).searchParams;
   const selector = query.get("version");
@@ -290,7 +298,15 @@ export async function readReleaseFile(ctx: ReadContext, params: Params): Promise
 
 /** `GET /api/v1/releases/:digest/artifact[?version=&package=]`: the uploaded tar, streamed from the R2 body. */
 export async function readReleaseArtifact(ctx: ReadContext, params: Params): Promise<Response> {
-  const release = await resolveDigestTarget(ctx, params);
+  return artifactResponse(ctx, await resolveDigestTarget(ctx, params));
+}
+
+/**
+ * Streams the artifact of an already authorized release. `cache` overrides
+ * the immutable public/private cache policy (signed download URLs are
+ * `no-store`: the URL itself is the short-lived capability).
+ */
+export async function artifactResponse(ctx: ReadContext, release: ReadableRelease, cache?: string): Promise<Response> {
   if (release.artifactKey === null || release.artifactDigest === null) throw storageError(`release ${release.id} has no artifact`);
   const object = await ctx.bucket.get(release.artifactKey);
   if (object === null) throw storageError(`artifact ${release.artifactKey} is missing`);
@@ -300,7 +316,7 @@ export async function readReleaseArtifact(ctx: ReadContext, params: Params): Pro
   }
   return bytesResponse(ctx.request, object, `"${hexFromKey(release.artifactKey)}"`, {
     "Content-Type": "application/x-tar",
-    "Cache-Control": cacheControl(release, IMMUTABLE_TTL_SECONDS, true),
+    "Cache-Control": cache ?? cacheControl(release, IMMUTABLE_TTL_SECONDS, true),
     "X-SkillX-Artifact-Digest": release.artifactDigest,
     ...DOWNLOAD_HEADERS,
     ...stateHeaders(release),

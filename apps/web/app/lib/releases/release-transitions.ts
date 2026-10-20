@@ -49,8 +49,12 @@ const COMPOSITE_RELEASE_PATHS: Readonly<Record<string, readonly ReleaseState[]>>
   "yanked>quarantined": ["yanked", "published", "quarantined"],
 };
 
-/** `admin` is the shared `ADMIN_SECRET` (no individual identity); `user` is a session or account API key. */
-export type TransitionActor = { kind: "admin"; id: "admin" } | { kind: "user"; id: string };
+/**
+ * `admin` is the shared `ADMIN_SECRET` (no individual identity); `user` is a session or account API key;
+ * `publisher_key` is a `releases:publish:@handle` credential (scoped key id, or `oidc:<jti>`), accepted
+ * only by channel promotion.
+ */
+export type TransitionActor = { kind: "admin"; id: "admin" } | { kind: "user"; id: string } | { kind: "publisher_key"; id: string };
 
 export interface TransitionInput<S extends string> {
   from: S;

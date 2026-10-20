@@ -20,6 +20,21 @@ const PROMPT_INJECTION_PATTERNS = [
   /(?:reveal|show|print|output|leak)\s+(?:the\s+)?system\s+prompt/i,
   /(?:override|replace|rewrite)\s+(?:the\s+)?system\s+prompt/i,
 ];
+/**
+ * Prompt-injection rules run on normalized text, because readers drop or
+ * space out characters the raw regexes would see: default-ignorable code
+ * points (soft hyphen, zero-width and bidi controls) render as nothing, and
+ * U+0085 (NEL), U+FFFD (a lossy decode's replacement character) and the
+ * Hangul fillers (ignorable, yet drawn as a blank) as a break. An ignorable
+ * character may sit inside a word ("Ig\u00ADnore") or between words, so both
+ * the stripped and the spaced form are checked.
+ */
+const DEFAULT_IGNORABLE = /\p{Default_Ignorable_Code_Point}/gu;
+const EXTRA_SEPARATORS = /[\u0085\uFFFD\u115F\u1160\u3164\uFFA0]/g;
+function injectionCandidates(content: string): string[] {
+  const separated = content.replace(EXTRA_SEPARATORS, " ");
+  return [separated.replace(DEFAULT_IGNORABLE, ""), separated.replace(DEFAULT_IGNORABLE, " ")];
+}
 const JS_PROTOCOL = /javascript\s*:/i;
 const DATA_HTML = /data\s*:\s*text\/html/i;
 const SHELL_INJECTION = /(?:\$\([^)]+\)|eval\s*\(|exec\s*\()/;
@@ -57,8 +72,9 @@ export function scanContent(content: string): ScanResult {
     findings.push(`danger:ansi-escape:${ansi.length} terminal escape codes`);
   }
 
+  const candidates = injectionCandidates(content);
   for (const pattern of PROMPT_INJECTION_PATTERNS) {
-    if (pattern.test(content)) {
+    if (candidates.some((text) => pattern.test(text))) {
       findings.push(`danger:prompt-injection:${pattern.source}`);
     }
   }

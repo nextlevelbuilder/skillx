@@ -7,7 +7,7 @@
  */
 import type { TransitionInput } from "./release-transitions";
 
-export type SubjectKind = "release" | "publisher";
+export type SubjectKind = "release" | "publisher" | "release_channel";
 export type AttemptOutcome = "denied" | "invalid";
 export type CasOutcome = "applied" | "stale" | "denied";
 
@@ -30,12 +30,19 @@ export interface CasPlan {
   extraSet?: string;
   extraBinds?: unknown[];
   guard?: CasGuard;
+  /**
+   * Extra `INSERT ... SELECT ...` statements of the same batch that must apply
+   * only with the change: each runs after the update, with `WHERE <applied>`
+   * appended (so its SQL must end in a `SELECT` without a `WHERE` clause).
+   */
+  alsoInsert?: CasGuard[];
 }
 
 /** Fixed table and column of each subject kind; never built from input. */
 const TARGETS = {
   release: { table: "package_releases", column: "release_state" },
   publisher: { table: "publishers", column: "state" },
+  release_channel: { table: "package_releases", column: "channel" },
 } as const;
 
 export const AUDIT_COLUMNS = "id, subject_kind, subject_id, actor_kind, actor_id, from_state, to_state, outcome, reason, created_at";
@@ -95,7 +102,9 @@ export async function compareAndSet(db: D1Database, attempt: Attempt, plan: CasP
           AND (SELECT count(*) FROM release_state_audit WHERE id IN (${edgeIds.map(() => "?").join(", ")}) AND outcome = 'applied') = ?`,
     )
     .bind(input.to, ...(plan.extraBinds ?? []), subjectId, input.from, ...edgeIds, edgeIds.length);
-  await db.batch([refused, ...edges, update]);
+  const applied = `(SELECT count(*) FROM release_state_audit WHERE id IN (${edgeIds.map(() => "?").join(", ")}) AND outcome = 'applied') = ?`;
+  const also = (plan.alsoInsert ?? []).map((insert) => db.prepare(`${insert.sql} WHERE ${applied}`).bind(...insert.binds, ...edgeIds, edgeIds.length));
+  await db.batch([refused, ...edges, update, ...also]);
   // Decide from the audit rows, not `meta.changes`: the batch is one transaction, so a
   // missing refused row means every edge row and the update were applied together.
   const row = await db.prepare("SELECT outcome FROM release_state_audit WHERE id = ?").bind(requestRowId).first<{ outcome: string }>();
