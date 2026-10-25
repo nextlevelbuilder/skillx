@@ -493,7 +493,8 @@ verifies the result like any revision.
   `kit.public_derivative_forbidden` when any base, or the parent kit, is
   private or paid. Overlays are stored only for their owner.
 - **Entitlement**: bases load through the pinned-read access rules for the
-  owner. The owner must be able to read the release (public, or entitled), its
+  owner. The owner must be able to read the release (public, a private
+  package of a publisher the same account owns, or entitled), its
   publisher must be active, and no release of its tree may be quarantined.
   Every blob is checked against the manifest SHA-256.
 - **Pins**: a pin is the exact package, version and tree digest. Another

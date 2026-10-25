@@ -5,12 +5,16 @@
  * then publisher revoked (403), then yanked (410 by version, served with its
  * state by digest).
  *
- * - A private package needs an unrevoked entitlement of the viewer (whole
- *   stream, or the release itself), decided by the shared payload-access
- *   gate. Unentitled answers exactly like an unknown package: `404
- *   not_found`, same body, same queries (the entitlement test is part of the
- *   one lookup query, so existence does not change the query count).
- * - A suspended or revoked publisher: `403 publisher_revoked`.
+ * - A private package is readable by the owner of its publisher
+ *   (`publishers.owner_user_id`, read at request time, so a change of owner
+ *   takes effect at once) and by a viewer holding an unrevoked entitlement
+ *   (whole stream, or the release itself), decided by the shared
+ *   payload-access gate. Anyone else answers exactly like an unknown
+ *   package: `404 not_found`, same body, same queries (the owner and
+ *   entitlement tests are part of the one lookup query, so existence does
+ *   not change the query count).
+ * - A suspended or revoked publisher: `403 publisher_revoked`, for its owner
+ *   too.
  * - `quarantined`: `403 release_quarantined` everywhere, for every release
  *   of the same tree (quarantine judges the bytes, in any package).
  * - `yanked`: served by digest (with its state); `410 release_yanked` for a
@@ -42,6 +46,8 @@ export interface ReadableRelease {
 export interface ReleaseRowAccess extends ReadableRelease {
   publisherState: string;
   entitled: boolean;
+  /** The viewer owns the package's publisher. */
+  owned: boolean;
   /** Some release of this tree, in any package, is quarantined. */
   treeQuarantined: boolean;
 }
@@ -79,13 +85,20 @@ export function parseReleaseVersion(raw: string | undefined): string {
   return raw;
 }
 
-// `?` 1 is always the viewer subject ('' for anonymous, which matches no entitlement).
+/**
+ * True when the viewer (bound once) owns the package's publisher. An empty or
+ * missing owner never matches, so the anonymous '' bind owns nothing.
+ */
+const OWNED = `(pub.owner_user_id IS NOT NULL AND pub.owner_user_id <> '' AND pub.owner_user_id = ?)`;
+
+// `?` 1 and 2 are always the viewer subject ('' for anonymous, which matches no entitlement and no owner).
 const RELEASE_SELECT = `
   SELECT r.id, p.name, r.version, r.channel, r.release_state, r.release_digest, r.artifact_key, r.artifact_digest,
          r.artifact_size, r.signed_manifest_key, r.created_at, p.visibility, pub.state AS publisher_state,
          EXISTS (SELECT 1 FROM entitlements e
                   WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL
                     AND (e.release_id IS NULL OR e.release_id = r.id)) AS entitled,
+         ${OWNED} AS owned,
          EXISTS (SELECT 1 FROM package_releases q
                   WHERE q.release_digest = r.release_digest AND q.release_state = 'quarantined') AS tree_quarantined
     FROM package_releases r
@@ -109,6 +122,7 @@ interface ReleaseRowRaw {
   visibility: string;
   publisher_state: string;
   entitled: number;
+  owned: number;
   tree_quarantined: number;
 }
 
@@ -128,6 +142,7 @@ function toRelease(row: ReleaseRowRaw): ReleaseRowAccess {
     visibility: row.visibility,
     publisherState: row.publisher_state,
     entitled: Number(row.entitled) === 1,
+    owned: Number(row.owned) === 1,
     treeQuarantined: Number(row.tree_quarantined) === 1,
   };
 }
@@ -135,16 +150,21 @@ function toRelease(row: ReleaseRowRaw): ReleaseRowAccess {
 async function queryReleases(db: D1Database, where: string, userId: string | null, ...binds: unknown[]): Promise<ReleaseRowAccess[]> {
   const { results } = await db
     .prepare(`${RELEASE_SELECT} AND ${where}`)
-    .bind(userId ?? "", ...binds)
+    .bind(userId ?? "", userId ?? "", ...binds)
     .all<ReleaseRowRaw>();
   return results.map(toRelease);
 }
 
-/** The shared payload-access gate: public packages for everyone, private ones only with an entitlement. */
-function viewerMayRead(target: { identity: string; visibility: string; entitled: boolean }, userId: string | null): boolean {
+/**
+ * The shared payload-access gate: public packages for everyone, private ones
+ * only for the owner of their publisher or with an entitlement. Ownership
+ * counts only for a signed-in viewer, never for anonymous.
+ */
+function viewerMayRead(target: { identity: string; visibility: string; entitled: boolean; owned: boolean }, userId: string | null): boolean {
+  const owner = target.owned && userId !== null && userId !== "";
   return decidePayloadAccess(
     { slug: target.identity, isProtected: target.visibility !== "public", state: "published" },
-    { userId, hasEntitlement: target.entitled },
+    { userId, hasEntitlement: target.entitled || owner },
     () => true,
   ).granted;
 }
@@ -160,7 +180,7 @@ function quarantined() {
 /** Quarantine judges the bytes: any quarantined release of the tree blocks every release of it. */
 const isQuarantined = (row: ReleaseRowAccess) => row.state === "quarantined" || row.treeQuarantined;
 
-function strip({ publisherState: _p, entitled: _e, treeQuarantined: _q, ...release }: ReleaseRowAccess): ReadableRelease {
+function strip({ publisherState: _p, entitled: _e, owned: _o, treeQuarantined: _q, ...release }: ReleaseRowAccess): ReadableRelease {
   return release;
 }
 
@@ -226,13 +246,14 @@ export const MAX_DIGEST_ROWS = 50;
 
 /**
  * Bounds the digest lookup deterministically, in exactly the order that
- * decides the winner: rows the viewer may read (public, or entitled to the
- * package or the release, mirroring `viewerMayRead`; `entitled` is always 0
- * for an anonymous viewer), then rows of active publishers, then published
- * before yanked, then the earliest, then `id`. So the bound only drops rows
- * that could not have won, and the in-memory sort below agrees with it.
+ * decides the winner: rows the viewer may read (public, owned, or entitled
+ * to the package or the release, mirroring `viewerMayRead`; `entitled` and
+ * `owned` are always 0 for an anonymous viewer), then rows of active
+ * publishers, then published before yanked, then the earliest, then `id`. So
+ * the bound only drops rows that could not have won, and the in-memory sort
+ * below agrees with it.
  */
-const DIGEST_ORDER = `ORDER BY (p.visibility = 'public' OR entitled) DESC, pub.state = 'active' DESC,
+const DIGEST_ORDER = `ORDER BY (p.visibility = 'public' OR entitled OR owned) DESC, pub.state = 'active' DESC,
                                r.release_state = 'published' DESC, r.created_at, r.id`;
 
 const publishedFirst = (row: ReleaseRowAccess) => (row.state === "published" ? 0 : 1);
@@ -249,13 +270,16 @@ export async function listPackageReleases(db: D1Database, identity: string, user
     .prepare(
       `SELECT p.id, p.visibility, pub.state AS publisher_state,
               EXISTS (SELECT 1 FROM entitlements e
-                       WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL) AS entitled
+                       WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL) AS entitled,
+              ${OWNED} AS owned
          FROM packages p JOIN publishers pub ON pub.id = p.publisher_id
         WHERE p.name = ?`,
     )
-    .bind(userId ?? "", identity)
-    .first<{ id: string; visibility: string; publisher_state: string; entitled: number }>();
-  if (pkg === null || !viewerMayRead({ identity, visibility: pkg.visibility, entitled: Number(pkg.entitled) === 1 }, userId)) throw notFound();
+    .bind(userId ?? "", userId ?? "", identity)
+    .first<{ id: string; visibility: string; publisher_state: string; entitled: number; owned: number }>();
+  if (pkg === null) throw notFound();
+  const target = { identity, visibility: pkg.visibility, entitled: Number(pkg.entitled) === 1, owned: Number(pkg.owned) === 1 };
+  if (!viewerMayRead(target, userId)) throw notFound();
   if (pkg.publisher_state !== "active") throw publisherRevoked();
   const rows = await queryReleases(
     db,

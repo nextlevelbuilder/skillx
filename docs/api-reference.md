@@ -1239,17 +1239,21 @@ anonymous. The `Bearer` scheme is matched case-insensitively. Tokens are
 never accepted in the query string.
 
 **Access and state rules** (same answer on every endpoint, checked in this
-order: unknown or unentitled `404`, then quarantined `403`, then publisher
-revoked `403`, then yanked):
+order: unknown or not readable by the caller `404`, then quarantined `403`,
+then publisher revoked `403`, then yanked):
 
-- Private package (`packages.visibility = 'private'`): needs an unrevoked
-  entitlement of the caller for the package (`release_id` NULL) or the
-  release, decided by the shared payload-access gate. Otherwise the answer is
-  `404 not_found`, the same body as an unknown package, so existence is not
-  disclosed. A release-only entitlement lists only the entitled releases.
-  Publishers have no implicit access: they read their own private packages
-  through an entitlement, like any other caller.
-- Publisher `suspended` or `revoked`: `403 publisher_revoked` (after
+- Private package (`packages.visibility = 'private'`): readable by the owner
+  of its publisher (`publishers.owner_user_id`, the signed-in account of the
+  session or unscoped API key; no entitlement needed) and by a caller with an
+  unrevoked entitlement for the package (`release_id` NULL) or the release,
+  decided by the shared payload-access gate. Ownership is read on every
+  request, so a publisher that changes hands stops serving the previous
+  owner at once. Anyone else (another account, anonymous) gets `404
+  not_found`, the same body and the same queries as an unknown package, so
+  existence is not disclosed. A release-only entitlement lists only the
+  entitled releases; the owner sees every release.
+- Publisher `suspended` or `revoked`: `403 publisher_revoked`, for its owner
+  too (after
   quarantine: a quarantined release of a revoked publisher answers
   `release_quarantined`). The listing has no tree of its own, so it answers
   `publisher_revoked` and hides quarantined releases.
@@ -1754,7 +1758,7 @@ For a tool that holds no credentials (a package manager, `curl`), a viewer who
 may read a release can mint a short-lived URL:
 
 - `POST /api/v1/releases/{digest}/artifact/url[?version=&package=]` runs the
-  normal read path (viewer, read rate limit, the private package and
+  normal read path (viewer, read rate limit, the private package owner and
   entitlement rules above, the same `?version=`/`?package=` selectors) and
   answers `{"url", "expiresAt", "identity", "version", "releaseDigest", "artifactDigest", "artifactSize"}`
   (`no-store`). Other methods are `405`.
@@ -1762,8 +1766,9 @@ may read a release can mint a short-lived URL:
   valid for 5 minutes. The token is an HMAC (`SKILLX_TOKEN_SECRET`) over the
   release digest, identity, version, viewer and expiry; it is not an API key
   and grants nothing else. Redemption re-applies the access rules for the same
-  viewer, so a revoked entitlement, a quarantine, a yank by version or a
-  suspended publisher stops a URL already issued. A forged, expired or
+  viewer, so a revoked entitlement, a change of publisher owner, a
+  quarantine, a yank by version or a suspended publisher stops a URL already
+  issued. A forged, expired or
   unverifiable token answers exactly like an unknown release (`404`).
 
 Without `SKILLX_TOKEN_SECRET`, minting is `503 download_url.unavailable`. The
