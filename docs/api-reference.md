@@ -1460,6 +1460,38 @@ column and deletes the `0012_api_key_scopes.sql` row from `d1_migrations`.
 
 `/api/v1/kits/@{handle}/{name}[/...]` (flag `SKILLX_PERSONAL_KITS_API`): owner-private kit revisions, foundation rebase, conflict resolution, session-derived proposals and review, activation and locks. See [Personal Kits API](./personal-kits-api.md).
 
+### Private library
+
+`GET /api/v1/library` (flag `SKILLX_RELEASES_API`; kits also need `SKILLX_PERSONAL_KITS_API`) lists one page of the caller's private library, `skillx.library/v1`: the skills the caller owns (through a publisher it owns) or holds an unrevoked entitlement for, and the caller's personal kits. The caller is the web session, an unscoped account key, or a scoped key holding `library:read`, always acting as the account behind it. A key without `library:read` (a publish-only or `kits:write`-only key, a revoked or unknown key) answers `401 invalid_api_key` and never falls back to the session; anonymous answers `401 auth.required`. Assets the caller may not read are absent from the page (never a `403`), so the listing is no existence oracle. Reads count against the release read limiter.
+
+| Query | Meaning |
+|-------|---------|
+| `kind` | `skill` or `kit`; anything else is `400` |
+| `q` | Case-insensitive name fragment, at most 64 characters (`%` and `_` match literally) |
+| `limit` | 1 to 100, default 50; a larger value is clamped to 100, a non-integer or below 1 is `400` |
+| `cursor` | The opaque `nextCursor` of the previous page; a value this API did not return is `400 invalid_cursor` |
+
+Items are ordered by identity, then kind, and a cursor names a position in that order, so adding or removing assets between pages never repeats or skips the others.
+
+```json
+{
+  "schema": "skillx.library/v1",
+  "items": [
+    { "kind": "skill", "identity": "@alpha/secret", "relation": "owner", "visibility": "private", "packageKind": "skill",
+      "state": "published", "latest": { "version": "1.0.0", "releaseDigest": "sha256:..." }, "installRef": "@alpha/secret@1.0.0" },
+    { "kind": "kit", "identity": "@alpha/my-kit", "relation": "owner", "visibility": "private", "state": "active",
+      "effectiveRevision": { "id": "rev_...", "number": 2, "digest": "sha256:..." }, "generation": 3, "latestRevisionNumber": 2,
+      "installRef": "kit:@alpha/my-kit#rev_..." }
+  ],
+  "nextCursor": null,
+  "kits": { "status": "available" }
+}
+```
+
+`relation` is `owner` or `entitled` (kits are always `owner`). `state` is machine-readable: a skill is `published`, `no_release` (nothing published, or every release yanked, quarantined or outside a release-scoped entitlement) or `publisher_suspended`; a kit is `active`, `no_active_revision`, `quarantined` (its effective revision is) or `publisher_suspended`. `latest` is the newest published release the caller may read, skipping releases whose tree is quarantined anywhere; `installRef` is the ref to pass to `skillx install`, null unless the item is `published` or `active`. While personal kits are off, `kits` is `{"status":"unavailable","code":"kit.api_disabled"}` and no kit is listed, so a client can tell "kits are off" from "no kits". The releases API being off is the usual flag-off `404 not_found`.
+
+Every answer is `Cache-Control: private, no-store` with `Vary: Authorization, Cookie`; failures are `no-store`. No migration: the listing reads `packages`, `publishers`, `entitlements`, `package_releases`, `personal_kits` and `personal_kit_revisions`.
+
 ### Collections
 
 `/api/v1/collections[/:id[/...]]` (flag `SKILLX_COLLECTIONS_API`, 404 when off).
@@ -1950,6 +1982,7 @@ No explicit rate limiting at the API layer, except the release read API (300 req
 | `apps/web/app/routes/api.v1.release-status.ts` | Signed release status document (flagged) |
 | `apps/web/app/routes/api.v1.signing-keys.ts` | Registry key IDs (flagged) |
 | `apps/web/app/routes/api.v1.kits.ts` | Personal kit API (flagged; `app/lib/personal-kits/`) |
+| `apps/web/app/routes/api.v1.library.ts` | Private library listing (flagged; `app/lib/library/`, contract `packages/contracts/src/library.ts`) |
 | `apps/web/app/routes/api.v1.release-state.ts` | Release and publisher state transitions (flagged) |
 | `apps/web/app/lib/releases/` | Release ingest, signing, scan, R2 and D1 writes; read access, rate limit and read handlers; state transitions (`release-transitions.ts`, `release-state-http.ts`) |
 | `apps/web/app/routes/api.admin.seed.ts` | Admin data seeding |

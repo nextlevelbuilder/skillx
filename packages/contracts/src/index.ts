@@ -27,3 +27,4 @@ export * from "./personal-kit";
 export * from "./sync-leaks";
 export * from "./install-lock";
 export * from "./collection-revision";
+export * from "./library";
