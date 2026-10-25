@@ -822,7 +822,13 @@ trust `signed-kit` from a SkillX signature. `releaseTrust(manifest,
 tree whose digest equals the manifest `releaseDigest`; every other release is
 `local-unverified`. Golden vectors:
 `packages/contracts/src/fixtures/release-manifest-v2.json` (same test key and
-canonical form as the v1 vectors).
+canonical form as the v1 vectors); its `trust` array pairs a valid vector with
+the `kitVerifiedReleaseDigest` a verifier checked and the trust it must assign.
+
+**Client support.** skillx-sh 0.6.0 and earlier know only `skillx.release/v1`
+and report every v2 manifest, so every `@agentkit/*` release, as failed
+verification. Installing or verifying kit releases needs skillx-sh 0.7.0 or
+later.
 
 ### Signature bytes
 
@@ -1021,8 +1027,10 @@ Unscoped keys are rejected (`auth.scope_missing`).
 **Kit releases**: `@agentkit/*` is accepted only with `provenance.provider
 = "kit"`, from a key scoped `releases:publish:@agentkit` whose user owns the
 active, admin-provisioned `agentkit` publisher (`POST /api/v1/publishers`).
-They are signed as `skillx.release/v2`; the `ak-` slug forms are allowed for
-them. Kit provenance on any other publisher is `400 identity.invalid`; every
+They are signed as `skillx.release/v2`. A kit release slug must not start
+with `ak-` (`400 identity.invalid`): AgentKit maps the kit skill directory
+`ak-<x>` to `@agentkit/<x>`, so publish `@agentkit/plan`, never
+`@agentkit/ak-plan`. Kit provenance on any other publisher is `400 identity.invalid`; every
 release without it is signed as `skillx.release/v1`. Republishing an existing
 kit version with the same tree but a different `origin` is `409
 release.version_exists`.
@@ -1129,7 +1137,7 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 
 | Status | Codes |
 |--------|-------|
-| 400 | `identity.*` (invalid names), `release.invalid_metadata`, `tree.read_failed` (empty body), `idempotency.invalid_key` |
+| 400 | `identity.*` (invalid names, an `ak-` kit release slug), `release.invalid_metadata`, `tree.read_failed` (empty body), `idempotency.invalid_key` |
 | 401 | `auth.invalid_key` (also an expired, forged or revoked `sxo_` OIDC publish token) |
 | 403 | `identity.reserved_publisher` (`@agentkit` without kit provenance), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
 | 404 | `not_found` (API disabled) |

@@ -5,7 +5,8 @@
     "schemaVersion selects the closed member set: v1 has no provenance member (unknown_field), v2 requires it (required); any other schemaVersion is unsupported_value",
     "provenance is {provider: 'skillx'} or {provider: 'kit', origin: 'remote-signed' | 'local-dev'}; other providers or origins are unsupported_value, extra members unknown_field",
     "@agentkit/* requires provider kit (identity.reserved_publisher); provider kit requires @agentkit/* (identity.invalid); a provider skillx slug must not start with ak- (identity.reserved_alias)",
-    "trust is local-unverified unless the verifier itself verified the AgentKit kit signature of a remote-signed kit release; the registry signature alone never yields signed-kit"
+    "trust is local-unverified unless the verifier itself verified the AgentKit kit signature of a remote-signed kit release; the registry signature alone never yields signed-kit",
+    "trust vectors name a valid vector and the releaseDigest whose AgentKit kit signature the verifier checked (null: none); signed-kit requires origin remote-signed and that digest equal to the manifest releaseDigest"
   ],
   "testKey": {
     "keyId": "skillx-test-vector-1",
@@ -164,6 +165,38 @@
       "fileContentsBase64": {
         "SKILL.md": "LS0tCm5hbWU6IHRpbnkKZGVzY3JpcHRpb246IFRpbnkgc2tpbGwuCi0tLQo="
       },
+      "expectedTrust": "local-unverified"
+    }
+  ],
+  "trust": [
+    {
+      "name": "remote-signed kit release whose kit signature verified over its own tree",
+      "vector": "remote-signed kit release of an @agentkit foundation",
+      "kitVerifiedReleaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+      "expectedTrust": "signed-kit"
+    },
+    {
+      "name": "remote-signed kit release whose kit signature verified over another tree",
+      "vector": "remote-signed kit release of an @agentkit foundation",
+      "kitVerifiedReleaseDigest": "sha256:2b80424f6839c7ae445108317a623797ecab4ee94fbb6cddbc9695326aed8544",
+      "expectedTrust": "local-unverified"
+    },
+    {
+      "name": "remote-signed kit release without a verified kit signature",
+      "vector": "remote-signed kit release of an @agentkit foundation",
+      "kitVerifiedReleaseDigest": null,
+      "expectedTrust": "local-unverified"
+    },
+    {
+      "name": "local-dev kit release even with a kit signature verified over its own tree",
+      "vector": "local-dev kit release",
+      "kitVerifiedReleaseDigest": "sha256:2b80424f6839c7ae445108317a623797ecab4ee94fbb6cddbc9695326aed8544",
+      "expectedTrust": "local-unverified"
+    },
+    {
+      "name": "skillx release even with a kit signature verified over its own tree",
+      "vector": "skillx release written as v2",
+      "kitVerifiedReleaseDigest": "sha256:2b80424f6839c7ae445108317a623797ecab4ee94fbb6cddbc9695326aed8544",
       "expectedTrust": "local-unverified"
     }
   ],

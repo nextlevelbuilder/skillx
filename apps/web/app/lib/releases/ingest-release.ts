@@ -46,7 +46,7 @@ async function existingOutcome(identity: string, version: string, existing: Exis
   if (existing.releaseDigest !== releaseDigest) {
     throw releaseError(409, "release.version_exists", `${identity}@${version} already exists with different content`);
   }
-  if (kit.provenance !== null) await assertSameKitProvenance(kit.bucket, existing.manifestKey, kit.provenance, `${identity}@${version}`);
+  if (kit.provenance !== null) await assertSameKitProvenance(kit.bucket, { manifestKey: existing.manifestKey, releaseDigest }, kit.provenance, `${identity}@${version}`);
   return Response.json({
     identity,
     version,

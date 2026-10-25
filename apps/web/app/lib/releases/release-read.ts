@@ -106,7 +106,7 @@ export function cacheControl(release: { visibility: string }, maxAge: number, im
 }
 
 /** A stored object is missing or not what D1 recorded: an integrity failure, never served. */
-function storageError(what: string): ReleaseHttpError {
+export function storageError(what: string): ReleaseHttpError {
   console.error(`release read: ${what}`);
   return releaseError(500, "release.storage_inconsistent", "release storage is inconsistent");
 }
@@ -160,7 +160,7 @@ function bytesResponse(request: Request, object: R2ObjectBody, etag: string, hea
   return new Response(object.body, { headers: { ...all, "Content-Length": String(object.size) } });
 }
 
-async function getManifestObject(bucket: R2Bucket, release: ReadableRelease): Promise<R2ObjectBody> {
+async function getManifestObject(bucket: R2Bucket, release: Pick<ReadableRelease, "manifestKey">): Promise<R2ObjectBody> {
   const object = await bucket.get(release.manifestKey);
   if (object === null) throw storageError(`manifest ${release.manifestKey} is missing`);
   if (object.size > MAX_MANIFEST_BYTES) {
@@ -257,8 +257,8 @@ export function releaseFilePath(request: Request): string {
   return path;
 }
 
-/** The validated signed manifest of a readable release (also used by the personal kit base loader). */
-export async function readManifest(bucket: R2Bucket, release: ReadableRelease): Promise<SkillxReleaseManifest> {
+/** The validated signed manifest of a stored release (also used by the personal kit base loader and the kit replay check). */
+export async function readManifest(bucket: R2Bucket, release: Pick<ReadableRelease, "manifestKey" | "releaseDigest">): Promise<SkillxReleaseManifest> {
   const object = await getManifestObject(bucket, release);
   let parsed: unknown;
   try {
