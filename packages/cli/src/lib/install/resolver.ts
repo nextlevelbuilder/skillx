@@ -130,6 +130,7 @@ export async function resolveSource(registry: Registry, ref: SourceRef): Promise
   const rev = await registry.collectionRevision(ref.id, ref.revision);
   const digest = await collectionRevisionDigest({ members: rev.members as never, config: rev.config as never });
   if (rev.revisionDigest !== null && rev.revisionDigest !== digest) throw integrityError(`collection ${ref.id} revision ${rev.revisionNumber} does not match its digest`);
+  if (rev.revisionDigest === null) warnings.push(`collection ${ref.id} revision ${rev.revisionNumber} has no digest: the registry may have left out members you cannot read, so this install may be partial`);
   const wanted = rev.members.map((m) => ({ name: m.packageName, ...(m.version ? { version: m.version } : {}), ...(m.digest ? { digest: m.digest } : {}) }));
   const source = { kind: 'collection' as const, collectionId: rev.collectionId, revisionNumber: rev.revisionNumber, revisionDigest: digest };
   return { lock: { ...base, source, packages: await resolvePackages(registry, wanted, warnings) }, overlays: new Map(), warnings };

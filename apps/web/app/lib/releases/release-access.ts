@@ -266,35 +266,47 @@ export interface PackageReleaseList {
 
 const NAME_CHUNK = 50;
 
+/** Most distinct names one `readablePackageNames` call looks up; names past it are treated as unreadable. */
+export const MAX_LOOKUP_NAMES = 1000;
+
 /**
- * The names, among `names`, of existing packages the viewer may not read.
- * Surfaces that merely mention packages (collection members) drop these so a
- * private package is never named to someone the read gate would answer 404.
- * Unknown names are not returned: there is nothing to protect, and the answer
- * must not tell an unknown name from a readable one.
+ * The names, among `names`, of existing packages the viewer may read. Surfaces
+ * that merely mention packages (collection members) keep only these, so a
+ * private package is never named to someone the read gate would answer 404, and
+ * an unknown name is dropped the same way: a dropped name says nothing about
+ * whether the package exists. An entitlement scoped to one release still makes
+ * the package readable here, as in `listPackageReleases`.
+ *
+ * Distinct names are looked up in a single batch, at most `MAX_LOOKUP_NAMES`.
  */
-export async function unreadablePackageNames(db: D1Database, names: readonly string[], userId: string | null): Promise<Set<string>> {
-  const hidden = new Set<string>();
-  const unique = [...new Set(names)];
+export async function readablePackageNames(db: D1Database, names: readonly string[], userId: string | null): Promise<Set<string>> {
+  const readable = new Set<string>();
+  const unique = [...new Set(names)].slice(0, MAX_LOOKUP_NAMES);
+  if (unique.length === 0) return readable;
+  const statements: D1PreparedStatement[] = [];
   for (let i = 0; i < unique.length; i += NAME_CHUNK) {
     const chunk = unique.slice(i, i + NAME_CHUNK);
-    const { results } = await db
-      .prepare(
-        `SELECT p.name, p.visibility,
-                EXISTS (SELECT 1 FROM entitlements e
-                         WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL) AS entitled,
-                ${OWNED} AS owned
-           FROM packages p JOIN publishers pub ON pub.id = p.publisher_id
-          WHERE p.name IN (${chunk.map(() => "?").join(", ")})`,
-      )
-      .bind(userId ?? "", userId ?? "", ...chunk)
-      .all<{ name: string; visibility: string; entitled: number; owned: number }>();
+    statements.push(
+      db
+        .prepare(
+          `SELECT p.name, p.visibility,
+                  EXISTS (SELECT 1 FROM entitlements e
+                           WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL) AS entitled,
+                  ${OWNED} AS owned
+             FROM packages p JOIN publishers pub ON pub.id = p.publisher_id
+            WHERE p.name IN (${chunk.map(() => "?").join(", ")})`,
+        )
+        .bind(userId ?? "", userId ?? "", ...chunk),
+    );
+  }
+  const batches = await db.batch<{ name: string; visibility: string; entitled: number; owned: number }>(statements);
+  for (const { results } of batches) {
     for (const row of results) {
       const target = { identity: row.name, visibility: row.visibility, entitled: Number(row.entitled) === 1, owned: Number(row.owned) === 1 };
-      if (!viewerMayRead(target, userId)) hidden.add(row.name);
+      if (viewerMayRead(target, userId)) readable.add(row.name);
     }
   }
-  return hidden;
+  return readable;
 }
 
 /** Published and yanked releases of a package, newest first; releases of a quarantined tree are hidden. */

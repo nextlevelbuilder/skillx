@@ -8,7 +8,8 @@ import { claudeCodeAdapter, codexAdapter, getAdapter, skillxHome, stagingDir } f
 import { writeLockFile } from './lock-file.js';
 import { planInstall } from './planner.js';
 import { newestVersion } from './release-pins.js';
-import { parseRefs } from './resolver.js';
+import { parseRefs, resolveSource } from './resolver.js';
+import type { Registry } from './registry-client.js';
 import { loadTrustedKeys } from './trusted-keys.js';
 
 let root: string;
@@ -57,6 +58,25 @@ describe('refs and versions', () => {
     expect(newestVersion(['1.2.0', '1.10.0', '2.0.0-beta.1'])).toBe('1.10.0');
     expect(newestVersion(['2.0.0-beta.1', '2.0.0-alpha.3'])).toBe('2.0.0-beta.1');
     expect(newestVersion([])).toBeNull();
+  });
+});
+
+describe('collection resolve', () => {
+  const col = 'col_00000000-0000-4000-8000-000000000000';
+  const registryWith = (revisionDigest: string | null) =>
+    ({ collectionRevision: async () => ({ collectionId: col, revisionNumber: 2, members: [], config: {}, revisionDigest }) }) as unknown as Registry;
+
+  it('warns that the view may be partial when the registry sends no digest', async () => {
+    const res = await resolveSource(registryWith(null), { kind: 'collection', id: col, revision: 'latest' });
+    expect(res.warnings).toHaveLength(1);
+    expect(res.warnings[0]).toMatch(/no digest.*partial/);
+  });
+
+  it('stays quiet when the digest matches', async () => {
+    const probe = await resolveSource(registryWith(null), { kind: 'collection', id: col, revision: 'latest' });
+    const digest = (probe.lock.source as { revisionDigest: string }).revisionDigest;
+    const res = await resolveSource(registryWith(digest), { kind: 'collection', id: col, revision: 'latest' });
+    expect(res.warnings).toEqual([]);
   });
 });
 

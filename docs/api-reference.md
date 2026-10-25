@@ -1542,6 +1542,12 @@ numbered revisions; per-user overlays and activation stay with personal kits.
 - **Revisions** are immutable (DB trigger). `revisionDigest` is
   `sha256:` of the canonical JSON of `{members, config}`; clients recompute and
   compare it. A stale `expectedRevision` answers `409 collection.revision_conflict`.
+  The owner sees the stored revision whole. Any other viewer gets only the
+  `members` naming a package that viewer can read; private and unknown names are
+  dropped alike, so a missing member says nothing about whether it exists. A
+  revision trimmed that way has `revisionDigest: null` (it would not match the
+  shown members), and the CLI warns that the view may be partial. `config` is
+  never trimmed.
 - **Leak scan**: `members` and `config` pass the shared sync-leak scanner
   (`findSyncLeaks` in `@skillx/contracts`); a secret-shaped value or an
   absolute local path answers `422`.

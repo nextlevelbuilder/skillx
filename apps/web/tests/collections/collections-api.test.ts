@@ -58,7 +58,13 @@ describe("collections API", () => {
     const clone = await call(`/api/v1/collections/${created.collection.id}/clone`, { slug: "copy" }, { key: otherKey });
     expect(clone.status).toBe(201);
     expect(clone.body.collection).toMatchObject({ slug: "copy", visibility: "private", owned: true, clonedFromRevisionId: created.revision.id });
-    expect(clone.body.revision.revisionDigest).toBe(created.revision.revisionDigest);
+    // The cloner reads no `@alpha/demo`, so the clone starts without it and carries its own digest.
+    expect(clone.body.revision.members).toEqual([]);
+    expect(clone.body.revision.revisionDigest).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(clone.body.revision.revisionDigest).not.toBe(created.revision.revisionDigest);
+    const own = await call(`/api/v1/collections/${created.collection.id}/clone`, { slug: "own-copy" });
+    expect(own.body.revision.members).toEqual(created.revision.members);
+    expect(own.body.revision.revisionDigest).toBe(created.revision.revisionDigest);
     const privateOne = (await create({ slug: "secret-list" })).body.collection;
     expect((await call(`/api/v1/collections/${privateOne.id}/clone`, { slug: "x" }, { key: otherKey })).status).toBe(404);
   });

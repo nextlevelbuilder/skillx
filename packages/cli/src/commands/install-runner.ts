@@ -53,5 +53,6 @@ export function printPlan(planned: SourcePlan): void {
       console.log(`  ${paint(a.action.padEnd(9))} ${a.alias}${chalk.dim(detail)}`);
     }
   }
-  for (const w of planned.warnings) console.log(chalk.yellow(`  ! ${w}`));
+  // Warnings go to stderr so `--json` and piped stdout stay clean.
+  for (const w of planned.warnings) console.error(chalk.yellow(`  ! ${w}`));
 }

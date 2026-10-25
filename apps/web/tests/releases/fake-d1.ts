@@ -37,6 +37,8 @@ class FakeStatement {
   }
 
   runSync() {
+    // A SELECT in a batch answers its rows, like D1.
+    if (/^\s*select\b/i.test(this.sql)) return { success: true, results: this.db.prepare(this.sql).all(...this.params), meta: { changes: 0 } };
     const info = this.db.prepare(this.sql).run(...this.params);
     return { success: true, meta: { changes: Number(info.changes) } };
   }

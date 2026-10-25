@@ -356,41 +356,116 @@ describe("collections", () => {
     return { status: res.status, cache: res.headers.get("Cache-Control"), text: await res.text() };
   }
 
-  const members = [
-    { packageName: PRIVATE, version: "1.0.0", digest },
-    { packageName: "@alpha/openthing", version: "1.0.0" },
-  ];
+  const UNKNOWN2 = "@alpha/nosuchtwo";
+  const OPEN = "@alpha/openthing";
+  const READ_PATHS = (id: string) => [`/api/v1/collections/${id}/revisions`, `/api/v1/collections/${id}/revisions/1`, `/api/v1/collections/${id}/revisions/latest`];
 
-  async function sharedCollection(visibility: string) {
-    await k.publish("@alpha/openthing", "1.0.0", { "SKILL.md": skillText(BODY, "name: openthing\ndescription: open") });
-    const created = await collections("/api/v1/collections", viewers().owner, { slug: "starter", name: "Starter", visibility, members, config: {} });
+  async function create(slug: string, visibility: string, members: unknown[]) {
+    const created = await collections("/api/v1/collections", viewers().owner, { slug, name: "Twin", visibility, members, config: {} });
     expect(created.status).toBe(201);
     return JSON.parse(created.text).collection.id as string;
   }
 
-  it.each(["public", "unlisted"])("a %s collection does not name the private package to viewers who cannot read it", async (visibility) => {
-    const id = await sharedCollection(visibility);
-    for (const path of [`/api/v1/collections/${id}/revisions/1`, `/api/v1/collections/${id}/revisions/latest`, `/api/v1/collections/${id}/revisions`]) {
-      for (const who of ["anonymous", "unrelatedKey", "unrelatedSession", "stranger"] as const) {
-        const res = await collections(path, viewers()[who]);
-        expect(res.status, `${who} ${path}`).toBe(200);
-        expect(res.text, `${who} ${path}`).not.toContain(SLUG);
-        expect(res.text, `${who} ${path}`).toContain("@alpha/openthing");
-        expect(res.cache).toBe("no-store");
+  async function publishOpen() {
+    await k.publish(OPEN, "1.0.0", { "SKILL.md": skillText(BODY, "name: openthing\ndescription: open") });
+  }
+
+  /** `[PRIVATE, UNKNOWN, OPEN]` against `[UNKNOWN2, UNKNOWN, OPEN]`: the same shape, one slot differing. */
+  async function twinCollections(visibility: string) {
+    await publishOpen();
+    const pin = { version: "1.0.0", digest };
+    const withPrivate = await create("with-private", visibility, [{ packageName: PRIVATE, ...pin }, { packageName: UNKNOWN }, { packageName: OPEN, version: "1.0.0" }]);
+    const withUnknown = await create("with-unknown", visibility, [{ packageName: UNKNOWN2, ...pin }, { packageName: UNKNOWN }, { packageName: OPEN, version: "1.0.0" }]);
+    return { withPrivate, withUnknown };
+  }
+
+  /** A response with the ids, clock and slug that legitimately differ between two collections removed. */
+  const normalize = (text: string, ...slugs: string[]) => {
+    let out = text.replace(/col_[0-9a-f-]{36}/g, "COL").replace(/colrev_[0-9a-f-]{36}/g, "REV").replace(/"(createdAt|updatedAt)":"[^"]+"/g, '"$1":"T"');
+    for (const slug of slugs) out = out.split(slug).join("SLUG");
+    return out;
+  };
+
+  it.each(["public", "unlisted"])("a %s collection answers a private member exactly like an unknown one", async (visibility) => {
+    const { withPrivate, withUnknown } = await twinCollections(visibility);
+    for (const who of DENIED) {
+      for (const [i, privPath] of READ_PATHS(withPrivate).entries()) {
+        const priv = await collections(privPath, viewers()[who]);
+        const unknown = await collections(READ_PATHS(withUnknown)[i]!, viewers()[who]);
+        expect(priv.status, `${who} ${privPath}`).toBe(unknown.status);
+        expect(priv.cache, `${who} ${privPath}`).toBe(unknown.cache);
+        expect(normalize(priv.text), `${who} ${privPath}`).toBe(normalize(unknown.text));
+        expect(priv.text, `${who} ${privPath}`).not.toContain(SLUG);
+        expect(priv.text, `${who} ${privPath}`).not.toContain(digest);
+        if (priv.status === 200) {
+          // Both the private and the unknown names are gone; only the readable member stays.
+          expect(priv.text, `${who} ${privPath}`).not.toContain(UNKNOWN);
+          expect(priv.text, `${who} ${privPath}`).toContain(OPEN);
+          expect(priv.text, `${who} ${privPath}`).toContain('"revisionDigest":null');
+        }
       }
+      const priv = await collections(`/api/v1/collections/${withPrivate}/clone`, viewers()[who], { slug: "mine-a" });
+      const unknown = await collections(`/api/v1/collections/${withUnknown}/clone`, viewers()[who], { slug: "mine-b" });
+      expect(priv.status, `${who} clone`).toBe(unknown.status);
+      expect(normalize(priv.text, "mine-a"), `${who} clone`).toBe(normalize(unknown.text, "mine-b"));
+      expect(priv.text, `${who} clone`).not.toContain(SLUG);
+      expect(priv.text, `${who} clone`).not.toContain(digest);
     }
   });
 
-  it("shows the private member to the owner and to an entitled reader", async () => {
-    const id = await sharedCollection("public");
-    for (const who of ALLOWED) {
-      const res = await collections(`/api/v1/collections/${id}/revisions/1`, viewers()[who]);
-      expect(res.text, who).toContain(PRIVATE);
-    }
+  it("reaches the viewers who cannot use the collection API the same way for a private and an unknown member", async () => {
+    const { withPrivate, withUnknown } = await twinCollections("public");
+    const scoped = viewers().unrelatedScoped;
+    const priv = await collections(`/api/v1/collections/${withPrivate}/revisions/latest`, scoped);
+    const unknown = await collections(`/api/v1/collections/${withUnknown}/revisions/latest`, scoped);
+    expect(priv.status).toBe(unknown.status);
+    expect(normalize(priv.text)).toBe(normalize(unknown.text));
+    expect(priv.text).not.toContain(SLUG);
+  });
+
+  it("keeps the stored members for the owner, who sees the digest and edits from the whole revision", async () => {
+    const { withPrivate } = await twinCollections("public");
+    const stored = JSON.parse((await collections(`/api/v1/collections/${withPrivate}/revisions/latest`, viewers().owner)).text).revision;
+    expect(stored.members.map((m: { packageName: string }) => m.packageName).sort()).toEqual([PRIVATE, UNKNOWN, OPEN].sort());
+    expect(stored.revisionDigest).toMatch(/^sha256:/);
+    // A trimmed read by someone else leaves the stored revision untouched.
+    await collections(`/api/v1/collections/${withPrivate}/revisions/latest`, viewers().anonymous);
+    const edit = await collections(`/api/v1/collections/${withPrivate}/members`, viewers().owner, { expectedRevision: 1, add: [{ packageName: "@alpha/another" }] });
+    expect(edit.status).toBe(201);
+    const next = JSON.parse(edit.text).revision;
+    expect(next.members.map((m: { packageName: string }) => m.packageName)).toEqual(expect.arrayContaining([PRIVATE, UNKNOWN, OPEN, "@alpha/another"]));
+    const anon = await collections(`/api/v1/collections/${withPrivate}/revisions/latest`, viewers().anonymous);
+    expect(JSON.parse(anon.text).revision.members.map((m: { packageName: string }) => m.packageName)).toEqual([OPEN]);
+  });
+
+  it("shows the private member and the stored digest to an entitled reader", async () => {
+    const { withPrivate } = await twinCollections("public");
+    const res = await collections(`/api/v1/collections/${withPrivate}/revisions/1`, viewers().entitled);
+    const revision = JSON.parse(res.text).revision;
+    expect(revision.members.map((m: { packageName: string }) => m.packageName)).toContain(PRIVATE);
+    // The entitled reader cannot see the unknown name, so that revision is still trimmed.
+    expect(revision.members.map((m: { packageName: string }) => m.packageName)).not.toContain(UNKNOWN);
+    expect(revision.revisionDigest).toBeNull();
+  });
+
+  it("keeps the digest when nothing is trimmed", async () => {
+    await publishOpen();
+    const id = await create("clean", "public", [{ packageName: OPEN, version: "1.0.0" }]);
+    const res = await collections(`/api/v1/collections/${id}/revisions/1`, viewers().anonymous);
+    expect(JSON.parse(res.text).revision.revisionDigest).toMatch(/^sha256:/);
+  });
+
+  it("a clone made by an entitled reader carries the private member", async () => {
+    await publishOpen();
+    const id = await create("shared", "public", [{ packageName: PRIVATE, version: "1.0.0", digest }, { packageName: OPEN, version: "1.0.0" }]);
+    const clone = await collections(`/api/v1/collections/${id}/clone`, viewers().entitled, { slug: "mine" });
+    expect(clone.status).toBe(201);
+    expect(JSON.parse(clone.text).revision.members.map((m: { packageName: string }) => m.packageName)).toContain(PRIVATE);
   });
 
   it("a clone made by a viewer who cannot read the package does not carry it", async () => {
-    const id = await sharedCollection("public");
+    await publishOpen();
+    const id = await create("shared", "public", [{ packageName: PRIVATE, version: "1.0.0", digest }, { packageName: OPEN, version: "1.0.0" }]);
     const clone = await collections(`/api/v1/collections/${id}/clone`, viewers().unrelatedKey, { slug: "mine" });
     expect(clone.status).toBe(201);
     expect(clone.text).not.toContain(SLUG);
