@@ -1272,8 +1272,8 @@ then publisher revoked `403`, then yanked):
   unrevoked entitlement for the package (`release_id` NULL) or the release,
   decided by the shared payload-access gate. Ownership is read on every
   request, so a publisher that changes hands refuses new requests from the
-  previous owner (bytes already cached by their client stay usable, see
-  Caching). Anyone else (another account, anonymous) gets `404
+  previous owner (private answers are `no-store`, see Caching; only copies
+  their client already installed stay usable). Anyone else (another account, anonymous) gets `404
   not_found`, the same body and the same queries as an unknown package, so
   existence is not disclosed. A release-only entitlement lists only the
   entitled releases; the owner sees every release.
