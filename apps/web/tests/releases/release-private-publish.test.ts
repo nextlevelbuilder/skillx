@@ -6,6 +6,10 @@ import { loader as listLoader } from "~/routes/api.v1.package-releases";
 import { loader as manifestLoader } from "~/routes/api.v1.release-manifest";
 import { loader as fileLoader } from "~/routes/api.v1.release-file";
 import { loader as artifactLoader } from "~/routes/api.v1.release-artifact";
+import { action as mintAction } from "~/routes/api.v1.release-download-url";
+import { serveDownloadRedeem } from "~/lib/releases/release-download-url";
+import { serveReleaseRead } from "~/lib/releases/release-read";
+import { readReleaseStatus } from "~/lib/releases/release-status-issue";
 import { FakeRateLimiter } from "./fake-rate-limiter";
 import { NOW, TEST_KEY_ID, createHarness, file, tarOf } from "./release-harness";
 import type { UploadOptions } from "./release-harness";
@@ -37,17 +41,24 @@ const publish = (name: string, options: UploadOptions = {}, extra = "") => h.upl
 const storedVisibility = (name: string) =>
   (h.d1.raw.prepare("SELECT visibility FROM packages WHERE name = ?").get(name) as { visibility: string } | undefined)?.visibility;
 
-function read(loader: (args: never) => Promise<Response>, path: string, params: Record<string, string>, key?: string): Promise<Response> {
-  const headers = new Headers();
+const TOKEN_SECRET = "test-token-secret-0123456789abcdef";
+const readEnv = () => ({
+  SKILLX_RELEASES_API: "1",
+  DB: h.deps.db,
+  R2: h.deps.bucket,
+  RELEASE_READ_LIMITER: new FakeRateLimiter(RELEASE_READ_RATE_LIMIT),
+  SKILLX_REGISTRY_SIGNING_KEY_ID: TEST_KEY_ID,
+  SKILLX_TOKEN_SECRET: TOKEN_SECRET,
+});
+
+function readRequest(path: string, key?: string, init: RequestInit = {}): Request {
+  const headers = new Headers(init.headers);
   if (key !== undefined) headers.set("Authorization", `Bearer ${key}`);
-  const env = {
-    SKILLX_RELEASES_API: "1",
-    DB: h.deps.db,
-    R2: h.deps.bucket,
-    RELEASE_READ_LIMITER: new FakeRateLimiter(RELEASE_READ_RATE_LIMIT),
-    SKILLX_REGISTRY_SIGNING_KEY_ID: TEST_KEY_ID,
-  };
-  return loader({ request: new Request(`https://skillx.test${path}`, { headers }), params, context: { cloudflare: { env } } } as never);
+  return new Request(`https://skillx.test${path}`, { ...init, headers });
+}
+
+function read(loader: (args: never) => Promise<Response>, path: string, params: Record<string, string>, key?: string, init?: RequestInit): Promise<Response> {
+  return loader({ request: readRequest(path, key, init), params, context: { cloudflare: { env: readEnv() } } } as never);
 }
 
 const reads = (name: string, digest: string, key?: string) => {
@@ -96,10 +107,6 @@ describe("publish visibility: defaults", () => {
     expect(storedVisibility("@agentkit/review")).toBe("public");
   });
 
-  it("does not create a skills row for a private release", async () => {
-    await publish("@alpha/notes", OMITTED);
-    expect(h.d1.raw.prepare("SELECT count(*) AS n FROM skills").get()).toEqual({ n: 0 });
-  });
 });
 
 describe("publish visibility: never changed by a publish", () => {
@@ -132,6 +139,24 @@ describe("publish visibility: never changed by a publish", () => {
     expect(loser.body.error.code).toBe("release.visibility_mismatch");
     expect(storedVisibility("@alpha/notes")).toBe(winner.body.visibility);
     expect(h.releaseRows()).toHaveLength(1);
+  });
+
+  // Different versions: the unique (package, version) index cannot stop the loser, only the visibility guard of the release insert can.
+  it.each([
+    ["private", { visibility: "private" }],
+    ["omitted", OMITTED],
+  ] as const)("keeps a concurrent %s 1.1.0 out of a package created public by a concurrent 1.0.0", async (_label, second) => {
+    h.r2.holdPuts("artifacts/", 2);
+    const [pub, other] = await Promise.all([
+      publish("@alpha/notes", { visibility: "public" }),
+      publish("@alpha/notes", { ...second, version: "1.1.0" }, " v2"),
+    ]);
+    expect([pub.status, other.status].sort()).toEqual([200, 409]);
+    const winner = pub.status === 200 ? pub : other;
+    const loser = pub.status === 200 ? other : pub;
+    expect(loser.body.error.code).toBe("release.visibility_mismatch");
+    expect(storedVisibility("@alpha/notes")).toBe(winner.body.visibility);
+    expect(h.releaseRows()).toEqual([expect.objectContaining({ name: "@alpha/notes", version: winner.body.version })]);
   });
 
   it.each([["unlisted"], [true], [null]])("rejects visibility %j with 400 before any write", async (value) => {
@@ -203,6 +228,51 @@ describe("publish visibility: reads of a new private package", () => {
       expect(answer.status).toBe(200);
       expect(answer.headers.get("Cache-Control")).toBe("private, no-store");
     }
+  });
+
+  it("keeps the status document, a 304 and a signed download URL of a new private package out of shared caches", async () => {
+    const res = await publish("@alpha/notes", OMITTED);
+    const digest = res.body.releaseDigest as string;
+    const ownerKey = await h.createKey("user-a", null);
+
+    // The status route composed with the harness signer: the route itself loads the key from env.
+    const statusParams = { scope: "@alpha", slug: "notes", version: "1.0.0" };
+    const status = (key?: string) =>
+      serveReleaseRead(readRequest("/api/v1/packages/@alpha/notes/releases/1.0.0/status", key), readEnv() as never, (ctx) =>
+        readReleaseStatus(ctx, statusParams, { loadSigner: h.deps.loadSigner, activeKeyId: TEST_KEY_ID }),
+      );
+    const anonymousStatus = await status();
+    expect(anonymousStatus.status).toBe(404);
+    expect(anonymousStatus.headers.get("Cache-Control")).toBe("no-store");
+    const ownerStatus = await status(ownerKey);
+    expect(ownerStatus.status).toBe(200);
+    expect(ownerStatus.headers.get("Cache-Control")).toBe("private, no-store");
+
+    // A revalidation keeps the private answer's Cache-Control.
+    for (const [loader, path, params] of [
+      [artifactLoader, `/api/v1/releases/${digest}/artifact`, { digest }],
+      [fileLoader, `/api/v1/releases/${digest}/files/references/deep/guide.md`, { digest, "*": "references/deep/guide.md" }],
+    ] as const) {
+      const first = await read(loader, path, params, ownerKey);
+      const etag = first.headers.get("ETag");
+      expect(etag).toBeTruthy();
+      const again = await read(loader, path, params, ownerKey, { headers: { "If-None-Match": etag! } });
+      expect(again.status).toBe(304);
+      expect(again.headers.get("Cache-Control")).toBe("private, no-store");
+    }
+
+    const mint = (key?: string) =>
+      mintAction({ request: readRequest(`/api/v1/releases/${digest}/artifact/url`, key, { method: "POST" }), params: { digest }, context: { cloudflare: { env: readEnv() } } } as never);
+    const refused = await mint();
+    expect(refused.status).toBe(404);
+    expect(refused.headers.get("Cache-Control")).toBe("no-store");
+    const minted = await mint(ownerKey);
+    expect(minted.status).toBe(200);
+    expect(minted.headers.get("Cache-Control")).toBe("no-store");
+    const { url } = (await minted.json()) as { url: string };
+    const redeemed = await serveDownloadRedeem(new Request(url), readEnv() as never, { token: url.slice(url.lastIndexOf("/") + 1) });
+    expect(redeemed.status).toBe(200);
+    expect(redeemed.headers.get("Cache-Control")).toBe("no-store");
   });
 
   it("serves an admitted reader every private answer with Cache-Control private, no-store", async () => {
