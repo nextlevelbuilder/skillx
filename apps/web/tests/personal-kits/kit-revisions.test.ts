@@ -122,15 +122,26 @@ describe("personal kit revisions", () => {
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe("overlay.shared_alias");
 
-    // Unset, the guard fails closed on AgentKit's ak- / ak: skills; set, the list adds to that default.
+    // Unset, the guard fails closed on every @agentkit skill and names the missing operator step.
+    const unset = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: official });
+    expect(unset.status).toBe(422);
+    expect(unset.body.error.code).toBe("overlay.shared_alias");
+    expect(JSON.stringify(unset.body.error)).toContain("SKILLX_SHARED_SKILL_ALIASES");
+    expect(JSON.stringify(res.body.error)).not.toContain("SKILLX_SHARED_SKILL_ALIASES");
+    // ak- / ak: skills stay shared whether or not the list is set.
     const ak = (name: string) => k.doc([{ ...mine, identity: `@agentkit/${name}`, base: { ...mine.base, package: `@agentkit/${name}` } }]);
     for (const [document, o] of [[ak("ak-plan"), {}], [ak("ak-cook"), {}], [ak("ak-plan"), shared]] as const) {
       const refused = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document }, o);
       expect(refused.status).toBe(422);
       expect(refused.body.error.code).toBe("overlay.shared_alias");
+      expect(JSON.stringify(refused.body.error)).not.toContain("SKILLX_SHARED_SKILL_ALIASES");
     }
-    // Other official skills pass the guard unless listed (this one then fails only on its unpublished base).
-    const unlisted = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: official });
+    // A fork is never an in-place overlay, so it passes the guard while the list is unset.
+    const fork = k.doc([{ ...official.skills[0], identity: "@alpha/plan-mine", mode: "fork", alias: "plan-mine" }]);
+    const forked = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: fork });
+    expect(forked.body.error.code).toBe("kit.base_unavailable");
+    // Once the list is set, other official skills pass the guard unless listed (this one then fails only on its unpublished base).
+    const unlisted = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: official }, { env: { SKILLX_SHARED_SKILL_ALIASES: "@agentkit/cook" } });
     expect(unlisted.body.error.code).toBe("kit.base_unavailable");
   });
 

@@ -470,7 +470,10 @@ document in R2 under `statuses/sha256/`. Rollback: the header SQL of
 **Personal kits API.** `/api/v1/kits/...` needs migrations 0015 and 0016
 (personal kit tables and proposals) plus the release read stack
 (`SKILLX_RELEASES_API`). Production runs with `SKILLX_PERSONAL_KITS_API` set to
-`"1"` in `apps/web/wrangler.jsonc`. Before enabling it on another deployment,
+`"1"` in `apps/web/wrangler.jsonc`. Until the Worker var
+`SKILLX_SHARED_SKILL_ALIASES` lists at least one identity, every in-place
+overlay of an `@agentkit/*` skill answers `422 overlay.shared_alias` (see the
+[personal kits API](./personal-kits-api.md)). Before enabling it on another deployment,
 confirm that `wrangler d1 migrations list skillx-db --remote` reports nothing
 pending. Rollback: set the flag to `"0"` and redeploy; every route answers 404
 and stored kits stay untouched.

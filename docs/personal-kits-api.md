@@ -93,8 +93,16 @@ without an explicit user approval.
   closed: every skill whose name or directory alias starts with `ak-` or
   `ak:` (any case) is always shared, whether or not
   `SKILLX_SHARED_SKILL_ALIASES` is set. That variable (comma or whitespace
-  separated identities) adds further shared skills to this default. Other
-  `@agentkit/*` skills may be overlaid. AgentKit kit composition owns the
+  separated identities) adds further shared skills to this default; entries
+  that are not identities (bare aliases such as `plan`, mixed case) are
+  ignored. While it holds no valid identity, every `@agentkit/*` identity is
+  shared too, because kit releases carry no `ak-` prefix (`@agentkit/plan`);
+  the 422 detail then says the operator has not configured the variable. The
+  guard runs on every revision write (manual, rebase, conflict resolve,
+  proposal), not on activate, rollback or lock, so a stored revision that
+  already overlays such a skill stays usable but cannot be rebased until the
+  overlay becomes a fork. Once the variable is set, other `@agentkit/*`
+  skills may be overlaid. AgentKit kit composition owns the
   canonical list: the non-`ak-` skills that `kits/core` or more than one
   official kit ships. Operators set the variable from that list; SkillX never
   derives it.
