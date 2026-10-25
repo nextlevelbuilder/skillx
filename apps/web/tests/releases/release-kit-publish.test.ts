@@ -5,6 +5,7 @@ import { loader as manifestLoader } from "~/routes/api.v1.release-manifest";
 import { FakeRateLimiter } from "./fake-rate-limiter";
 import { RELEASE_READ_RATE_LIMIT } from "~/lib/releases/release-rate-limit";
 import { readReleaseStatus } from "~/lib/releases/release-status-issue";
+import { publishRelease } from "~/lib/releases/release-idempotency";
 import { NOW, createHarness, file, tarOf, TEST_KEY_ID } from "./release-harness";
 
 /** Kit releases: `@agentkit/*` content published with kit provenance and signed as `skillx.release/v2`. */
@@ -117,6 +118,23 @@ describe("kit release publish", () => {
     const upgraded = await publish("remote-signed");
     expect(upgraded).toMatchObject({ status: 409, body: { error: { code: "release.version_exists" } } });
     expect(upgraded.body.error.message).toContain("kit origin local-dev");
+  });
+
+  it("publishes a kit release through Idempotency-Key and refuses the key for another origin", async () => {
+    const send = async (origin: string) => {
+      const req = h.request("@agentkit/review", tarOf(skillFiles()) as BodyInit, { key: agentkitKey, metadata: kitMetadata({ provider: "kit", origin }) });
+      req.headers.set("Idempotency-Key", "kit-run-1");
+      const res = await publishRelease(req, { scope: "@agentkit", slug: "review" }, h.deps);
+      return { status: res.status, headers: res.headers, body: JSON.parse(await res.text()) };
+    };
+    const first = await send("remote-signed");
+    expect(first).toMatchObject({ status: 200, body: { created: true } });
+    expect(storedManifest().manifest.schemaVersion).toBe("skillx.release/v2");
+    const again = await send("remote-signed");
+    expect(again.headers.get("Idempotent-Replayed")).toBe("true");
+    expect(again.body).toEqual(first.body);
+    const otherOrigin = await send("local-dev");
+    expect(otherOrigin).toMatchObject({ status: 422, body: { error: { code: "idempotency.key_reused" } } });
   });
 
   it("rejects a kit provenance without origin after authorization", async () => {
