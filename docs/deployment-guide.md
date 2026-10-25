@@ -483,13 +483,13 @@ pending. Rollback: set the flag to `"0"` and redeploy; every route answers 404
 AgentKit's shared-skill list first: the non-`ak-` skills that `kits/core` or
 more than one official kit ships (for example `@agentkit/plan`). Kit releases
 are published without the `ak-` prefix (`@agentkit/plan`; `@agentkit/ak-*` is
-`400 identity.invalid`), so only the `ak-` names are shared by default. While
-the variable is unset, a public personal kit may overlay any other
-`@agentkit/<name>` skill in place. That is by design
-([personal kits API](./personal-kits-api.md)) and the result stays
-`local-unverified`, but it lets a third-party kit override a skill every
-official kit shares. Confirm with an overlay of a listed identity, which must
-answer `422 overlay.shared_alias`. Kit releases also need skillx-sh 0.7.0 or
+`400 identity.invalid`). While the variable holds no valid identity, the
+guard fails closed and refuses every in-place overlay of an `@agentkit/*`
+skill, including single-kit skills that may legitimately be overlaid
+([personal kits API](./personal-kits-api.md)); setting the list is what
+unblocks those. Use identities, not bare aliases: an entry such as `plan` is
+ignored. Confirm with an overlay of a listed identity, which must answer
+`422 overlay.shared_alias` without naming the variable in its detail. Kit releases also need skillx-sh 0.7.0 or
 later on the client: 0.6.0 and earlier report `skillx.release/v2` manifests as
 failed verification, so say so in the release notes of the first kit release.
 
