@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LIBRARY_READ_SCOPE, kitsWriteScope, releasePublishScope } from "~/lib/auth/api-key-scopes";
+import { encodeCursor } from "~/lib/library/library-http";
+import { libraryReleasesSql, librarySql } from "~/lib/library/library-store";
 import { loader } from "~/routes/api.v1.library";
 import { FakeRateLimiter } from "../releases/fake-rate-limiter";
 import { file, tarOf } from "../releases/release-harness";
@@ -287,6 +289,105 @@ describe("filtering and pagination", () => {
     const res = await library({ key: cKey, query: `?cursor=${page.body.nextCursor}` });
     expect(res.status).toBe(200);
     expect(res.body.items).toEqual([]);
+  });
+});
+
+describe("latest release selection", () => {
+  const latestOf = async (who: string, name: string) => {
+    const res = await library({ key: who, query: `?q=${encodeURIComponent(name.split("/")[1]!)}` });
+    return res.body.items.find((i: any) => i.identity === name);
+  };
+
+  it("keeps the highest version after a backport, as a bare install resolves it", async () => {
+    await k.publish("@alpha/demo", "2.0.0", tree("demo"));
+    await k.publish("@alpha/demo", "1.0.1", tree("demo backport"));
+    k.sql("UPDATE package_releases SET created_at = created_at + 1000 WHERE version = '1.0.1'");
+    expect(await latestOf(aKey, "@alpha/demo")).toMatchObject({ latest: { version: "2.0.0" }, installRef: "@alpha/demo@2.0.0" });
+  });
+
+  it("prefers a stable release over a later prerelease", async () => {
+    await k.publish("@alpha/demo", "1.0.0", tree("demo"));
+    await k.publish("@alpha/demo", "2.0.0-beta.1", tree("demo beta"));
+    k.sql("UPDATE package_releases SET created_at = created_at + 1000 WHERE version = '2.0.0-beta.1'");
+    expect(await latestOf(aKey, "@alpha/demo")).toMatchObject({ latest: { version: "1.0.0" }, installRef: "@alpha/demo@1.0.0" });
+  });
+
+  it("offers a prerelease when it is the only readable release", async () => {
+    await k.publish("@alpha/demo", "2.0.0-beta.1", tree("demo beta"));
+    expect(await latestOf(aKey, "@alpha/demo")).toMatchObject({ latest: { version: "2.0.0-beta.1" } });
+  });
+
+  it("does not narrow latest of a public package by a release-scoped entitlement", async () => {
+    await k.publish("@alpha/demo", "1.0.0", tree("demo"));
+    await k.publish("@alpha/demo", "2.0.0", tree("demo v2"));
+    grant("user-c", "@alpha/demo", "1.0.0");
+    expect(await latestOf(cKey, "@alpha/demo")).toMatchObject({ relation: "entitled", latest: { version: "2.0.0" } });
+  });
+
+  it("lets a package-wide entitlement see the newest release of a private package", async () => {
+    await k.publish("@alpha/secret", "1.0.0", tree("secret"));
+    await k.publish("@alpha/secret", "1.2.0", tree("secret v2"));
+    privatize("@alpha/secret");
+    grant("user-c", "@alpha/secret");
+    expect(await latestOf(cKey, "@alpha/secret")).toMatchObject({ latest: { version: "1.2.0" } });
+  });
+
+  it("reports owner when the account is both the owner and entitled", async () => {
+    await k.publish("@alpha/secret", "1.0.0", tree("secret"));
+    privatize("@alpha/secret");
+    grant("user-a", "@alpha/secret", "1.0.0");
+    expect(await latestOf(aKey, "@alpha/secret")).toMatchObject({ relation: "owner", state: "published" });
+    expect((await library({ key: aKey })).body.items).toHaveLength(1);
+  });
+
+  it.each(["yanked", "quarantined"])("reports no_release when the only entitled release is %s", async (state) => {
+    await k.publish("@alpha/secret", "1.0.0", tree("secret"));
+    await k.publish("@alpha/secret", "2.0.0", tree("secret v2"));
+    privatize("@alpha/secret");
+    grant("user-c", "@alpha/secret", "1.0.0");
+    k.sql("UPDATE package_releases SET release_state = ? WHERE version = '1.0.0'", state);
+    expect(await latestOf(cKey, "@alpha/secret")).toMatchObject({ relation: "entitled", state: "no_release", latest: null, installRef: null });
+  });
+
+  it("skips a tree quarantined through another package's release", async () => {
+    await k.publish("@alpha/demo", "1.0.0", tree("demo"));
+    await k.publish("@alpha/demo", "1.1.0", tree("demo v1.1"));
+    await k.publish("@alpha/other", "1.0.0", tree("other"));
+    // The quarantined release of @alpha/other carries the digest of demo@1.1.0.
+    k.sql(
+      `UPDATE package_releases SET release_state = 'quarantined',
+              release_digest = (SELECT x.release_digest FROM package_releases x WHERE x.version = '1.1.0')
+        WHERE package_id = (SELECT id FROM packages WHERE name = '@alpha/other')`,
+    );
+    expect(await latestOf(aKey, "@alpha/demo")).toMatchObject({ latest: { version: "1.0.0" } });
+  });
+});
+
+describe("cursor encoding", () => {
+  it("encodes non-ASCII identities without throwing and decodes them back", async () => {
+    const cursor = encodeCursor("@alpha/ünï-€", "skill");
+    expect(cursor).toMatch(/^[A-Za-z0-9_-]+$/);
+    const res = await library({ key: aKey, query: `?cursor=${cursor}` });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe("query plan", () => {
+  const plan = (sql: string, ...params: Array<string | number | null>) =>
+    (k.h.d1.raw.prepare(`EXPLAIN QUERY PLAN ${sql}`).all(...params) as Array<{ detail: string }>).map((r) => r.detail);
+
+  it("drives the listing from the caller's ids and never scans packages or releases", () => {
+    const details = plan(librarySql(true), "user-a", null, null, null, null, 101);
+    expect(details.join("\n")).toMatch(/idx_publishers_owner/);
+    expect(details.join("\n")).toMatch(/idx_entitlements_subject/);
+    for (const d of details) expect(d, d).not.toMatch(/\bSCAN (p|p2|pub|o|e|k|x|packages|package_releases|publishers|entitlements)\b/);
+  });
+
+  it("reads releases through the per-package version index", () => {
+    const details = plan(libraryReleasesSql, "user-a", JSON.stringify(["pkg-1"]));
+    expect(details.join("\n")).toMatch(/idx_package_releases_version/);
+    for (const d of details) expect(d, d).not.toMatch(/\bSCAN (x|package_releases)\b/);
+    expect(details.join("\n")).not.toMatch(/idx_package_releases_state/);
   });
 });
 

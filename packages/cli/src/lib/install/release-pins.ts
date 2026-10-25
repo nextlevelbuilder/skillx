@@ -1,4 +1,4 @@
-import { compareVersions, parseVersion } from '@skillx/contracts';
+import { newestVersion } from '@skillx/contracts';
 import { integrityError, InstallError } from './install-errors.js';
 import type { Registry } from './registry-client.js';
 
@@ -14,14 +14,7 @@ export interface Pin {
   releaseDigest: string;
 }
 
-/** Highest of a list of versions, preferring releases without a prerelease tag. */
-export function newestVersion(versions: readonly string[]): string | null {
-  const parsed = versions.map((v) => ({ v, p: parseVersion(v) })).filter((x) => x.p !== null);
-  const stable = parsed.filter((x) => x.p!.prerelease === null);
-  const pool = stable.length > 0 ? stable : parsed;
-  pool.sort((a, b) => compareVersions(b.p!, a.p!));
-  return pool[0]?.v ?? null;
-}
+export { newestVersion };
 
 export async function resolvePin(registry: Registry, wanted: { name: string; version?: string; digest?: string }, warnings: string[]): Promise<Pin> {
   const releases = await registry.releases(wanted.name);

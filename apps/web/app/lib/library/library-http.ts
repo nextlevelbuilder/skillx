@@ -29,7 +29,8 @@ const CURSOR_NAME_MAX = 256;
 const badRequest = (code: string, message: string) => releaseError(400, code, message);
 
 export function encodeCursor(name: string, kind: LibraryKind): string {
-  return btoa(JSON.stringify([name, kind])).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  const bytes = new TextEncoder().encode(JSON.stringify([name, kind]));
+  return btoa(Array.from(bytes, (b) => String.fromCharCode(b)).join("")).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
 
 function decodeCursor(raw: string): { name: string; kind: LibraryKind } {
