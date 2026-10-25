@@ -4,7 +4,7 @@
     "canonicalization, tree digest and signature rules are those of skillx.release/v1 (release-manifest-v1.json)",
     "schemaVersion selects the closed member set: v1 has no provenance member (unknown_field), v2 requires it (required); any other schemaVersion is unsupported_value",
     "provenance is {provider: 'skillx'} or {provider: 'kit', origin: 'remote-signed' | 'local-dev'}; other providers or origins are unsupported_value, extra members unknown_field",
-    "@agentkit/* requires provider kit (identity.reserved_publisher); provider kit requires @agentkit/* (identity.invalid); a provider skillx slug must not start with ak- (identity.reserved_alias)",
+    "@agentkit/* requires provider kit (identity.reserved_publisher); provider kit requires @agentkit/* (identity.invalid); a provider skillx slug must not start with ak- (identity.reserved_alias); a provider kit slug must not start with ak- (identity.invalid): the kit directory ak-<x> is @agentkit/<x>",
     "trust is local-unverified unless the verifier itself verified the AgentKit kit signature of a remote-signed kit release; the registry signature alone never yields signed-kit",
     "trust vectors name a valid vector and the releaseDigest whose AgentKit kit signature the verifier checked (null: none); signed-kit requires origin remote-signed and that digest equal to the manifest releaseDigest"
   ],
@@ -220,6 +220,11 @@
       "name": "@agentkit release signed as v1 without provenance",
       "document": "{\"artifactDigest\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"artifactSize\":10240,\"channel\":\"stable\",\"createdAt\":\"2026-10-13T04:30:00Z\",\"declaredScripts\":[\"scripts/check.sh\"],\"fileCount\":3,\"files\":[{\"mode\":\"100644\",\"path\":\"SKILL.md\",\"sha256\":\"bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11\",\"size\":102},{\"mode\":\"100644\",\"path\":\"references/café & notes .md\",\"sha256\":\"d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f\",\"size\":34},{\"mode\":\"100755\",\"path\":\"scripts/check.sh\",\"sha256\":\"b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c\",\"size\":18}],\"identity\":\"@agentkit/review-guardrails\",\"keyId\":\"skillx-test-vector-1\",\"kind\":\"skill\",\"publisher\":{\"handle\":\"agentkit\",\"verifiedBy\":\"admin\"},\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release/v1\",\"signature\":\"W34Yw3/BbnSQS+72UC5qUoFi8Zqza+QDeflmPWNqNVCXangThgpY9JMdKkyqdABht4cxye1a+9l5dHSQtKk+Bg==\",\"signatureAlgorithm\":\"ed25519\",\"sourceProvenance\":{\"commit\":\"0123456789abcdef0123456789abcdef01234567\",\"path\":\"kits/core/skills/ak-review-guardrails\",\"repo\":\"https://github.com/bestagentkits/agentkit\"},\"treeSize\":154,\"version\":\"1.2.0\"}",
       "expectedCode": "identity.reserved_publisher"
+    },
+    {
+      "name": "kit release named with the ak- directory prefix",
+      "document": "{\"artifactDigest\":\"sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc\",\"artifactSize\":10240,\"channel\":\"stable\",\"createdAt\":\"2026-10-13T04:30:00Z\",\"declaredScripts\":[\"scripts/check.sh\"],\"fileCount\":3,\"files\":[{\"mode\":\"100644\",\"path\":\"SKILL.md\",\"sha256\":\"bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11\",\"size\":102},{\"mode\":\"100644\",\"path\":\"references/café & notes .md\",\"sha256\":\"d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f\",\"size\":34},{\"mode\":\"100755\",\"path\":\"scripts/check.sh\",\"sha256\":\"b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c\",\"size\":18}],\"identity\":\"@agentkit/ak-review-guardrails\",\"keyId\":\"skillx-test-vector-1\",\"kind\":\"skill\",\"provenance\":{\"origin\":\"remote-signed\",\"provider\":\"kit\"},\"publisher\":{\"handle\":\"agentkit\",\"verifiedBy\":\"admin\"},\"releaseDigest\":\"sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974\",\"schemaVersion\":\"skillx.release/v2\",\"signature\":\"dLVzAxKOlCHZS+B7CeEqpEei/DLJj/UMBhmVhl68HkCFpnfh0WCZwnTrXl9/NLbkIdFUYKDnhp6o7n0cPjvQAA==\",\"signatureAlgorithm\":\"ed25519\",\"sourceProvenance\":{\"commit\":\"0123456789abcdef0123456789abcdef01234567\",\"path\":\"kits/core/skills/ak-review-guardrails\",\"repo\":\"https://github.com/bestagentkits/agentkit\"},\"treeSize\":154,\"version\":\"1.2.0\"}",
+      "expectedCode": "identity.invalid"
     },
     {
       "name": "kit provenance with members out of canonical order",
@@ -759,6 +764,62 @@
         "treeSize": 154,
         "publisher": {
           "handle": "bestagentkits",
+          "verifiedBy": "admin"
+        },
+        "sourceProvenance": {
+          "repo": "https://github.com/bestagentkits/agentkit",
+          "commit": "0123456789abcdef0123456789abcdef01234567",
+          "path": "kits/core/skills/ak-review-guardrails"
+        },
+        "declaredScripts": [
+          "scripts/check.sh"
+        ],
+        "createdAt": "2026-10-13T04:30:00Z",
+        "keyId": "skillx-test-vector-1",
+        "signatureAlgorithm": "ed25519",
+        "provenance": {
+          "provider": "kit",
+          "origin": "remote-signed"
+        },
+        "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=="
+      },
+      "expectedCode": "identity.invalid"
+    },
+    {
+      "name": "rejects a kit release slug with the ak- directory prefix",
+      "manifest": {
+        "schemaVersion": "skillx.release/v2",
+        "identity": "@agentkit/ak-review-guardrails",
+        "version": "1.2.0",
+        "channel": "stable",
+        "kind": "skill",
+        "releaseDigest": "sha256:4c2eac09c7ba5fc5e0d642959c7e38b65a53ca08e65b8e728d6ca5798e458974",
+        "artifactDigest": "sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "artifactSize": 10240,
+        "files": [
+          {
+            "path": "SKILL.md",
+            "mode": "100644",
+            "sha256": "bcfdc953c1af6a7fdfde9d0a99d73bfba6a5fad8bb81d484b3bb416461ab5b11",
+            "size": 102
+          },
+          {
+            "path": "references/café & notes .md",
+            "mode": "100644",
+            "sha256": "d8bcfd787914776aba5f5923ce82d187239133d4c4fd46efd26c83aae0f0a84f",
+            "size": 34
+          },
+          {
+            "path": "scripts/check.sh",
+            "mode": "100755",
+            "sha256": "b4d644d4279594903f1a9911956432d9473041f2984fc6014c14d7402c7d126c",
+            "size": 18
+          }
+        ],
+        "fileCount": 3,
+        "treeSize": 154,
+        "publisher": {
+          "handle": "agentkit",
           "verifiedBy": "admin"
         },
         "sourceProvenance": {

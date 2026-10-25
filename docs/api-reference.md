@@ -811,7 +811,7 @@ on v1, so v1-only verifiers keep working. Source:
 | `provenance` | Rule |
 |--------------|------|
 | `{"provider": "skillx"}` | identity must not be `@agentkit/*` (`identity.reserved_publisher`); the slug must not start with `ak-` or `ak:` (`identity.reserved_alias`) |
-| `{"provider": "kit", "origin": "remote-signed" \| "local-dev"}` | identity must be `@agentkit/*` (`identity.invalid`); `origin` records where the kit content came from |
+| `{"provider": "kit", "origin": "remote-signed" \| "local-dev"}` | identity must be `@agentkit/*` and its slug must not start with `ak-` (`identity.invalid`; the kit directory `ak-<x>` is `@agentkit/<x>`); `origin` records where the kit content came from |
 
 Other providers or origins are `unsupported_value`, a missing `origin` is
 `required` and extra members are `unknown_field`. `origin` is a claim that

@@ -118,6 +118,7 @@ async function buildVectors(): Promise<ReleaseVectorsV2> {
   const { provenance: _dropped, ...kitMembers } = clone(RELEASE_MANIFEST_V2_KIT_FIXTURE);
   const signedV1Agentkit = await signRaw({ ...kitMembers, schemaVersion: "skillx.release/v1" }, key);
   const signedV1 = await signReleaseManifest(RELEASE_MANIFEST_FIXTURE, key.privateKey);
+  const signedAkSlug = await signRaw({ ...clone(RELEASE_MANIFEST_V2_KIT_FIXTURE), identity: "@agentkit/ak-review-guardrails" }, key);
 
   return {
     description:
@@ -126,7 +127,7 @@ async function buildVectors(): Promise<ReleaseVectorsV2> {
       "canonicalization, tree digest and signature rules are those of skillx.release/v1 (release-manifest-v1.json)",
       "schemaVersion selects the closed member set: v1 has no provenance member (unknown_field), v2 requires it (required); any other schemaVersion is unsupported_value",
       "provenance is {provider: 'skillx'} or {provider: 'kit', origin: 'remote-signed' | 'local-dev'}; other providers or origins are unsupported_value, extra members unknown_field",
-      "@agentkit/* requires provider kit (identity.reserved_publisher); provider kit requires @agentkit/* (identity.invalid); a provider skillx slug must not start with ak- (identity.reserved_alias)",
+      "@agentkit/* requires provider kit (identity.reserved_publisher); provider kit requires @agentkit/* (identity.invalid); a provider skillx slug must not start with ak- (identity.reserved_alias); a provider kit slug must not start with ak- (identity.invalid): the kit directory ak-<x> is @agentkit/<x>",
       "trust is local-unverified unless the verifier itself verified the AgentKit kit signature of a remote-signed kit release; the registry signature alone never yields signed-kit",
       "trust vectors name a valid vector and the releaseDigest whose AgentKit kit signature the verifier checked (null: none); signed-kit requires origin remote-signed and that digest equal to the manifest releaseDigest",
     ],
@@ -160,6 +161,11 @@ async function buildVectors(): Promise<ReleaseVectorsV2> {
         name: "@agentkit release signed as v1 without provenance",
         document: canonicalJson(signedV1Agentkit),
         expectedCode: "identity.reserved_publisher",
+      },
+      {
+        name: "kit release named with the ak- directory prefix",
+        document: canonicalJson(signedAkSlug),
+        expectedCode: "identity.invalid",
       },
       {
         name: "kit provenance with members out of canonical order",

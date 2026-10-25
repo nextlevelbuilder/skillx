@@ -222,7 +222,9 @@ function treeIssue(path: string, error: SkillTreeError): ValidationIssue {
 /**
  * `provider` is `skillx` for v1, the validated v2 provider, or null when the
  * v2 provider is invalid (then only the identity shape is checked). Under v2 a
- * `skillx` slug must not take the reserved `ak-` alias prefix either.
+ * `skillx` slug must not take the reserved `ak-` alias prefix either, and a
+ * `kit` slug must not start with `ak-`: AgentKit maps the kit directory
+ * `ak-<x>` to `@agentkit/<x>`, so `@agentkit/ak-<x>` names no kit skill.
  */
 function validateIdentityField(identity: unknown, provider: ReleaseProvider | null, v2: boolean, issues: ValidationIssue[]): string | null {
   if (typeof identity !== "string" || !PACKAGE_NAME_PATTERN.test(identity)) {
@@ -232,7 +234,12 @@ function validateIdentityField(identity: unknown, provider: ReleaseProvider | nu
   try {
     if (provider === null) validateIdentity(identity);
     else checkPublisher(identity, provider);
-    if (v2 && provider === "skillx") checkDirectoryAlias(identity, identity.slice(identity.indexOf("/") + 1));
+    const slug = identity.slice(identity.indexOf("/") + 1);
+    if (v2 && provider === "skillx") checkDirectoryAlias(identity, slug);
+    if (v2 && provider === "kit" && slug.startsWith("ak-")) {
+      issues.push(issue("identity", ERROR_CODES.identityInvalid, `kit release slugs omit the "ak-" directory prefix: use @agentkit/${slug.slice(3)}`));
+      return null;
+    }
   } catch (error) {
     if (!(error instanceof SkillTreeError)) throw error;
     issues.push(treeIssue("identity", error));

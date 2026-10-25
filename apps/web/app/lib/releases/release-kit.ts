@@ -72,8 +72,9 @@ export async function assertSameKitProvenance(
   provenance: ReleaseProvenance,
   label: string,
 ): Promise<void> {
-  if (existing.manifestKey === null) throw storageError(`${label} has no signed manifest`);
-  const stored = releaseProvenanceOf(await readManifest(bucket, { manifestKey: existing.manifestKey, releaseDigest: existing.releaseDigest }));
+  const context = "release publish replay";
+  if (existing.manifestKey === null) throw storageError(`${label} has no signed manifest`, context);
+  const stored = releaseProvenanceOf(await readManifest(bucket, { manifestKey: existing.manifestKey, releaseDigest: existing.releaseDigest }, context));
   if (stored.provider === "kit" && provenance.provider === "kit" && stored.origin === provenance.origin) return;
   const origin = stored.provider === "kit" ? `kit origin ${stored.origin}` : "provider skillx";
   throw releaseError(409, "release.version_exists", `${label} already exists with ${origin}`);

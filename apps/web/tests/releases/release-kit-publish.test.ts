@@ -133,10 +133,45 @@ describe("kit release publish", () => {
   });
 
   it("lets exactly one of two racing publishes of a version with different origins win; the loser gets 409", async () => {
+    // Hold the first release insert until both publishes have looked the version up, so both reach the insert.
+    const db = h.deps.db;
+    let lookups = 0;
+    let bothLooked!: () => void;
+    const gate = new Promise<void>((resolve) => (bothLooked = resolve));
+    const counted = (statement: D1PreparedStatement): D1PreparedStatement =>
+      new Proxy(statement, {
+        get: (target, prop) =>
+          prop === "bind"
+            ? (...args: unknown[]) => counted(target.bind(...args))
+            : prop === "first"
+              ? async (...args: []) => {
+                  const row = await target.first(...args);
+                  if (++lookups === 2) bothLooked();
+                  return row;
+                }
+              : Reflect.get(target, prop, target),
+      });
+    let held = false;
+    h.deps.db = new Proxy(db, {
+      get: (target, prop) => {
+        if (prop === "prepare") return (sql: string) => (sql.includes("WHERE p.name = ? AND r.version = ?") ? counted(target.prepare(sql)) : target.prepare(sql));
+        if (prop === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (!held) {
+              held = true;
+              await gate;
+            }
+            return target.batch(statements);
+          };
+        }
+        return Reflect.get(target, prop, target);
+      },
+    });
     const publish = (origin: string) =>
       h.upload("@agentkit/review", tarOf(skillFiles()), { key: agentkitKey, metadata: kitMetadata({ provider: "kit", origin }) });
     const results = await Promise.all([publish("remote-signed"), publish("local-dev")]);
-    // Both passed the version lookup and signed their own manifest, so the loser hit the insert conflict path.
+    // Both signed their own manifest, so the loser hit the insert conflict path.
+    expect(lookups).toBeGreaterThanOrEqual(2);
     expect(h.r2.keys("manifests/")).toHaveLength(2);
     const winner = results.find((r) => r.status === 200)!;
     const loser = results.find((r) => r.status !== 200)!;
