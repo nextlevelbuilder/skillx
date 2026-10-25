@@ -628,7 +628,8 @@ Installer commands use the shared envelope and the one exit-code table in
 are `1` `integrity_error` (verification failed, nothing written), `4`
 `incompatible` (the release refuses the runtime) and `8` `conflict` (local
 edits, an unowned directory, a link inside a skill, a shared version, drift, a
-stale plan, or a path in use).
+stale plan, or a path in use). The `kit` commands reuse `8` `conflict` for a
+write based on a stale generation; nothing is written.
 
 ---
 

@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import { kitApi } from '../lib/kit-api.js';
 import { withCliErrors } from '../lib/api-errors.js';
 import { runCommand, usageError } from '../lib/release-cli.js';
@@ -36,11 +36,16 @@ function requireDigest(digest: string | undefined): string {
   return digest.trim();
 }
 
+/** A personal-kit document is a small JSON manifest; refuse anything larger before reading it. */
+const MAX_DOCUMENT_BYTES = 1024 * 1024;
+
 async function readDocument(file: string | undefined): Promise<{ document: unknown; raw: string }> {
   if (!file) throw usageError('--document <file> is required');
   let raw: string;
   try {
-    raw = await readFile(file, 'utf8');
+    const size = (await stat(file)).size;
+    if (size > MAX_DOCUMENT_BYTES) throw new Error(`larger than ${MAX_DOCUMENT_BYTES} bytes`);
+    raw = (await readFile(file, 'utf8')).replace(/^\uFEFF/, '');
   } catch (error) {
     throw usageError(`cannot read --document ${file}: ${error instanceof Error ? error.message : String(error)}`);
   }

@@ -127,3 +127,30 @@ describe('kit activate and rollback', () => {
     expect(envelope).toMatchObject({ ok: false, error: { code: 'not_found', details: { code: 'kit.api_disabled' } } });
   });
 });
+
+describe('kit push document and error hints', () => {
+  it('accepts a document saved with a UTF-8 BOM', async () => {
+    const file = join(dir, 'bom.json');
+    writeFileSync(file, '\uFEFF' + JSON.stringify({ schema: 'skillx.personal-kit/v1', kit: KIT }));
+    answers.push(reply({ revision: { id: 'pkr_1', number: 1 }, generation: 1, replayed: false, warnings: [] }, 201));
+    await runKitPush(KIT, { document: file, ifMatch: '0' });
+    expect(calls[0].body).toMatchObject({ document: { kit: KIT } });
+  });
+
+  it('refuses an oversized document without a request', async () => {
+    const file = join(dir, 'big.json');
+    writeFileSync(file, ' '.repeat(1024 * 1024 + 1));
+    await expect(runKitPush(KIT, { document: file, ifMatch: '0' })).rejects.toMatchObject({ code: 'usage_error' });
+    expect(calls).toEqual([]);
+  });
+
+  it('gives the key hint only for key problems', async () => {
+    answers.push(reply({ error: { code: 'kit.interactive_approval_required', message: 'review in the web app' } }, 403));
+    const approval = fromError(await runKitShow(KIT).catch((e) => e));
+    expect(approval.error).toMatchObject({ code: 'auth_error' });
+    expect(approval.error.hint).toBeUndefined();
+    answers.push(reply({ error: { code: 'auth.scope_missing', message: 'scope' } }, 403));
+    const scope = fromError(await runKitShow(KIT).catch((e) => e));
+    expect(scope.error.hint).toMatch(/SKILLX_API_KEY/);
+  });
+});

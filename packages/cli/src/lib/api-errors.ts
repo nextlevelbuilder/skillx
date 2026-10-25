@@ -26,7 +26,11 @@ export function toCliError(error: unknown): unknown {
   const message = bodyMessage(error.body) ?? error.message;
   const label = `${code ?? `HTTP ${error.status}`}: ${message}`;
   if (error.status === 401 || error.status === 403) {
-    return new CliError('auth_error', label, { details, hint: 'Check SKILLX_API_KEY (`skillx config set-key`): the key needs library:read for reads and kits:write:@<handle> for kit writes.' });
+    const keyProblem = error.status === 401 || code === null || code.startsWith('auth.');
+    const hint = keyProblem
+      ? 'Check SKILLX_API_KEY (`skillx config set-key`): the key needs library:read for reads and kits:write:@<handle> for kit writes.'
+      : undefined;
+    return new CliError('auth_error', label, hint ? { details, hint } : { details });
   }
   if (error.status === 404) return new CliError('not_found', error.name === 'KitApiDisabledError' ? error.message : label, { details });
   if (error.status === 412 || (error.status === 409 && code === 'kit.generation_conflict')) {

@@ -31,7 +31,7 @@ export const EXIT_CODES = {
   network: 6,
   /** The API asked the caller to slow down; retry later. */
   rateLimited: 7,
-  /** Local files block an install change (modified, unowned or shared). */
+  /** Local files block an install change (modified, unowned or shared), or a kit write used a stale generation. */
   conflict: 8,
 } as const;
 
