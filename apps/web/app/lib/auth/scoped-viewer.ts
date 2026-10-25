@@ -36,20 +36,23 @@ const SCOPED_KEY_QUERY = "SELECT id, user_id, scopes FROM api_keys WHERE key_has
 export const invalidApiKey = (): ReleaseHttpError =>
   releaseError(401, "invalid_api_key", "the Authorization header does not carry a valid read API key");
 
-/** The owner and scopes of an unrevoked scoped key, or null. Records the key's last use. */
+/** The owner and scopes of an unrevoked scoped key, or null. */
 async function authenticateScopedKey(db: D1Database, token: string): Promise<{ keyId: string; userId: string; scopes: string[] } | null> {
   if (!API_KEY_PATTERN.test(token)) return null;
   const row = await db.prepare(SCOPED_KEY_QUERY).bind(await hashScopedApiKey(token)).first<{ id: string; user_id: string; scopes: string | null }>();
   if (row === null) return null;
   // A scoped hash with a NULL column cannot be minted; treat it as granting nothing.
-  const scopes = parseStoredScopes(row.scopes) ?? [];
+  return { keyId: row.id, userId: row.user_id, scopes: parseStoredScopes(row.scopes) ?? [] };
+}
+
+/** Records the use of an accepted key; a refused key never shows as used. */
+async function recordKeyUse(db: D1Database, keyId: string): Promise<void> {
   try {
-    await db.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?").bind(Date.now(), row.id).run();
+    await db.prepare("UPDATE api_keys SET last_used_at = ? WHERE id = ?").bind(Date.now(), keyId).run();
   } catch (error) {
     // Usage bookkeeping must not block a read; the failure is still reported.
     console.warn("scoped key: cannot record API key use:", error instanceof Error ? error.message : String(error));
   }
-  return { keyId: row.id, userId: row.user_id, scopes };
 }
 
 export async function resolveRequestCredential(
@@ -69,6 +72,7 @@ export async function resolveRequestCredential(
   if (owner !== null) return { userId: owner.userId, keyId: owner.keyId, scopes: null };
   const scoped = await authenticateScopedKey(env.DB, key);
   if (scoped === null || !accepts(scoped.scopes)) throw invalidApiKey();
+  await recordKeyUse(env.DB, scoped.keyId);
   return scoped;
 }
 

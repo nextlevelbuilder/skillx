@@ -217,6 +217,66 @@ describe("kits:write:@handle", () => {
     expect(k.count("personal_kits")).toBe(0);
   });
 
+  it("sees an owned parent kit under another handle as a digest reference unless a scope covers that handle", async () => {
+    // `@bestagentkits` is another publisher of user-a, so the parent kit is owned but outside `kits:write:@alpha`.
+    const parentDoc = { ...k.doc([await k.entry(PRIVATE, "1.0.0", SECRET_TREE)]), kit: "@bestagentkits/base", localId: "local/base" };
+    const parent = await k.call("revisions", { expectedGeneration: 0, idempotencyKey: k.idem(), document: parentDoc }, { kit: "@bestagentkits/base" });
+    expect(parent.status).toBe(201);
+    const parentDigest = parent.body.revision.digest as string;
+    const child = k.doc([], { parent: { kit: "@bestagentkits/base", revisionDigest: parentDigest } });
+    const stored = await k.call("revisions", { expectedGeneration: 0, idempotencyKey: k.idem(), document: child }, { key: kitKey });
+    expect(stored.status).toBe(201);
+    const rev = stored.body.revision as { id: string; digest: string };
+    expect((await k.call("activate", { expectedGeneration: 1, revisionId: rev.id, approval: { revisionDigest: rev.digest } }, { key: kitKey })).status).toBe(200);
+
+    const narrow = await k.call("lock", undefined, { key: kitKey });
+    expect(narrow.status).toBe(200);
+    expect(narrow.body.documents).toHaveLength(2);
+    expect(narrow.body.documents[0]).toMatchObject({ kit: "@alpha/my-kit" });
+    expect(narrow.body.documents[1]).toEqual({ kit: "@bestagentkits/base", revisionDigest: parentDigest, foreign: true });
+    expect(JSON.stringify(narrow.body.documents)).not.toContain("local/base");
+
+    // The owner's session, an account key, library:read and a kits:write scope for the parent's handle see the document.
+    const bothHandles = await key("user-a", [kitsWriteScope("alpha"), kitsWriteScope("bestagentkits")]);
+    session.user = { id: "user-a" };
+    const sessionLock = await k.call("lock", undefined, { key: null });
+    session.user = null;
+    for (const lock of [sessionLock, ...(await Promise.all([k.ownerKey, readKey, syncKey, bothHandles].map((bearer) => k.call("lock", undefined, { key: bearer }))))]) {
+      expect(lock.status).toBe(200);
+      expect(lock.body.documents[1]).toMatchObject({ kit: "@bestagentkits/base", localId: "local/base", skills: [expect.objectContaining({ identity: PRIVATE })] });
+      expect(lock.body.lock).toEqual(narrow.body.lock);
+    }
+  });
+
+  it("cannot review a proposal or activate a public revision: both need a web session", async () => {
+    const stored = await storeKit(kitKey);
+    expect(stored.status).toBe(201);
+    const from = stored.body.revision as { id: string; digest: string };
+    const e = await k.entry(PRIVATE, "1.0.0", { "SKILL.md": skillText(BODY.replace("three\n", "three (learned)\n"), "name: secret\ndescription: Secret") });
+    const proposal = { schema: "skillx.kit-proposal/v1", fromRevisionId: from.id, skill: { identity: e.identity, base: e.base, overlay: e.overlay, compositionDigest: e.compositionDigest }, declaredPermissions: [], visibility: "private" };
+    const proposed = await k.call("proposals", { expectedGeneration: 1, idempotencyKey: k.idem(), proposal }, { key: kitKey });
+    expect(proposed.status).toBe(201);
+    const prop = proposed.body.revision as { id: string; digest: string };
+    const review = await k.call(
+      `revisions/${prop.id}/review`,
+      { expectedGeneration: 2, decision: "approve", approval: { revisionDigest: prop.digest, permissions: [], visibility: "private", consent: true } },
+      { key: kitKey },
+    );
+    expect(review.status).toBe(403);
+    expect(review.body.error.code).toBe("kit.interactive_approval_required");
+    expect((k.h.d1.raw.prepare("SELECT state FROM personal_kit_revisions WHERE id = ?").get(prop.id) as { state: string }).state).toBe("proposed");
+
+    await k.publish("@alpha/open", "1.0.0", { "SKILL.md": skillText(BODY, "name: open\ndescription: Open") });
+    const publicDoc = k.doc([await k.entry("@alpha/open", "1.0.0", { "SKILL.md": skillText(BODY.replace("two\n", "two (public)\n"), "name: open\ndescription: Open") })], { visibility: "public" });
+    const pub = await k.call("revisions", { expectedGeneration: 2, idempotencyKey: k.idem(), document: publicDoc }, { key: kitKey });
+    expect(pub.status).toBe(201);
+    const pubRev = pub.body.revision as { id: string; digest: string };
+    const activate = await k.call("activate", { expectedGeneration: 3, revisionId: pubRev.id, approval: { revisionDigest: pubRev.digest } }, { key: kitKey });
+    expect(activate.status).toBe(403);
+    expect(activate.body.error.code).toBe("kit.interactive_approval_required");
+    expect((k.h.d1.raw.prepare("SELECT effective_revision_id AS e, visibility AS v FROM personal_kits WHERE name = ?").get("@alpha/my-kit") as { e: string | null; v: string })).toEqual({ e: null, v: "private" });
+  });
+
   it("does not read releases, publish, change release state or reach operator routes", async () => {
     await expectAll(await everyRead(PRIVATE, kitKey), 401, "invalid_api_key");
     const upload = await k.h.upload("@alpha/new", tarOf([file("SKILL.md", skillText(BODY))]), { key: kitKey });
@@ -251,6 +311,20 @@ describe("refused credentials", () => {
       await expectError(await mint(bearer), 401, "invalid_api_key");
     }
     expect(k.count("personal_kit_revisions")).toBe(1);
+  });
+
+  it("records the last use of a scoped key only when a route accepts it", async () => {
+    const lastUsed = (bearer: string) =>
+      (k.h.d1.raw.prepare("SELECT last_used_at AS at FROM api_keys WHERE key_prefix = ?").get(bearer.slice(0, 8)) as { at: number | null }).at;
+    const publishOnly = await key("user-a", [releasePublishScope("alpha")]);
+    await expectError(await k.call("", undefined, { key: publishOnly }), 401, "invalid_api_key");
+    await expectAll(await everyRead(PRIVATE, publishOnly), 401, "invalid_api_key");
+    expect(lastUsed(publishOnly)).toBeNull();
+    // A kit key is refused by the release read API, then accepted by the kit API.
+    await expectAll(await everyRead(PRIVATE, kitKey), 401, "invalid_api_key");
+    expect(lastUsed(kitKey)).toBeNull();
+    expect((await k.call("", undefined, { key: kitKey })).status).toBe(404);
+    expect(lastUsed(kitKey)).toEqual(expect.any(Number));
   });
 
   it("revokes keys independently: device B's revocation leaves device A working", async () => {

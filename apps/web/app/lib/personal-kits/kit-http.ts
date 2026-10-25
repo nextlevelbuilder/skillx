@@ -177,6 +177,11 @@ async function readCaller(request: Request, env: KitEnv): Promise<{ userId: stri
   return { userId, scopes };
 }
 
+const kitScopes = (kit: string, access: KitAccess) => {
+  const write = kitsWriteScope(handleOfKit(kit));
+  return access === "read" ? [LIBRARY_READ_SCOPE, write] : [write];
+};
+
 /**
  * The scope a scoped key needs on `kit`: `library:read` or
  * `kits:write:@<handle>` to read, `kits:write:@<handle>` to write. Sessions
@@ -184,9 +189,12 @@ async function readCaller(request: Request, env: KitEnv): Promise<{ userId: stri
  */
 export function requireKitScope(caller: Pick<KitCaller, "scopes" | "admin">, kit: string, access: KitAccess): void {
   if (caller.admin) return;
-  const write = kitsWriteScope(handleOfKit(kit));
-  requireScope(caller, access === "read" ? [LIBRARY_READ_SCOPE, write] : [write]);
+  requireScope(caller, kitScopes(kit, access));
 }
+
+/** True when the caller may read `kit` by its scopes (sessions, unscoped keys and the admin always may); ownership is separate. */
+export const scopeReadsKit = (caller: Pick<KitCaller, "scopes" | "admin">, kit: string): boolean =>
+  caller.admin || caller.scopes === null || kitScopes(kit, "read").some((scope) => caller.scopes!.includes(scope));
 
 /** Runs one endpoint: flag, caller and limit, then the handler; maps every failure to the error shape. */
 export async function serveKit(

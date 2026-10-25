@@ -24,6 +24,7 @@ import type { PersonalKitDocument } from "@skillx/contracts";
 import { IDENTITY_PATTERN } from "@skillx/skill-tree/rules";
 import { baseFailure, loadPinnedBase } from "./base-loader";
 import type { LoadedBase } from "./base-loader";
+import { scopeReadsKit } from "./kit-http";
 import type { KitCaller } from "./kit-http";
 import { documentOf, findKit, revisionByDigest } from "./kit-store";
 import type { RevisionRow } from "./kit-store";
@@ -115,9 +116,16 @@ export async function loadChain(caller: KitCaller, doc: PersonalKitDocument, rea
   return { chain, parentPublic, foreign, incomplete: false, parents };
 }
 
-/** The chain as returned to the caller: own documents in full, foreign ancestors as digest references only. */
-export const chainView = ({ chain, foreign }: LoadedChain) =>
-  chain.map((d, i) => (foreign.has(i) ? { kit: d.kit, revisionDigest: chain[i - 1]!.parent!.revisionDigest, foreign: true } : d));
+/**
+ * The chain as returned to the caller: own documents in full; foreign
+ * ancestors, and for a scoped key own ancestors under a handle it holds
+ * neither `library:read` nor `kits:write:@<handle>` for, as digest
+ * references only.
+ */
+export const chainView = ({ chain, foreign }: LoadedChain, caller: Pick<KitCaller, "scopes" | "admin">) =>
+  chain.map((d, i) =>
+    i > 0 && (foreign.has(i) || !scopeReadsKit(caller, d.kit)) ? { kit: d.kit, revisionDigest: chain[i - 1]!.parent!.revisionDigest, foreign: true } : d,
+  );
 
 /** Loads and checks every base of `doc`. */
 export async function verifyDocument(caller: KitCaller, kitName: string, doc: PersonalKitDocument): Promise<VerifiedDocument> {
