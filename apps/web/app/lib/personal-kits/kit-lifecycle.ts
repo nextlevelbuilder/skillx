@@ -13,7 +13,8 @@
  * Rejection is final for that revision; a proposal is rejected only through
  * its web-session review, never through the generic reject. The lock is derived on read from the
  * immutable documents, so equal revisions always give equal lock bytes;
- * ancestors owned by someone else are returned as digest references only.
+ * ancestors owned by someone else, and ancestors under a handle a scoped key
+ * holds no kit scope for, are returned as digest references only.
  */
 import { buildKitLock, resolveLineage } from "@skillx/contracts";
 import { releaseError } from "~/lib/releases/release-http";
@@ -56,7 +57,7 @@ export async function checkLock(caller: KitCaller, rev: RevisionRow): Promise<Lo
     }
   }
   const lock = await buildKitLock(chain, { id: rev.id, number: Number(rev.revision_number), digest: rev.revision_digest });
-  return { lock, parents: loaded.parents, documents: chainView(loaded), reasons, warnings };
+  return { lock, parents: loaded.parents, documents: chainView(loaded, caller), reasons, warnings };
 }
 
 /** 409 with the failing pins listed in `error.reasons`. */

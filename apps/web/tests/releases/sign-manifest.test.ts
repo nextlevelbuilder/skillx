@@ -3,7 +3,7 @@ import { verifyReleaseManifest, releaseTreeDigest } from "@skillx/contracts";
 import { VECTOR_KEY_SEED_TEXT, vectorKey } from "../../../../packages/contracts/src/test-support/vector-key";
 import { ReleaseHttpError } from "~/lib/releases/release-http";
 import { loadRegistrySigner, signRelease } from "~/lib/releases/sign-manifest";
-import { parseReleaseMetadata, parseReleaseName } from "~/lib/releases/release-request";
+import { parseReleaseMetadata, parseReleaseName, requestedProvider } from "~/lib/releases/release-request";
 import { normalizeRequestedScopes, parseStoredScopes } from "~/lib/auth/api-key-scopes";
 
 const PKCS8_PREFIX = [0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x70, 0x04, 0x22, 0x04, 0x20];
@@ -33,6 +33,7 @@ describe("registry signer", () => {
         publisher: { handle: "alpha", verifiedBy: "admin" },
         sourceProvenance: null,
         declaredScripts: [],
+        provenance: null,
       },
       signer,
       new Date("2026-10-13T12:34:56.789Z"),
@@ -73,12 +74,37 @@ describe("request boundary", () => {
       kind: "skill",
       sourceProvenance: null,
       declaredScripts: [],
+      provenance: null,
+      visibility: null,
     });
+    expect(parseReleaseMetadata(header({ version: "1.0.0", visibility: "private" })).visibility).toBe("private");
+    expect(() => parseReleaseMetadata(header({ version: "1.0.0", visibility: "unlisted" }))).toThrow(/visibility/);
     expect(() => parseReleaseMetadata(null)).toThrow(/required/);
     expect(() => parseReleaseMetadata("%%%")).toThrow(/base64/);
     expect(() => parseReleaseMetadata(header({ version: "1.0.0+build" }))).toThrow(/SemVer/);
     expect(() => parseReleaseMetadata(header({ version: "1.0.0", channel: "nightly" }))).toThrow(/channel/);
     expect(() => parseReleaseMetadata(header({ version: "1.0.0", owner: "x" }))).toThrow(/unknown/);
+  });
+
+  it("decodes kit provenance and treats provider skillx as a v1 release", () => {
+    const header = (provenance: unknown) => Buffer.from(JSON.stringify({ version: "1.0.0", provenance })).toString("base64");
+    const kit = { provider: "kit", origin: "remote-signed" };
+    expect(parseReleaseMetadata(header(kit)).provenance).toEqual(kit);
+    expect(parseReleaseMetadata(header({ provider: "skillx" })).provenance).toBeNull();
+    expect(requestedProvider(header(kit))).toBe("kit");
+    expect(requestedProvider("%%%")).toBe("skillx");
+    expect(requestedProvider(header({ provider: "kit", origin: "signed" }))).toBe("kit");
+    expect(() => parseReleaseMetadata(header({ provider: "kit" }))).toThrow(/origin/);
+    expect(() => parseReleaseMetadata(header({ provider: "kit", origin: "signed" }))).toThrow(/origin/);
+    expect(() => parseReleaseMetadata(header({ provider: "git" }))).toThrow(/provider/);
+    expect(() => parseReleaseMetadata(header({ provider: "skillx", origin: "local-dev" }))).toThrow(/unknown provenance/);
+    expect(() => parseReleaseMetadata(header("kit"))).toThrow(/object/);
+  });
+
+  it("accepts only @agentkit names for kit releases", () => {
+    expect(parseReleaseName("@agentkit", "review", "kit")).toEqual({ identity: "@agentkit/review", handle: "agentkit", slug: "review" });
+    expect(() => parseReleaseName("@alpha", "review", "kit")).toThrow(/kit/);
+    expect(() => parseReleaseName("@AgentKit", "review", "kit")).toThrow(/lowercase/);
   });
 });
 

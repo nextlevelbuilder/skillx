@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { personalKitsApiEnabled } from "~/lib/personal-kits/kit-http";
 import { BODY, createKitHarness, skillText } from "./kit-harness";
 import type { KitHarness } from "./kit-harness";
 
@@ -24,10 +25,31 @@ async function createKit(files = MINE) {
 }
 
 describe("personal kit revisions", () => {
-  it("is 404 everywhere while the flag is off", async () => {
-    for (const res of [await k.call("", undefined, { env: { SKILLX_PERSONAL_KITS_API: "0" } }), await k.call("revisions", {}, { env: { SKILLX_PERSONAL_KITS_API: "0" } })]) {
+  it("is 404 kit.api_disabled everywhere while the flag is off, before any auth or lookup", async () => {
+    const off = { env: { SKILLX_PERSONAL_KITS_API: "0" } };
+    for (const res of [
+      await k.call("", undefined, off),
+      await k.call("revisions", {}, off),
+      await k.call("lock", undefined, { ...off, key: null }),
+      await k.call("", undefined, { ...off, kit: "@nobody/missing" }),
+    ]) {
       expect(res.status).toBe(404);
-      expect(res.body.error.code).toBe("not_found");
+      expect(res.body.error.code).toBe("kit.api_disabled");
+      expect(res.headers.get("Cache-Control")).toBe("no-store");
+    }
+    expect(k.count("personal_kits") + k.count("personal_kit_audit")).toBe(0);
+  });
+
+  it('enables on "1" or "true", trimmed and in any case, and nothing else', async () => {
+    for (const on of ["1", "true", "TRUE", " 1 ", "\ttrue\n"]) {
+      expect(personalKitsApiEnabled({ SKILLX_PERSONAL_KITS_API: on }), JSON.stringify(on)).toBe(true);
+      const res = await k.call("", undefined, { env: { SKILLX_PERSONAL_KITS_API: on } });
+      expect(res.body.error?.code, JSON.stringify(on)).toBe("not_found");
+    }
+    for (const off of [undefined, "", " ", "0", "false", "yes", "on", "1 1", "truee"]) {
+      expect(personalKitsApiEnabled({ SKILLX_PERSONAL_KITS_API: off }), JSON.stringify(off)).toBe(false);
+      const res = await k.call("", undefined, { env: { SKILLX_PERSONAL_KITS_API: off } });
+      expect(res.body.error?.code, JSON.stringify(off)).toBe("kit.api_disabled");
     }
   });
 
@@ -122,15 +144,26 @@ describe("personal kit revisions", () => {
     expect(res.status).toBe(422);
     expect(res.body.error.code).toBe("overlay.shared_alias");
 
-    // Unset, the guard fails closed on AgentKit's ak- / ak: skills; set, the list adds to that default.
+    // Unset, the guard fails closed on every @agentkit skill and names the missing operator step.
+    const unset = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: official });
+    expect(unset.status).toBe(422);
+    expect(unset.body.error.code).toBe("overlay.shared_alias");
+    expect(JSON.stringify(unset.body.error)).toContain("SKILLX_SHARED_SKILL_ALIASES");
+    expect(JSON.stringify(res.body.error)).not.toContain("SKILLX_SHARED_SKILL_ALIASES");
+    // ak- / ak: skills stay shared whether or not the list is set.
     const ak = (name: string) => k.doc([{ ...mine, identity: `@agentkit/${name}`, base: { ...mine.base, package: `@agentkit/${name}` } }]);
     for (const [document, o] of [[ak("ak-plan"), {}], [ak("ak-cook"), {}], [ak("ak-plan"), shared]] as const) {
       const refused = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document }, o);
       expect(refused.status).toBe(422);
       expect(refused.body.error.code).toBe("overlay.shared_alias");
+      expect(JSON.stringify(refused.body.error)).not.toContain("SKILLX_SHARED_SKILL_ALIASES");
     }
-    // Other official skills pass the guard unless listed (this one then fails only on its unpublished base).
-    const unlisted = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: official });
+    // A fork is never an in-place overlay, so it passes the guard while the list is unset.
+    const fork = k.doc([{ ...official.skills[0], identity: "@alpha/plan-mine", mode: "fork", alias: "plan-mine" }]);
+    const forked = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: fork });
+    expect(forked.body.error.code).toBe("kit.base_unavailable");
+    // Once the list is set, other official skills pass the guard unless listed (this one then fails only on its unpublished base).
+    const unlisted = await k.call("revisions", { expectedGeneration: 1, idempotencyKey: k.idem(), document: official }, { env: { SKILLX_SHARED_SKILL_ALIASES: "@agentkit/cook" } });
     expect(unlisted.body.error.code).toBe("kit.base_unavailable");
   });
 

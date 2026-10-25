@@ -101,6 +101,7 @@ describe("built cli", { timeout: 30_000 }, () => {
     expect(stdout).toContain("Usage: skillx");
     expect(stdout).toContain("release");
     expect((await cli("release", "publish", "--help")).stdout).toContain("--release-version");
+    for (const command of [["publish"], ["release", "publish"]]) expect((await cli(...command, "--help")).stdout).toContain("--visibility <visibility>");
   });
 
   it("packs a skill with YAML frontmatter through the skill-tree reader", async () => {
@@ -114,7 +115,7 @@ describe("built cli", { timeout: 30_000 }, () => {
 
   it("publishes a release to a loopback stub registry", async () => {
     const packDigest = (JSON.parse((await cli("pack", skillDir, "--out", join(root, "pub.tar"), "--json")).stdout) as { data: { releaseDigest: string } }).data.releaseDigest;
-    const received: { url?: string; auth?: string; type?: string; digest?: string; idempotency?: string } = {};
+    const received: { url?: string; auth?: string; type?: string; digest?: string; idempotency?: string; visibility?: string } = {};
     const server = createServer((req, res) => {
       const chunks: Buffer[] = [];
       req.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -127,27 +128,44 @@ describe("built cli", { timeout: 30_000 }, () => {
           digest: `sha256:${createHash("sha256").update(body).digest("hex")}`,
           idempotency: req.headers["idempotency-key"],
         });
-        const meta = JSON.parse(Buffer.from(String(req.headers["x-skillx-release"]), "base64").toString("utf8")) as { version: string };
+        const meta = JSON.parse(Buffer.from(String(req.headers["x-skillx-release"]), "base64").toString("utf8")) as { version: string; visibility?: string };
+        received.visibility = meta.visibility;
         res.writeHead(201, { "Content-Type": "application/json" });
-        // The stub cannot recompute the tree digest; it echoes the one the pack test asserts on.
-        res.end(JSON.stringify({ created: true, state: "published", version: meta.version, artifactDigest: received.digest, releaseDigest: packDigest }));
+        // The stub cannot recompute the tree digest; it echoes the one the pack test asserts on. Like a new package, it defaults to private.
+        const visibility = meta.visibility ?? "private";
+        res.end(JSON.stringify({ created: true, state: "published", version: meta.version, visibility, artifactDigest: received.digest, releaseDigest: packDigest }));
       });
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     try {
       const { port } = server.address() as AddressInfo;
-      const { stdout } = await cli(
-        "publish", skillDir,
-        "--name", "@smoke/smoke-skill",
-        "--release-version", "1.0.0",
-        "--repo", "https://github.com/example/smoke",
-        "--registry", `http://127.0.0.1:${port}`,
-        "--idempotency-key", "smoke-run-1",
-        "--json",
-      );
+      const publish = (...extra: string[]) =>
+        cli(
+          "publish", skillDir,
+          "--name", "@smoke/smoke-skill",
+          "--release-version", "1.0.0",
+          "--repo", "https://github.com/example/smoke",
+          "--registry", `http://127.0.0.1:${port}`,
+          "--idempotency-key", "smoke-run-1",
+          "--json",
+          ...extra,
+        );
+      const { stdout, stderr } = await publish();
       const result = (JSON.parse(stdout) as { ok: true; data: { releaseDigest: string; artifactDigest: string; state: string } }).data;
-      expect(result).toMatchObject({ releaseDigest: packDigest, artifactDigest: received.digest, state: "published" });
+      expect(result).toMatchObject({ releaseDigest: packDigest, artifactDigest: received.digest, state: "published", visibility: "private" });
       expect(received).toMatchObject({ url: "/api/v1/packages/@smoke/smoke-skill/releases", auth: "Bearer sx_test_smoke_key", type: "application/x-tar", idempotency: "smoke-run-1" });
+      // Omitted flag: nothing sent, and the private default is noted on stderr only, never in the JSON stdout.
+      expect(received.visibility).toBeUndefined();
+      expect(stderr).toContain("note: @smoke/smoke-skill is private");
+
+      const explicit = await publish("--visibility", "public");
+      expect(JSON.parse(explicit.stdout)).toMatchObject({ ok: true, data: { visibility: "public" } });
+      expect(received.visibility).toBe("public");
+      expect(explicit.stderr).not.toContain("note:");
+
+      const bad = await publish("--visibility", "unlisted").catch((e) => e);
+      expect(bad.code).toBe(2);
+      expect(JSON.parse(bad.stdout)).toMatchObject({ ok: false, error: { code: "usage_error", message: expect.stringContaining("--visibility") } });
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }
@@ -188,6 +206,79 @@ describe("built cli", { timeout: 30_000 }, () => {
     const help = (await cli("--help")).stdout;
     for (const command of ["import", "validate", "pack", "publish", "promote", "release"]) expect(help).toContain(command);
     expect((await cli("promote", "--help")).stdout).toContain("--to <channel>");
+  });
+
+  it("refuses --visibility on the deprecated import path (exit 2) and sends nothing", async () => {
+    const requests: string[] = [];
+    const server = createServer((req, res) => {
+      requests.push(`${req.method} ${req.url}`);
+      req.resume();
+      res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const registry = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      // The import reads the configured base URL, not --registry; point both at the stub.
+      expect((await cliExit("config", "set-url", registry, "--json")).code).toBe(0);
+      for (const args of [
+        ["publish", "example/smoke", "--visibility", "private"],
+        ["publish", "https://github.com/example/smoke", "--visibility", "public"],
+        ["publish", "--visibility", "private"],
+      ]) {
+        const result = await cliExit(...args, "--registry", registry, "--json");
+        expect(result.code, args.join(" ")).toBe(2);
+        expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, error: { code: "usage_error", message: expect.stringContaining("--visibility applies only to release publishing") } });
+      }
+      expect(requests).toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("lists the library across pages and drives kit push/activate with machine-readable failures", async () => {
+    const seen: string[] = [];
+    const server = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        seen.push(`${req.method} ${req.url} ${req.headers["if-match"] ?? ""}`.trim());
+        const url = new URL(String(req.url), "http://stub");
+        const send = (status: number, body: unknown) => res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(body));
+        if (url.pathname === "/api/v1/library") {
+          const item = (identity: string) => ({ kind: "skill", identity, relation: "owner", visibility: "private", packageKind: "skill", state: "published", latest: { version: "1.0.0", releaseDigest: "sha256:aa" }, installRef: `${identity}@1.0.0` });
+          const first = url.searchParams.get("cursor") === null;
+          return send(200, { schema: "skillx.library/v1", items: [item(first ? "@a/one" : "@a/two")], nextCursor: first ? "c1" : null, kits: { status: "available" } });
+        }
+        if (url.pathname.endsWith("/revisions") && req.method === "POST") return send(412, { error: { code: "kit.generation_conflict", message: "generation is 4" } });
+        send(404, { error: { code: "kit.not_found", message: "no such kit" } });
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      expect((await cliExit("config", "set-url", `http://127.0.0.1:${(server.address() as AddressInfo).port}`, "--json")).code).toBe(0);
+      const listed = await cliExit("library", "list", "--kind", "skill", "--json");
+      expect(listed.code).toBe(0);
+      expect(JSON.parse(listed.stdout)).toMatchObject({ ok: true, data: { items: [{ identity: "@a/one" }, { identity: "@a/two" }], nextCursor: null } });
+      expect(seen.slice(0, 2)).toEqual(["GET /api/v1/library?kind=skill", "GET /api/v1/library?kind=skill&cursor=c1"]);
+
+      const doc = join(root, "kit-doc.json");
+      writeFileSync(doc, JSON.stringify({ schema: "skillx.personal-kit/v1" }));
+      const stale = await cliExit("kit", "push", "@alpha/my-kit", "--document", doc, "--if-match", "1", "--json");
+      expect(stale.code).toBe(8);
+      expect(JSON.parse(stale.stdout)).toMatchObject({ ok: false, error: { code: "conflict", details: { status: 412, code: "kit.generation_conflict" } } });
+      expect(seen.at(-1)).toBe('POST /api/v1/kits/@alpha/my-kit/revisions "g1"');
+
+      const missing = await cliExit("kit", "show", "@alpha/none", "--json");
+      expect(missing.code).toBe(3);
+      expect(JSON.parse(missing.stdout)).toMatchObject({ ok: false, error: { code: "not_found", details: { code: "kit.not_found" } } });
+
+      const before = seen.length;
+      const noDigest = await cliExit("kit", "activate", "@alpha/my-kit", "pkr_1", "--json");
+      expect(noDigest.code).toBe(2);
+      expect(JSON.parse(noDigest.stdout)).toMatchObject({ ok: false, error: { code: "usage_error" } });
+      expect(seen.length).toBe(before);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
 
   it("inlines @skillx/contracts instead of leaving a workspace import", () => {

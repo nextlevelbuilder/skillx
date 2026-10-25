@@ -39,6 +39,19 @@ export function compareVersions(a: ParsedVersion, b: ParsedVersion): number {
   return 0;
 }
 
+/**
+ * Highest of a list of versions, preferring releases without a prerelease tag.
+ * This is the rule a bare `skillx install` resolves a package by; every surface
+ * that names a package's "latest" release must use it.
+ */
+export function newestVersion(versions: readonly string[]): string | null {
+  const parsed = versions.map((v) => ({ v, p: parseVersion(v) })).filter((x) => x.p !== null);
+  const stable = parsed.filter((x) => x.p!.prerelease === null);
+  const pool = stable.length > 0 ? stable : parsed;
+  pool.sort((a, b) => compareVersions(b.p!, a.p!));
+  return pool[0]?.v ?? null;
+}
+
 function satisfiesComparator(version: ParsedVersion, operator: string, target: ParsedVersion): boolean {
   const cmp = compareVersions(version, target);
   switch (operator) {

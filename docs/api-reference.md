@@ -548,7 +548,7 @@ Generate a new API key. Plaintext returned **once** — not stored.
 | Field | Type | Required | Validation |
 |-------|------|----------|------------|
 | `name` | string | No | Max 100 chars (default: `"Default"`) |
-| `scopes` | string[] | No | 1-8 entries of `releases:publish:@<handle>`; each handle must be an active publisher you own (`403` otherwise). `null` is the same as omitting the field: an account key |
+| `scopes` | string[] | No | 1-8 entries of `releases:publish:@<handle>`, `kits:write:@<handle>` or `library:read`; each handle must be an active publisher you own (`403` otherwise); any other scope is `400`. `null` is the same as omitting the field: an account key |
 
 **Response** `200`:
 
@@ -566,11 +566,26 @@ the site's own origin: a request whose `Origin` differs (or, without `Origin`,
 whose `Sec-Fetch-Site` is not `same-origin`/`none`) gets `403`. A body that is
 not a JSON object gets `400`.
 
-A scoped key is accepted only by endpoints that check its scope (today the
-release publish API). Endpoints that take unscoped keys (`authenticateRequest`,
-skill install and usage reports) reject scoped keys, so a CI publish key cannot
-act as the user anywhere else. A scoped key is stored under a domain-separated
-hash (`hashScopedApiKey`), so this also holds for code that predates scopes.
+A scoped key is accepted only by endpoints that check its scope, and always
+acts as its owner, so it never reaches more than the owner's session would:
+
+| Scope | Grants |
+|-------|--------|
+| `releases:publish:@<handle>` | The release publish and promote APIs for `@<handle>` |
+| `library:read` | The release read API and signed download URLs (private releases the owner owns or is entitled to), and reads of the owner's personal kits |
+| `kits:write:@<handle>` | Reads and writes of the owner's personal kits `@<handle>/...` (store revisions, proposals, rebase, conflicts, activate, rollback, lock, and the read-only `POST`s `preview-update` and `proposals/validate`, which `library:read` does not cover). Kit bases load as the owner, so through them (store, rebase, `preview-update`) the key can read any private release the owner can read. The lock shows owned parent kits under another handle as digest references unless the key also holds `library:read` or that handle's `kits:write`. Review and public activation still need a web session |
+
+A second device or CI that syncs a private library uses one key holding
+`library:read kits:write:@<handle>` (plus `releases:publish:@<handle>` to
+publish) and can be revoked on its own. On the read and kit APIs a scoped key
+holding none of the scopes the route accepts answers `401 invalid_api_key`,
+like a revoked key; a kit key for another handle answers `403
+auth.scope_missing` before any lookup. Release state changes, review,
+collections, MCP and the other endpoints that take unscoped keys
+(`authenticateRequest`, skill install and usage reports) reject every scoped
+key. A scoped key is stored under a domain-separated hash
+(`hashScopedApiKey`), so this also holds for code that predates scopes.
+Settings (API keys, "Generate New API Key") offers these scopes as checkboxes.
 
 #### `DELETE /api/user/api-keys`
 
@@ -766,7 +781,7 @@ Bulk upsert skills and index into Vectorize. For seeding demo/production data.
 
 ---
 
-## Release Manifest Contract (`skillx.release/v1`)
+## Release Manifest Contract (`skillx.release/v1`, `skillx.release/v2`)
 
 Contract only: no endpoint serves or accepts release manifests yet. The
 publisher pipeline and pinned read API build on it. Source:
@@ -781,8 +796,8 @@ members; unknown members (including `state`) are rejected at every level.
 
 | Member | Type | Rule |
 |--------|------|------|
-| `schemaVersion` | string | `skillx.release/v1` |
-| `identity` | string | `PACKAGE_NAME_PATTERN`, publisher and slug pass the tree segment rules; `@agentkit/*` is rejected (`identity.reserved_publisher`) |
+| `schemaVersion` | string | `skillx.release/v1` or `skillx.release/v2` (any other value is `unsupported_value`) |
+| `identity` | string | `PACKAGE_NAME_PATTERN`, publisher and slug pass the tree segment rules; `@agentkit/*` is rejected (`identity.reserved_publisher`) unless the v2 provider is `kit` (see Kit provenance) |
 | `version` | string | SemVer 2.0 without build metadata (`+...`) or leading zeros in numeric identifiers, at most 128 characters (`RELEASE_VERSION_PATTERN`; stricter than the package-wide `SEMVER_PATTERN`) |
 | `channel` | string | `stable`, `beta`, `alpha` |
 | `kind` | string | `skill`, `hook-pack`, `bundle` |
@@ -799,6 +814,36 @@ members; unknown members (including `state`) are rejected at every level.
 | `keyId` | string | `^[a-z0-9][a-z0-9._-]{1,63}$` |
 | `signatureAlgorithm` | string | `ed25519` |
 | `signature` | string | padded standard base64 of the 64-byte Ed25519 signature: `^[A-Za-z0-9+/]{85}[AQgw]==$` (the unused trailing bits are zero, so each signature has one accepted text) |
+
+### Kit provenance (`skillx.release/v2`)
+
+`skillx.release/v2` is v1 plus one required, closed member, `provenance`.
+v1 has no such member (`unknown_field`) and every v1 release is provider
+`skillx`. The registry signs kit releases as v2 and keeps every other release
+on v1, so v1-only verifiers keep working. Source:
+`packages/contracts/src/release-provenance.ts`.
+
+| `provenance` | Rule |
+|--------------|------|
+| `{"provider": "skillx"}` | identity must not be `@agentkit/*` (`identity.reserved_publisher`); the slug must not start with `ak-` or `ak:` (`identity.reserved_alias`) |
+| `{"provider": "kit", "origin": "remote-signed" \| "local-dev"}` | identity must be `@agentkit/*` and its slug must not start with `ak-` (`identity.invalid`; the kit directory `ak-<x>` is `@agentkit/<x>`); `origin` records where the kit content came from |
+
+Other providers or origins are `unsupported_value`, a missing `origin` is
+`required` and extra members are `unknown_field`. `origin` is a claim that
+the registry countersigns, not a kit signature: a verifier MUST NOT derive
+trust `signed-kit` from a SkillX signature. `releaseTrust(manifest,
+{kitVerifiedReleaseDigest})` returns `signed-kit` only for `origin:
+"remote-signed"` when the caller verified the AgentKit kit signature of the
+tree whose digest equals the manifest `releaseDigest`; every other release is
+`local-unverified`. Golden vectors:
+`packages/contracts/src/fixtures/release-manifest-v2.json` (same test key and
+canonical form as the v1 vectors); its `trust` array pairs a valid vector with
+the `kitVerifiedReleaseDigest` a verifier checked and the trust it must assign.
+
+**Client support.** skillx-sh 0.6.0 and earlier know only `skillx.release/v1`
+and report every v2 manifest, so every `@agentkit/*` release, as failed
+verification. Installing or verifying kit releases needs skillx-sh 0.7.0 or
+later.
 
 ### Signature bytes
 
@@ -955,7 +1000,8 @@ or `null` reasons and reason rules). Same public test key as the manifest vector
 `status_sequence` and `status_issued_at` (sequence and issue time of the last
 signed status; the state itself stays in `release_state`), and the non-unique
 index `idx_package_releases_digest`. `packages.visibility`
-(`public` default, `private`). `publishers.state` (`active` default,
+(`public` column default, `private`; the publish route always writes it
+explicitly, see Visibility below). `publishers.state` (`active` default,
 `suspended`, `revoked`). All additive; rollback SQL is in the migration header
 and ends by deleting the `0011_release_tree_digest.sql` row from
 `d1_migrations`, so the migration can be applied again.
@@ -987,17 +1033,42 @@ Unscoped keys are rejected (`auth.scope_missing`).
   `version` (SemVer without build metadata, required), `channel`
   (`stable` default, `beta`, `alpha`), `kind` (`skill` default, `hook-pack`,
   `bundle`), `sourceProvenance` (`{repo, commit, path}` or `null`) and
-  `declaredScripts` (packaged paths). Unknown members are rejected.
+  `declaredScripts` (packaged paths) and `provenance` (`null`,
+  `{"provider": "skillx"}`, or `{"provider": "kit", "origin":
+  "remote-signed" | "local-dev"}`) and `visibility` (`public` or `private`;
+  any other value is `400 release.invalid_metadata`). Unknown members are
+  rejected.
   `sourceProvenance` is asserted by the publisher and not verified (GitHub
   OIDC is a follow-up); the registry signature covers it but does not vouch
   for it.
 
+**Kit releases**: `@agentkit/*` is accepted only with `provenance.provider
+= "kit"`, from a key scoped `releases:publish:@agentkit` whose user owns the
+active, admin-provisioned `agentkit` publisher (`POST /api/v1/publishers`).
+They are signed as `skillx.release/v2`. A kit release slug must not start
+with `ak-` (`400 identity.invalid`): AgentKit maps the kit skill directory
+`ak-<x>` to `@agentkit/<x>`, so publish `@agentkit/plan`, never
+`@agentkit/ak-plan`. Kit provenance on any other publisher is `400 identity.invalid`; every
+release without it is signed as `skillx.release/v1`. Republishing an existing
+kit version with the same tree but a different `origin` is `409
+release.version_exists`.
+
+**Visibility** (`packages.visibility`) is set only when a publish creates the
+package: the requested `visibility`, else `private`, except a kit release
+without it, which is `public` as foundation content always was. A publish
+never changes the visibility of an existing package: omitting `visibility`
+keeps it, and naming a different one is `409 release.visibility_mismatch`
+before anything is written (also when a concurrent first publish created the
+package with the other visibility). Visibility is registry policy, not part
+of the signed manifest. The response carries the stored `visibility`.
+
 **Processing**, each step rejecting before the next runs: name and reserved
-namespaces, key and ownership, signing key, metadata, capped body, tar read
+namespaces, key and ownership, signing key, metadata, package owner, kind and
+visibility, capped body, tar read
 with the shared skill-tree rules and digest (traversal, absolute paths,
 symlinks, hardlinks, devices and duplicate paths fail), version conflict, the
 exec manifest check (below), the release scan, the signed `skillx.release/v1`
-manifest, then R2 writes, and the D1 row last. Uploaded bytes are stored
+(or, for a kit release, `skillx.release/v2`) manifest, then R2 writes, and the D1 row last. Uploaded bytes are stored
 exactly; nothing is sanitized.
 
 **Exec manifest** (`agentkit-exec.json`, optional). A tree may carry an
@@ -1069,6 +1140,7 @@ SHA-256, so one tree under two versions never collides).
 {
   "identity": "@acme/demo",
   "version": "1.0.0",
+  "visibility": "private",
   "releaseDigest": "sha256:...",
   "artifactDigest": "sha256:...",
   "state": "published",
@@ -1094,11 +1166,11 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 
 | Status | Codes |
 |--------|-------|
-| 400 | `identity.*` (invalid names), `release.invalid_metadata`, `tree.read_failed` (empty body), `idempotency.invalid_key` |
+| 400 | `identity.*` (invalid names, an `ak-` kit release slug), `release.invalid_metadata`, `tree.read_failed` (empty body), `idempotency.invalid_key` |
 | 401 | `auth.invalid_key` (also an expired, forged or revoked `sxo_` OIDC publish token) |
-| 403 | `identity.reserved_publisher` (`@agentkit`), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
+| 403 | `identity.reserved_publisher` (`@agentkit` without kit provenance), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
 | 404 | `not_found` (API disabled) |
-| 409 | `release.version_exists`, `release.kind_conflict`, `idempotency.in_progress` |
+| 409 | `release.version_exists`, `release.kind_conflict`, `release.visibility_mismatch`, `idempotency.in_progress` |
 | 413 | `tree.limit_exceeded` |
 | 415 | `release.unsupported_media_type` |
 | 422 | other `tree.*` codes from the skill-tree reader, `exec.manifest_invalid`, `exec.entrypoint_undeclared`, `idempotency.key_reused` |
@@ -1123,8 +1195,10 @@ batch of expired keys.
 - Same key, same request: the first answer (status and JSON body) is replayed
   verbatim with `Idempotent-Replayed: true`; nothing is read from or written
   to R2 or `package_releases` again.
-- Same key, another request (other bytes, version, channel, kind, provenance or
-  scripts): `422 idempotency.key_reused`.
+- Same key, another request (other bytes, version, channel, kind, provenance,
+  scripts or visibility): `422 idempotency.key_reused`. An omitted
+  `visibility` keeps the fingerprint the request had before the member
+  existed.
 - Same key while the first request still runs: `409 idempotency.in_progress`
   (a claim left pending by a crashed request is taken over by the same request
   after 5 minutes).
@@ -1187,34 +1261,40 @@ Read-only, behind the same flag: unless `SKILLX_RELEASES_API` is `"1"` or
 | Endpoint | Returns |
 |----------|---------|
 | `GET /api/v1/packages/@{publisher}/{slug}/releases` | JSON list, newest first (at most 500): `version`, `channel`, `state`, `releaseDigest`, `artifactDigest`, `artifactSize`, `createdAt`. Published and yanked releases; a release is hidden when its tree is quarantined anywhere (it would answer `403`), so the list never offers one |
-| `GET /api/v1/packages/@{publisher}/{slug}/releases/{version}` | The signed `skillx.release/v1` manifest bytes (new resolution: only `published`) |
+| `GET /api/v1/packages/@{publisher}/{slug}/releases/{version}` | The signed `skillx.release/v1` or `v2` manifest bytes (new resolution: only `published`) |
 | `GET /api/v1/packages/@{publisher}/{slug}/releases/{version}/status` | The signed `skillx.release-status/v1` document of that release, in every state (see [Signed release status](#signed-release-status)) |
 | `GET /api/v1/releases/{releaseDigest}/manifest[?version=&package=]` | The same manifest, by tree digest (locked clients) |
 | `GET /api/v1/releases/{releaseDigest}/files/{path}[?version=&package=]` | One file's raw bytes, only if `path` is in the manifest |
 | `GET /api/v1/releases/{releaseDigest}/artifact[?version=&package=]` | The uploaded tar, streamed same-origin from R2 (no redirect) |
 | `GET /api/v1/keys` | `{"algorithm": "ed25519", "active": [...], "revoked": [...]}` registry key IDs |
 
-**Auth**: optional. `Authorization: Bearer sx_...` with an unscoped API key,
-or the web session. Without an `Authorization` header the session decides,
+**Auth**: optional. `Authorization: Bearer sx_...` with an unscoped API key
+or a `library:read` scoped key (acting as its owner), or the web session.
+Without an `Authorization` header the session decides,
 and no session means anonymous. A present header that does not carry a valid
-unscoped key (unknown, revoked, malformed, another scheme, or a scoped
-publish key, which never authenticates reads) answers `401 invalid_api_key`
+unscoped or `library:read` key (unknown, revoked, malformed, another scheme, or a scoped
+key without `library:read`, such as a publish key) answers `401 invalid_api_key`
 with `WWW-Authenticate: Bearer`; it never falls back to the session or to
 anonymous. The `Bearer` scheme is matched case-insensitively. Tokens are
 never accepted in the query string.
 
 **Access and state rules** (same answer on every endpoint, checked in this
-order: unknown or unentitled `404`, then quarantined `403`, then publisher
-revoked `403`, then yanked):
+order: unknown or not readable by the caller `404`, then quarantined `403`,
+then publisher revoked `403`, then yanked):
 
-- Private package (`packages.visibility = 'private'`): needs an unrevoked
-  entitlement of the caller for the package (`release_id` NULL) or the
-  release, decided by the shared payload-access gate. Otherwise the answer is
-  `404 not_found`, the same body as an unknown package, so existence is not
-  disclosed. A release-only entitlement lists only the entitled releases.
-  Publishers have no implicit access: they read their own private packages
-  through an entitlement, like any other caller.
-- Publisher `suspended` or `revoked`: `403 publisher_revoked` (after
+- Private package (`packages.visibility = 'private'`): readable by the owner
+  of its publisher (`publishers.owner_user_id`, the signed-in account of the
+  session or unscoped API key; no entitlement needed) and by a caller with an
+  unrevoked entitlement for the package (`release_id` NULL) or the release,
+  decided by the shared payload-access gate. Ownership is read on every
+  request, so a publisher that changes hands refuses new requests from the
+  previous owner (private answers are `no-store`, see Caching; only copies
+  their client already installed stay usable). Anyone else (another account, anonymous) gets `404
+  not_found`, the same body and the same queries as an unknown package, so
+  existence is not disclosed. A release-only entitlement lists only the
+  entitled releases; the owner sees every release.
+- Publisher `suspended` or `revoked`: `403 publisher_revoked`, for its owner
+  too (after
   quarantine: a quarantined release of a revoked publisher answers
   `release_quarantined`). The listing has no tree of its own, so it answers
   `publisher_revoked` and hides quarantined releases.
@@ -1266,16 +1346,19 @@ browser never renders them. A file's `ETag` is its SHA-256 (the manifest
 per-file blobs `blobs/sha256/<hex>` by the manifest `sha256`; the artifact
 from the key recorded in D1.
 
-**Caching**: files and artifacts are digest-addressed and immutable
-(`max-age=31536000, immutable`); listings, manifests and keys use
-`max-age=60` because state can change. Private packages use `private`,
-public ones `public`. Every success except `/keys` carries `Vary:
+**Caching**: public files and artifacts are digest-addressed and immutable
+(`public, max-age=31536000, immutable`); public listings, manifests and keys
+use `max-age=60` because state can change. Every answer about a private
+package (listing, manifest, status, file, artifact) is `Cache-Control:
+private, no-store`, so a revoked entitlement or a quarantine takes effect on
+the next request. Every success except `/keys` carries `Vary:
 Authorization, Cookie`, because the selected release can depend on the
 caller's entitlements. Every JSON error (including `401`, `429` and the
 flag-off `404`) is `Cache-Control: no-store`. A `304` carries the same
-`ETag`, `Cache-Control` and `Vary`. Caveat: public file and artifact bytes
-cached for a year by a browser or proxy cannot be recalled by a later
-quarantine; quarantine only stops new fetches from this API.
+`ETag`, `Cache-Control` and `Vary`. Caveat: file and artifact bytes cached
+for a year by a browser or proxy (public bytes) or by the caller's own client
+(private bytes) cannot be recalled by a later quarantine, entitlement
+revocation or ownership change; those only stop new fetches from this API.
 
 **Size caps**: manifests up to 4 MiB, files up to 32 MiB, artifacts up to
 32 MiB (the publish limits). A stored object that is missing, over its cap or
@@ -1377,6 +1460,38 @@ column and deletes the `0012_api_key_scopes.sql` row from `d1_migrations`.
 
 `/api/v1/kits/@{handle}/{name}[/...]` (flag `SKILLX_PERSONAL_KITS_API`): owner-private kit revisions, foundation rebase, conflict resolution, session-derived proposals and review, activation and locks. See [Personal Kits API](./personal-kits-api.md).
 
+### Private library
+
+`GET /api/v1/library` (flag `SKILLX_RELEASES_API`; kits also need `SKILLX_PERSONAL_KITS_API`) lists one page of the caller's private library, `skillx.library/v1`: the skills the caller owns (through a publisher it owns) or holds an unrevoked entitlement for, and the caller's personal kits. The caller is the web session, an unscoped account key, or a scoped key holding `library:read`, always acting as the account behind it. A key without `library:read` (a publish-only or `kits:write`-only key, a revoked or unknown key) answers `401 invalid_api_key` and never falls back to the session; anonymous answers `401 auth.required`. Assets the caller may not read are absent from the page (never a `403`), so the listing is no existence oracle. Reads count against the release read limiter.
+
+| Query | Meaning |
+|-------|---------|
+| `kind` | `skill` or `kit`; anything else is `400` |
+| `q` | Case-insensitive name fragment, at most 64 characters (`%` and `_` match literally) |
+| `limit` | 1 to 100, default 50; a larger value is clamped to 100, a non-integer or below 1 is `400` |
+| `cursor` | The opaque `nextCursor` of the previous page; a value this API did not return is `400 invalid_cursor` |
+
+Items are ordered by identity, then kind, and a cursor names a position in that order, so adding or removing assets between pages never repeats or skips the others.
+
+```json
+{
+  "schema": "skillx.library/v1",
+  "items": [
+    { "kind": "skill", "identity": "@alpha/secret", "relation": "owner", "visibility": "private", "packageKind": "skill",
+      "state": "published", "latest": { "version": "1.0.0", "releaseDigest": "sha256:..." }, "installRef": "@alpha/secret@1.0.0" },
+    { "kind": "kit", "identity": "@alpha/my-kit", "relation": "owner", "visibility": "private", "state": "active",
+      "effectiveRevision": { "id": "rev_...", "number": 2, "digest": "sha256:..." }, "generation": 3, "latestRevisionNumber": 2,
+      "installRef": "kit:@alpha/my-kit#rev_..." }
+  ],
+  "nextCursor": null,
+  "kits": { "status": "available" }
+}
+```
+
+`relation` is `owner` or `entitled` (kits are always `owner`). `state` is machine-readable: a skill is `published`, `no_release` (nothing published, or every release yanked, quarantined or outside a release-scoped entitlement) or `publisher_suspended`; a kit is `active`, `no_active_revision`, `quarantined` (its effective revision is) or `publisher_suspended`. `latest` is the release a bare `skillx install` of the package resolves to for the caller: the highest semantic version, stable before prerelease (not the most recently published), among the published releases the caller may read, skipping releases whose tree is quarantined anywhere. Every release of a public package is readable, so a release-scoped entitlement does not narrow `latest` there; for a private package the owner reads all releases and an entitled caller only those the entitlement covers; `installRef` is the ref to pass to `skillx install`, null unless the item is `published` or `active`. While personal kits are off, `kits` is `{"status":"unavailable","code":"kit.api_disabled"}` and no kit is listed, so a client can tell "kits are off" from "no kits". The releases API being off is the usual flag-off `404 not_found`.
+
+Every answer is `Cache-Control: private, no-store` with `Vary: Authorization, Cookie`; failures are `no-store`. No migration: the listing reads `packages`, `publishers`, `entitlements`, `package_releases`, `personal_kits` and `personal_kit_revisions`.
+
 ### Collections
 
 `/api/v1/collections[/:id[/...]]` (flag `SKILLX_COLLECTIONS_API`, 404 when off).
@@ -1427,6 +1542,12 @@ numbered revisions; per-user overlays and activation stay with personal kits.
 - **Revisions** are immutable (DB trigger). `revisionDigest` is
   `sha256:` of the canonical JSON of `{members, config}`; clients recompute and
   compare it. A stale `expectedRevision` answers `409 collection.revision_conflict`.
+  The owner sees the stored revision whole. Any other viewer gets only the
+  `members` naming a package that viewer can read; private and unknown names are
+  dropped alike, so a missing member says nothing about whether it exists. A
+  revision trimmed that way has `revisionDigest: null` (it would not match the
+  shown members), and the CLI warns that the view may be partial. `config` is
+  never trimmed.
 - **Leak scan**: `members` and `config` pass the shared sync-leak scanner
   (`findSyncLeaks` in `@skillx/contracts`); a secret-shaped value or an
   absolute local path answers `422`.
@@ -1719,16 +1840,19 @@ For a tool that holds no credentials (a package manager, `curl`), a viewer who
 may read a release can mint a short-lived URL:
 
 - `POST /api/v1/releases/{digest}/artifact/url[?version=&package=]` runs the
-  normal read path (viewer, read rate limit, the private package and
+  normal read path (viewer, read rate limit, the private package owner and
   entitlement rules above, the same `?version=`/`?package=` selectors) and
   answers `{"url", "expiresAt", "identity", "version", "releaseDigest", "artifactDigest", "artifactSize"}`
   (`no-store`). Other methods are `405`.
 - `GET /api/v1/downloads/{token}` streams the artifact (`no-store`). The URL is
   valid for 5 minutes. The token is an HMAC (`SKILLX_TOKEN_SECRET`) over the
-  release digest, identity, version, viewer and expiry; it is not an API key
-  and grants nothing else. Redemption re-applies the access rules for the same
-  viewer, so a revoked entitlement, a quarantine, a yank by version or a
-  suspended publisher stops a URL already issued. A forged, expired or
+  release digest, identity, version, viewer, the id of the minting API key
+  (null for a session) and expiry; it is not an API key and grants nothing
+  else. Redemption re-applies the access rules for the same viewer and
+  requires the minting key to be unrevoked, so a revoked key or entitlement,
+  a change of publisher owner, a
+  quarantine, a yank by version or a suspended publisher stops a URL already
+  issued. A forged, expired or
   unverifiable token answers exactly like an unknown release (`404`).
 
 Without `SKILLX_TOKEN_SECRET`, minting is `503 download_url.unavailable`. The
@@ -1864,6 +1988,7 @@ No explicit rate limiting at the API layer, except the release read API (300 req
 | `apps/web/app/routes/api.v1.release-status.ts` | Signed release status document (flagged) |
 | `apps/web/app/routes/api.v1.signing-keys.ts` | Registry key IDs (flagged) |
 | `apps/web/app/routes/api.v1.kits.ts` | Personal kit API (flagged; `app/lib/personal-kits/`) |
+| `apps/web/app/routes/api.v1.library.ts` | Private library listing (flagged; `app/lib/library/`, contract `packages/contracts/src/library.ts`) |
 | `apps/web/app/routes/api.v1.release-state.ts` | Release and publisher state transitions (flagged) |
 | `apps/web/app/lib/releases/` | Release ingest, signing, scan, R2 and D1 writes; read access, rate limit and read handlers; state transitions (`release-transitions.ts`, `release-state-http.ts`) |
 | `apps/web/app/routes/api.admin.seed.ts` | Admin data seeding |

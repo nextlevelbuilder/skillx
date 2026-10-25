@@ -7,10 +7,11 @@
  */
 import { collectionRevisionDigest, sortCollectionMembers, validateCollectionContent } from "@skillx/contracts";
 import type { CollectionConfig, CollectionMember } from "@skillx/contracts";
+import { readablePackageNames } from "~/lib/releases/release-access";
 import { releaseError } from "~/lib/releases/release-http";
 import { CollectionValidationError, collectionLimit, collectionNotFound } from "./collection-http";
 import type { CollectionCaller } from "./collection-http";
-import { isHidden } from "./collection-views";
+import { isHidden, revisionView } from "./collection-views";
 import type { CollectionRevisionRow, CollectionRow } from "./collection-views";
 
 export const newId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
@@ -29,6 +30,22 @@ export async function ownedCollection(c: CollectionCaller, id: string): Promise<
   const row = await readableCollection(c, id);
   if (row.owner_id !== c.userId) throw collectionNotFound();
   return row;
+}
+
+/**
+ * Revisions as the caller may see them. A collection only mentions packages,
+ * so for everyone but the collection's owner (whose own content stays whole,
+ * and who edits from the stored revision) only members naming a package the
+ * caller can read are kept. Unknown names are dropped too, so a dropped name
+ * cannot tell a private package from one that does not exist. A trimmed
+ * revision has no digest: the digest covers the dropped members and would let a
+ * reader test guesses against them. Only `members` are trimmed, not `config`.
+ */
+export async function viewRevisions(c: CollectionCaller, collection: CollectionRow, rows: CollectionRevisionRow[]) {
+  const views = rows.map(revisionView);
+  if (collection.owner_id === c.userId) return views;
+  const readable = await readablePackageNames(db(c), views.flatMap((v) => v.members.map((m) => m.packageName)), c.userId);
+  return views.map((v) => (v.members.every((m) => readable.has(m.packageName)) ? v : { ...v, members: v.members.filter((m) => readable.has(m.packageName)), revisionDigest: null }));
 }
 
 export async function findRevision(c: CollectionCaller, collectionId: string, number: number): Promise<CollectionRevisionRow> {

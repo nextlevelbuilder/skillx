@@ -292,7 +292,9 @@ a new release, an `artifactDigest`) other than the one packed locally.
 
 A source that is an existing path, or any use of `--name` /
 `--release-version`, is a release. Only a GitHub URL or an `owner/repo` that is
-not a local path runs the deprecated import (see `skillx import`).
+not a local path (or no source at all) runs the deprecated import (see
+`skillx import`). The import is always public, so `--visibility` there is a
+`usage_error` (exit `2`) and nothing is sent.
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -303,6 +305,8 @@ not a local path runs the deprecated import (see `skillx import`).
 | `--kind <kind>` | `skill`, `hook-pack` or `bundle` | `skill` |
 | `--repo <https-url>` | Provenance repository URL | `origin` remote (https form) |
 | `--script <path>` | Declare a packaged script (repeatable) | — |
+| `--visibility <visibility>` | `public` or `private`. Omitted: a new package is `private` (a note goes to stderr, never stdout) and an existing package keeps its visibility. A different visibility for an existing package is refused: `api_error`, exit `1`, `error.details.code` `release.visibility_mismatch` (like `release.version_exists`) | — |
+| `--kit-origin <origin>` | Publish an `@agentkit/*` kit release (`remote-signed` or `local-dev`), signed as `skillx.release/v2`; needs a `releases:publish:@agentkit` key; the slug omits `ak-` (`@agentkit/plan`). Installing v2 releases needs skillx-sh 0.7.0 or later | — |
 | `--registry <url>` | Registry base URL; `https` only (`http` only for localhost) | configured base URL |
 | `--idempotency-key <key>` | Sends `Idempotency-Key`: a retry with the same key and bytes replays the first answer; other bytes are refused | — |
 | `--oidc` | Exchange the GitHub Actions OIDC token for a 15 minute publish token (needs `permissions: id-token: write` and a trusted publisher) | — |
@@ -310,19 +314,25 @@ not a local path runs the deprecated import (see `skillx import`).
 | `--json` | Print the result envelope | — |
 
 ```bash
-SKILLX_API_KEY=sx_... skillx publish skills/my-skill --name @acme/my-skill --release-version 1.2.0
+SKILLX_API_KEY=sx_... skillx publish skills/my-skill --name @acme/my-skill --release-version 1.2.0 --visibility public
 skillx publish HEAD --path skills/my-skill --name @acme/my-skill --release-version 1.2.0 --oidc --idempotency-key "$GITHUB_RUN_ID"
 ```
 
 CI: `.github/workflows/publish-release.yml` (manual dispatch or
 `workflow_call`, never on pull requests) runs the same command with a pinned
 CLI version, in the `skillx-publish` environment, with its
-`SKILLX_PUBLISH_KEY` secret. `.github/workflows/publish-agentkit-foundation.yml`
+`SKILLX_PUBLISH_KEY` secret. Its optional `visibility` input (`public` or
+`private`) passes `--visibility` and needs a `cli-version` that has the flag;
+left empty, no flag is sent, so a package it creates is private.
+`.github/workflows/publish-agentkit-foundation.yml`
 publishes an AgentKit foundation skill from `bestagentkits/agentkit` at a
-pinned commit with OIDC (fallback `SKILLX_AGENTKIT_PUBLISH_KEY`): the kit
+pinned commit with OIDC (fallback `SKILLX_AGENTKIT_PUBLISH_KEY`) and
+`--visibility public`: the kit
 directory `kits/<kit>/skills/ak-<x>` becomes `@bestagentkits/<x>` at the
 kit's `kit.yaml` version (see the deployment guide for why `@agentkit/*` stays
-reserved).
+reserved). Deploy the web app before running either workflow with
+`--visibility`: a registry without visibility support refuses the member with
+`400 release.invalid_metadata` and stores nothing (see the deployment guide).
 
 ### `skillx promote <@publisher/slug@version>`
 
@@ -344,6 +354,57 @@ demote. Every attempt is audited.
 ```bash
 skillx promote @acme/my-skill@1.2.0 --from beta --to stable --reason "soak passed"
 ```
+---
+
+### `skillx library list`
+
+Lists the skills and personal kits you own or are entitled to
+(`GET /api/v1/library`, see the [API reference](api-reference.md)). Needs an API
+key with `library:read` (or an unscoped key). Without `--cursor` every page is
+read and merged, so `data.nextCursor` is `null`; with `--cursor` only that page
+is returned together with its `nextCursor`.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--kind <kind>` | `skill` or `kit` | both |
+| `--query <q>` | Name fragment, at most 64 characters | — |
+| `--limit <n>` | Page size, 1 to 100 | 50 |
+| `--cursor <cursor>` | Read only the page after this cursor | follow all pages |
+| `--json` | Print the result envelope: `data` is `{ items, nextCursor, kits }` | — |
+
+Invalid flags are `usage_error` (exit `2`) before any request. `data.kits` is
+`{ "status": "unavailable", "code": "kit.api_disabled" }` while the deployment
+has personal kits off.
+
+### `skillx kit <subcommand>`
+
+Personal kit authoring against the [personal kits API](personal-kits-api.md).
+`<kit>` is `@handle/name`. Reads need `library:read` or `kits:write:@<handle>`,
+writes `kits:write:@<handle>` (or an unscoped key). There is no review command:
+reviewing a proposal and activating a public revision need your signed-in web
+session, and an API key gets `kit.interactive_approval_required`.
+
+| Command | Purpose |
+|---------|---------|
+| `kit show <kit>` | Summary: `generation`, `effectiveRevision` |
+| `kit revisions <kit>` | Revision list |
+| `kit revision <kit> <id>` | One revision with its `document` |
+| `kit push <kit> --document <file> --if-match <generation>` | Store a `draft` revision (`skillx.personal-kit/v1` JSON). `--if-match` takes `3`, `g3` or `"g3"` (`0` creates the kit); `--idempotency-key` overrides the key, which defaults to a digest of kit, generation and document so a retry replays |
+| `kit activate <kit> <revisionId> --digest <digest>` | Make a revision effective. `--digest` (required, exit `2` without it) is the exact revision digest you approve; `--if-match` is optional (default: the current generation) |
+| `kit rollback <kit> <revisionId> --digest <digest>` | Re-activate an earlier effective revision; same flags as `activate` |
+| `kit lock <kit> [--revision <id>]` | The lock of the effective (or named) revision |
+
+Every subcommand takes `--json`. Failures keep the server's machine-readable
+code in `error.details.code` next to `error.details.status`:
+
+| HTTP | `error.code` | Exit | Typical `details.code` |
+|------|--------------|------|------------------------|
+| `401`, `403` | `auth_error` | `5` | `invalid_api_key`, `auth.scope_missing`, `kit.publisher_not_owned`, `kit.interactive_approval_required` |
+| `404` | `not_found` | `3` | `kit.not_found`, `kit.api_disabled` (deployment without personal kits) |
+| `412` (stale `If-Match`), `409` `kit.generation_conflict` | `conflict` | `8` | `kit.generation_conflict` — nothing was written; run `kit show`, rebase your document and retry |
+| `429` | `rate_limited` | `7` | — |
+| other | `api_error` | `1` | e.g. `kit.approval_required`, `kit.revision_exists`, `kit.locked_incompatible` |
+
 ---
 
 ### `skillx report <slug> <outcome>`
@@ -609,7 +670,8 @@ Installer commands use the shared envelope and the one exit-code table in
 are `1` `integrity_error` (verification failed, nothing written), `4`
 `incompatible` (the release refuses the runtime) and `8` `conflict` (local
 edits, an unowned directory, a link inside a skill, a shared version, drift, a
-stale plan, or a path in use).
+stale plan, or a path in use). The `kit` commands reuse `8` `conflict` for a
+write based on a stale generation; nothing is written.
 
 ---
 
@@ -661,7 +723,7 @@ carries the same answer, so a script can branch without parsing either form:
 | `5` | `auth_error` | API key missing or rejected (`401`/`403`); the hint names `skillx config set-key` |
 | `6` | `network_error` | The API could not be reached |
 | `7` | `rate_limited` | The API answered `429`; retry later |
-| `8` | `conflict` | Installer only: the change would overwrite something it does not own (see [Exit codes](#exit-codes)) |
+| `8` | `conflict` | The installer would overwrite something it does not own (see [Exit codes](#exit-codes)), or a `kit` write used a stale generation (`412`) |
 
 For `check`, exit `4` is an answer, not a failure, so its envelope is a success. Only flags before `--`
 count: `skillx check -- --json` treats `--json` as an operand.

@@ -24,7 +24,8 @@ import { parsePackageIdentity, parseReleaseVersion } from "./release-access";
 import { ReleaseHttpError, errorResponse, notFoundResponse, releaseError } from "./release-http";
 import { releasesApiEnabled } from "./release-limits";
 import { RELEASE_WRITE_RATE_WINDOW_SECONDS, checkReleaseRateLimit, rateLimitCaller } from "./release-rate-limit";
-import { resolveViewer } from "./release-read";
+import { resolveRequestCredential } from "~/lib/auth/scoped-viewer";
+import type { ScopeFilter } from "~/lib/auth/scoped-viewer";
 import { invalidRequest, readJsonObject } from "./release-json-body";
 import { crossOriginRefusal } from "~/lib/auth/same-origin";
 import { PUBLISHER_STATES, transitionPublisher, transitionRelease } from "./release-transitions";
@@ -57,15 +58,32 @@ async function adminSecretMatches(presented: string, expected: string | undefine
   return diff === 0;
 }
 
-export async function resolveActor(request: Request, env: ReleaseStateEnv): Promise<Exclude<TransitionActor, { kind: "publisher_key" }>> {
+export type RequestActor = Exclude<TransitionActor, { kind: "publisher_key" }>;
+
+/** An actor with the scopes of its key; `scopes` is null for the admin, a session or an unscoped key. */
+export interface ScopedActor {
+  actor: RequestActor;
+  scopes: readonly string[] | null;
+}
+
+/**
+ * The admin or the account acting. Scoped keys are refused (401) unless
+ * `accepts` approves their scopes; the state, review, promote and provision
+ * routes accept none.
+ */
+export async function resolveScopedActor(request: Request, env: ReleaseStateEnv, accepts?: ScopeFilter): Promise<ScopedActor> {
   const presented = request.headers.get("X-Admin-Secret");
   if (presented !== null) {
     if (!(await adminSecretMatches(presented, env.ADMIN_SECRET))) throw releaseError(401, "invalid_admin_secret", "X-Admin-Secret is not valid");
-    return { kind: "admin", id: "admin" };
+    return { actor: { kind: "admin", id: "admin" }, scopes: null };
   }
-  const userId = await resolveViewer(request, env);
+  const { userId, scopes } = await resolveRequestCredential(request, env, accepts);
   if (userId === null) throw releaseError(401, "auth.required", "sign in, or send Authorization: Bearer <account API key>");
-  return { kind: "user", id: userId };
+  return { actor: { kind: "user", id: userId }, scopes };
+}
+
+export async function resolveActor(request: Request, env: ReleaseStateEnv): Promise<RequestActor> {
+  return (await resolveScopedActor(request, env)).actor;
 }
 
 /** An optional audit reason: 1 to 512 UTF-8 bytes without control, format or separator characters. */
@@ -132,16 +150,21 @@ export async function enforceWriteLimit(env: ReleaseStateEnv, caller: string, fa
  * request leaves no audit row: the append-only audit cannot be flooded faster
  * than the limit allows.
  */
-export async function resolveLimitedActor(request: Request, env: ReleaseStateEnv): Promise<Exclude<TransitionActor, { kind: "publisher_key" }>> {
+export async function resolveLimitedScopedActor(request: Request, env: ReleaseStateEnv, accepts?: ScopeFilter): Promise<ScopedActor> {
   const admin = request.headers.get("X-Admin-Secret") !== null;
   // Without a key or secret the session cookie decides, and it rides along ambiently.
   if (!admin && request.headers.get("Authorization") === null && crossOriginRefusal(request) !== null) {
     throw releaseError(403, "cross_origin", "cross-origin request refused");
   }
   if (admin) await enforceWriteLimit(env, rateLimitCaller(request, null), false);
-  const actor = await resolveActor(request, env);
-  await enforceWriteLimit(env, rateLimitCaller(request, actor.id), actor.kind !== "admin");
-  return actor;
+  const resolved = await resolveScopedActor(request, env, accepts);
+  await enforceWriteLimit(env, rateLimitCaller(request, resolved.actor.id), resolved.actor.kind !== "admin");
+  return resolved;
+}
+
+/** `resolveLimitedScopedActor` for routes that accept no scoped key. */
+export async function resolveLimitedActor(request: Request, env: ReleaseStateEnv): Promise<RequestActor> {
+  return (await resolveLimitedScopedActor(request, env)).actor;
 }
 
 /** `Retry-After` for a 429, `WWW-Authenticate` for a 401. */

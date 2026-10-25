@@ -573,7 +573,7 @@ skillx release pack (git commit -> deterministic tar, tree digest via @skillx/sk
 POST /api/v1/packages/@h/s/releases ── scoped key ── tar read + digest ── scan
         │                                            (published | quarantined)
         ▼
-R2 (create-only): artifacts/  blobs/  manifests/ (signed skillx.release/v1)
+R2 (create-only): artifacts/  blobs/  manifests/ (signed skillx.release/v1; kit releases v2)
 D1: packages, package_releases (row written last)
         │
         ▼
@@ -583,8 +583,8 @@ POST .../releases/:version/state, /publishers/@h/state ── compare-and-set + 
 
 - **Immutability**: a version maps to one tree forever. Bytes are stored and
   served exactly; no state change touches bytes, digests or R2 objects.
-- **Read rules** (`app/lib/releases/release-access.ts`): unknown or
-  unentitled `404`, then quarantined `403` (tree-wide, fails closed), then
+- **Read rules** (`app/lib/releases/release-access.ts`): unknown, or private
+  and neither owned (publisher owner) nor entitled, `404`, then quarantined `403` (tree-wide, fails closed), then
   suspended/revoked publisher `403`, then yanked (`410` by version, served by
   digest).
 - **State transitions** (`app/lib/releases/release-transitions.ts`): release
@@ -655,8 +655,8 @@ D1: personal_kits (generation CAS), personal_kit_revisions (immutable), personal
 - **Concurrency**: every write is one D1 batch whose statements are all
   guarded by the expected `generation`; the audit row decides success.
 - **Privacy/licensing**: kits are private by default; a public kit over a
-  private/paid base or parent is refused. Bases are read with the owner's
-  entitlement and re-checked on activation and lock reads
+  private/paid base or parent is refused. Bases are read with the kit owner's
+  access (publisher ownership or entitlement) and re-checked on activation and lock reads
   (`kit.locked_incompatible`).
 - **Session-derived proposals**: AgentKit uploads only a reviewed overlay
   (`skillx.kit-proposal/v1`), never raw session data. A proposal is private.

@@ -357,6 +357,15 @@ soon as the worker deploys**; no other flag holds them back.
    these releases as `skillx:bestagentkits/<x>`. The release is the skill
    directory byte for byte, so its `releaseDigest` equals the
    `agentkit.skill-tree/v1` digest AgentKit computes for that directory.
+7. Deploy order for publish visibility: deploy the web app (`skillx-web`)
+   with visibility support before dispatching the foundation workflow, which
+   publishes with `--visibility public`. An older registry rejects the
+   unknown metadata member with `400 release.invalid_metadata` before any
+   write or idempotency record, so the run fails closed and can be re-run
+   after the deploy. Do not deploy a registry with visibility support while
+   the foundation workflow on `main` still lacks `--visibility public`: a new
+   `@bestagentkits/*` package would then be created private and anonymous
+   AgentKit reads of it would answer `404`.
 
 Rollback: revoke trusted publishers (`POST .../trusted-publishers/{id}/revoke`),
 unset `SKILLX_TOKEN_SECRET` (all outstanding `sxo_` and download tokens stop
@@ -470,10 +479,28 @@ document in R2 under `statuses/sha256/`. Rollback: the header SQL of
 **Personal kits API.** `/api/v1/kits/...` needs migrations 0015 and 0016
 (personal kit tables and proposals) plus the release read stack
 (`SKILLX_RELEASES_API`). Production runs with `SKILLX_PERSONAL_KITS_API` set to
-`"1"` in `apps/web/wrangler.jsonc`. Before enabling it on another deployment,
+`"1"` in `apps/web/wrangler.jsonc`. Until the Worker var
+`SKILLX_SHARED_SKILL_ALIASES` lists at least one identity, every in-place
+overlay of an `@agentkit/*` skill answers `422 overlay.shared_alias` (see the
+[personal kits API](./personal-kits-api.md)). Before enabling it on another deployment,
 confirm that `wrangler d1 migrations list skillx-db --remote` reports nothing
 pending. Rollback: set the flag to `"0"` and redeploy; every route answers 404
-and stored kits stay untouched.
+`kit.api_disabled` and stored kits stay untouched.
+
+**Before the first production `@agentkit` kit release.** Set the Worker var
+`SKILLX_SHARED_SKILL_ALIASES` (comma or whitespace separated identities) to
+AgentKit's shared-skill list first: the non-`ak-` skills that `kits/core` or
+more than one official kit ships (for example `@agentkit/plan`). Kit releases
+are published without the `ak-` prefix (`@agentkit/plan`; `@agentkit/ak-*` is
+`400 identity.invalid`). While the variable holds no valid identity, the
+guard fails closed and refuses every in-place overlay of an `@agentkit/*`
+skill, including single-kit skills that may legitimately be overlaid
+([personal kits API](./personal-kits-api.md)); setting the list is what
+unblocks those. Use identities, not bare aliases: an entry such as `plan` is
+ignored. Confirm with an overlay of a listed identity, which must answer
+`422 overlay.shared_alias` without naming the variable in its detail. Kit releases also need skillx-sh 0.7.0 or
+later on the client: 0.6.0 and earlier report `skillx.release/v2` manifests as
+failed verification, so say so in the release notes of the first kit release.
 
 **Migration 0019 and the collections API.**
 `0019_collection_revision_lineage` adds two nullable columns

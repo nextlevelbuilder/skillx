@@ -73,8 +73,24 @@ describe("POST /api/user/api-keys", () => {
     expect((await list()).body.keys[0].scopes).toEqual(["releases:publish:@alpha", "releases:publish:@alpha2"]);
   });
 
+  it("creates a library sync key: library:read needs no publisher, kits:write needs an owned one", async () => {
+    const res = await call("POST", { name: "Laptop", scopes: ["kits:write:@alpha", "library:read", "releases:publish:@alpha"] });
+    expect(res.status).toBe(200);
+    expect(res.body.scopes).toEqual(["kits:write:@alpha", "library:read", "releases:publish:@alpha"]);
+    session.userId = "user-c";
+    const readOnly = await call("POST", { name: "CI", scopes: ["library:read"] });
+    expect(readOnly.status).toBe(200);
+    expect(storedScopes().sort()).toEqual([
+      JSON.stringify(["kits:write:@alpha", "library:read", "releases:publish:@alpha"]),
+      JSON.stringify(["library:read"]),
+    ]);
+  });
+
   it.each([
     ["an unknown scope", ["admin:*"]],
+    ["a library scope with a handle", ["library:read:@alpha"]],
+    ["a kit scope without a handle", ["kits:write"]],
+    ["a kit read scope", ["kits:read:@alpha"]],
     ["a malformed handle", ["releases:publish:@Alpha"]],
     ["an empty list", []],
     ["a non-array", "releases:publish:@alpha"],
@@ -91,6 +107,13 @@ describe("POST /api/user/api-keys", () => {
     ["a publisher that does not exist", "nobody"],
   ])("refuses %s with 403 and stores nothing", async (_label, handle) => {
     const res = await call("POST", { name: "CI", scopes: ["releases:publish:@alpha", `releases:publish:@${handle}`] });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toContain(`@${handle}`);
+    expect(storedScopes()).toEqual([]);
+  });
+
+  it.each(["beta", "gone", "nobody"])("refuses kits:write:@%s that the user does not hold as an active publisher", async (handle) => {
+    const res = await call("POST", { name: "Laptop", scopes: ["library:read", `kits:write:@${handle}`] });
     expect(res.status).toBe(403);
     expect(res.body.error).toContain(`@${handle}`);
     expect(storedScopes()).toEqual([]);

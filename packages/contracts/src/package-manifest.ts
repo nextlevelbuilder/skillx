@@ -17,6 +17,10 @@ export const SKILLX_PACKAGE_SCHEMA_VERSION = "skillx.package/v1";
 export const PACKAGE_KINDS = ["skill", "hook-pack", "bundle"] as const;
 export type PackageKind = (typeof PACKAGE_KINDS)[number];
 
+/** Who may read a package's releases: anyone, or only viewers the registry read gate admits. */
+export const PACKAGE_VISIBILITIES = ["public", "private"] as const;
+export type PackageVisibility = (typeof PACKAGE_VISIBILITIES)[number];
+
 export const RELEASE_STATES = ["draft", "quarantined", "published", "yanked"] as const;
 export type ReleaseState = (typeof RELEASE_STATES)[number];
 

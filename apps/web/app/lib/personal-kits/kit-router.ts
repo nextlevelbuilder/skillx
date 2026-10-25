@@ -1,10 +1,11 @@
 /**
  * Dispatch of `/api/v1/kits/@handle/name[/<sub>]` by method and sub-path.
- * GETs are reads; POSTs are writes (write limiter, fail closed). An unknown
+ * GETs are reads; POSTs are writes (write limiter, fail closed). A scoped
+ * key must hold the scope for the kit's handle (`requireKitScope`). An unknown
  * sub-path is the JSON 404; a known path with the wrong method is 405.
  */
-import { json, parseKitName, readKitBody, requireGeneration, requireId, requireIdempotencyKey, serveKit, withIfMatch } from "./kit-http";
-import type { KitCaller, KitEnv } from "./kit-http";
+import { json, parseKitName, readKitBody, requireGeneration, requireId, requireIdempotencyKey, requireKitScope, serveKit, withIfMatch } from "./kit-http";
+import type { KitAccess, KitCaller, KitEnv } from "./kit-http";
 import { readConflict, readConflicts, resolveConflict } from "./kit-conflicts";
 import { activateRevision, readLock, rejectRevision } from "./kit-lifecycle";
 import { submitProposal, validateProposal } from "./kit-proposals";
@@ -112,14 +113,17 @@ export async function serveKitRequest(request: Request, env: KitEnv, params: Rec
   const route = ROUTES.find((r) => r.pattern.test(sub));
   const method = request.method === "HEAD" ? "GET" : request.method;
   const handler = method === "GET" ? route?.get : method === "POST" ? route?.post : undefined;
+  const access: KitAccess = route?.admin === true ? "admin" : method !== "GET" ? "write" : "read";
   return serveKit(
     request,
     env,
-    route?.admin === true ? "admin" : method !== "GET" ? "write" : "read",
+    access,
     async (caller) => {
       if (route === undefined) return notFoundResponse();
       if (handler === undefined) return methodNotAllowed(route.get !== undefined && route.post !== undefined ? "GET, POST" : route.get !== undefined ? "GET" : "POST");
-      return handler(caller, parseKitName(params.scope, params.name), route.pattern.exec(sub)!.slice(1));
+      const kit = parseKitName(params.scope, params.name);
+      requireKitScope(caller, kit, access);
+      return handler(caller, kit, route.pattern.exec(sub)!.slice(1));
     },
     now,
   );

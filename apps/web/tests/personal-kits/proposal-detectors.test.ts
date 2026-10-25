@@ -51,18 +51,23 @@ describe("forbidden keys through the envelope", () => {
 });
 
 describe("shared skill guard", () => {
-  it("treats every ak- and ak: skill as shared when unset, and adds the configured list", () => {
-    const unset = sharedSkills({});
-    expect(unset("@agentkit/ak-plan", "ak-plan")).toBe(true);
-    expect(unset("@agentkit/plan", "AK:plan")).toBe(true);
-    expect(unset("@agentkit/AK-x", "x")).toBe(true);
-    expect(unset("@agentkit/plan", "plan")).toBe(false);
-    expect(unset("@agentkit/akplan", "akplan")).toBe(false);
+  it("treats every @agentkit, ak- and ak: skill as shared when unset, and only ak- plus the list once configured", () => {
+    // Aliases, typos and mixed case are not identities, so they leave the list empty.
+    for (const unset of [sharedSkills({}), sharedSkills({ SKILLX_SHARED_SKILL_ALIASES: " ,\n" }), sharedSkills({ SKILLX_SHARED_SKILL_ALIASES: "plan none @AgentKit/cook" })]) {
+      expect(unset("@agentkit/ak-plan", "ak-plan")).toBe(true);
+      expect(unset("@agentkit/plan", "AK:plan")).toBe(true);
+      expect(unset("@agentkit/plan", "plan")).toBe(true);
+      expect(unset("@agentkit/akplan", "renamed")).toBe(true);
+      expect(unset("@alpha/plan", "plan")).toBe(false);
+      expect(unset("@alpha/AK-x", "x")).toBe(true);
+      expect(unset("@alpha/agentkit", "agentkit")).toBe(false);
+    }
     const listed = sharedSkills({ SKILLX_SHARED_SKILL_ALIASES: "@agentkit/plan,\n@agentkit/cook" });
     expect(listed("@agentkit/plan", "plan")).toBe(true);
     expect(listed("@agentkit/cook", "cook")).toBe(true);
     expect(listed("@agentkit/ak-review", "ak-review")).toBe(true);
     expect(listed("@agentkit/other", "other")).toBe(false);
+    expect(listed("@agentkit/akplan", "akplan")).toBe(false);
   });
 });
 

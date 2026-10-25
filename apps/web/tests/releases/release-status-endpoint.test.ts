@@ -105,7 +105,7 @@ describe("signed release status endpoint", () => {
     await expect(s.status(at(1))).rejects.toMatchObject({ status: 404, code: "not_found" });
     s.sql("INSERT INTO entitlements (id, subject_id, package_id, release_id, source, granted_at, revoked_at) SELECT 'ent-1', 'user-b', id, NULL, 'manual', 1, NULL FROM packages");
     const entitled = await s.status(at(1), { userId: "user-b" });
-    expect(entitled.res.headers.get("Cache-Control")).toBe("private, max-age=60, no-transform");
+    expect(entitled.res.headers.get("Cache-Control")).toBe("private, no-store");
   });
 
   it("is served through the route behind the flag, and 503 without a signing key", async () => {

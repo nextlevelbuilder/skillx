@@ -1,5 +1,5 @@
 /**
- * `skillx.release/v1` signed release manifest contract.
+ * `skillx.release/v1` and `skillx.release/v2` signed release manifest contract.
  *
  * A release manifest pins one immutable package version to the canonical
  * `agentkit.skill-tree/v1` tree of its files. `releaseDigest` is the tree
@@ -11,6 +11,10 @@
  * member except `signature`. `releaseDigest` must equal the tree digest of
  * `files`; signing and verification both enforce it.
  *
+ * v2 is v1 plus the required `provenance` member (`release-provenance.ts`),
+ * which lets a kit release use the reserved `@agentkit` publisher. v1 stays
+ * unchanged: it has no `provenance`, and its provider is always `skillx`.
+ *
  * Validators and verifiers never throw, whatever the input.
  */
 
@@ -18,13 +22,17 @@ import {
   ERROR_CODES,
   SkillTreeError,
   checkCollisions,
+  checkDirectoryAlias,
   checkPublisher,
   compareUtf8,
   isNoisePath,
   serializeTree,
+  validateIdentity,
   validatePath,
 } from "@skillx/skill-tree/rules";
 import { canonicalJsonBytes } from "./canonical-json";
+import { validateReleaseProvenance } from "./release-provenance";
+import type { ReleaseProvenance, ReleaseProvider } from "./release-provenance";
 import { PACKAGE_NAME_PATTERN, RELEASE_CHANNELS, isPackageKind, PACKAGE_KINDS } from "./package-manifest";
 import type { PackageKind, ReleaseChannel } from "./package-manifest";
 import {
@@ -56,6 +64,10 @@ export type { ReleasePublicKeys } from "./release-signature";
 export { compareUtf8 } from "@skillx/skill-tree/rules";
 
 export const SKILLX_RELEASE_SCHEMA_VERSION = "skillx.release/v1";
+export const SKILLX_RELEASE_SCHEMA_VERSION_V2 = "skillx.release/v2";
+/** Every manifest schema this contract signs and verifies. */
+export const SKILLX_RELEASE_SCHEMA_VERSIONS = [SKILLX_RELEASE_SCHEMA_VERSION, SKILLX_RELEASE_SCHEMA_VERSION_V2] as const;
+export type SkillxReleaseSchemaVersion = (typeof SKILLX_RELEASE_SCHEMA_VERSIONS)[number];
 
 /** Verification failure codes of the release manifest itself. */
 export const RELEASE_MANIFEST_CODES = {
@@ -123,8 +135,7 @@ export interface ReleaseSourceProvenance {
   path: string;
 }
 
-export interface UnsignedReleaseManifest {
-  schemaVersion: typeof SKILLX_RELEASE_SCHEMA_VERSION;
+interface ReleaseManifestMembers {
   identity: string;
   version: string;
   channel: ReleaseChannel;
@@ -151,9 +162,21 @@ export interface UnsignedReleaseManifest {
   signatureAlgorithm: typeof RELEASE_SIGNATURE_ALGORITHM;
 }
 
-export interface SkillxReleaseManifest extends UnsignedReleaseManifest {
-  signature: string;
+/** A `skillx.release/v1` manifest: provider `skillx`, no `provenance` member. */
+export interface UnsignedReleaseManifestV1 extends ReleaseManifestMembers {
+  schemaVersion: typeof SKILLX_RELEASE_SCHEMA_VERSION;
+  provenance?: never;
 }
+
+/** A `skillx.release/v2` manifest with explicit source provenance. */
+export interface UnsignedReleaseManifestV2 extends ReleaseManifestMembers {
+  schemaVersion: typeof SKILLX_RELEASE_SCHEMA_VERSION_V2;
+  provenance: ReleaseProvenance;
+}
+
+export type UnsignedReleaseManifest = UnsignedReleaseManifestV1 | UnsignedReleaseManifestV2;
+
+export type SkillxReleaseManifest = UnsignedReleaseManifest & { signature: string };
 
 const MANIFEST_FIELDS = [
   "schemaVersion",
@@ -178,28 +201,45 @@ const FILE_FIELDS = ["path", "mode", "sha256", "size"] as const;
 const PUBLISHER_FIELDS = ["handle", "verifiedBy"] as const;
 const PROVENANCE_FIELDS = ["repo", "commit", "path"] as const;
 
+const MANIFEST_FIELDS_V2 = [...MANIFEST_FIELDS, "provenance"] as const;
+
 const isSize = (value: unknown): value is number => Number.isSafeInteger(value) && (value as number) >= 0;
 
 function oneOf<T extends string>(values: readonly T[], value: unknown): value is T {
   return typeof value === "string" && (values as readonly string[]).includes(value);
 }
 
-function checkFields(value: Record<string, unknown>, allowed: readonly string[], path: string, issues: ValidationIssue[]): void {
-  checkSchemaFields(value, allowed, path, SKILLX_RELEASE_SCHEMA_VERSION, issues);
+type FieldCheck = (value: Record<string, unknown>, allowed: readonly string[], path: string) => void;
+
+function fieldCheck(schema: string, issues: ValidationIssue[]): FieldCheck {
+  return (value, allowed, path) => checkSchemaFields(value, allowed, path, schema, issues);
 }
 
 function treeIssue(path: string, error: SkillTreeError): ValidationIssue {
   return issue(path, error.code, error.message);
 }
 
-function validateIdentityField(identity: unknown, issues: ValidationIssue[]): string | null {
+/**
+ * `provider` is `skillx` for v1, the validated v2 provider, or null when the
+ * v2 provider is invalid (then only the identity shape is checked). Under v2 a
+ * `skillx` slug must not take the reserved `ak-` alias prefix either, and a
+ * `kit` slug must not start with `ak-`: AgentKit maps the kit directory
+ * `ak-<x>` to `@agentkit/<x>`, so `@agentkit/ak-<x>` names no kit skill.
+ */
+function validateIdentityField(identity: unknown, provider: ReleaseProvider | null, v2: boolean, issues: ValidationIssue[]): string | null {
   if (typeof identity !== "string" || !PACKAGE_NAME_PATTERN.test(identity)) {
     issues.push(issue("identity", "pattern", "must be '@publisher/slug' using lowercase slug characters"));
     return null;
   }
   try {
-    // Every SkillX release comes from the `skillx` provider, so `@agentkit/*` is always reserved.
-    checkPublisher(identity, "skillx");
+    if (provider === null) validateIdentity(identity);
+    else checkPublisher(identity, provider);
+    const slug = identity.slice(identity.indexOf("/") + 1);
+    if (v2 && provider === "skillx") checkDirectoryAlias(identity, slug);
+    if (v2 && provider === "kit" && slug.startsWith("ak-")) {
+      issues.push(issue("identity", ERROR_CODES.identityInvalid, `kit release slugs omit the "ak-" directory prefix: use @agentkit/${slug.slice(3)}`));
+      return null;
+    }
   } catch (error) {
     if (!(error instanceof SkillTreeError)) throw error;
     issues.push(treeIssue("identity", error));
@@ -208,7 +248,7 @@ function validateIdentityField(identity: unknown, issues: ValidationIssue[]): st
   return identity.slice(1, identity.indexOf("/"));
 }
 
-function validateFiles(files: unknown, issues: ValidationIssue[]): ReleaseFile[] | null {
+function validateFiles(files: unknown, checkFields: FieldCheck, issues: ValidationIssue[]): ReleaseFile[] | null {
   if (!Array.isArray(files)) {
     issues.push(issue("files", "type", "must be an array"));
     return null;
@@ -226,7 +266,7 @@ function validateFiles(files: unknown, issues: ValidationIssue[]): ReleaseFile[]
       issues.push(issue(at, "type", "must be an object"));
       return;
     }
-    checkFields(file, FILE_FIELDS, at, issues);
+    checkFields(file, FILE_FIELDS, at);
     const { path, mode, sha256, size } = file;
     if (typeof path !== "string") {
       issues.push(issue(`${at}.path`, "type", "must be a string"));
@@ -262,12 +302,12 @@ function validateFiles(files: unknown, issues: ValidationIssue[]): ReleaseFile[]
   return valid;
 }
 
-function validatePublisher(publisher: unknown, handle: string | null, issues: ValidationIssue[]): void {
+function validatePublisher(publisher: unknown, handle: string | null, checkFields: FieldCheck, issues: ValidationIssue[]): void {
   if (!isPlainObject(publisher)) {
     issues.push(issue("publisher", "type", "must be an object"));
     return;
   }
-  checkFields(publisher, PUBLISHER_FIELDS, "publisher", issues);
+  checkFields(publisher, PUBLISHER_FIELDS, "publisher");
   if (typeof publisher.handle !== "string") {
     issues.push(issue("publisher.handle", "type", "must be a string"));
   } else if (handle !== null && publisher.handle !== handle) {
@@ -288,13 +328,13 @@ function isHttpsRepo(value: unknown): boolean {
   }
 }
 
-function validateProvenance(provenance: unknown, issues: ValidationIssue[]): void {
+function validateSourceProvenance(provenance: unknown, checkFields: FieldCheck, issues: ValidationIssue[]): void {
   if (provenance === null) return;
   if (!isPlainObject(provenance)) {
     issues.push(issue("sourceProvenance", "type", "must be an object or null"));
     return;
   }
-  checkFields(provenance, PROVENANCE_FIELDS, "sourceProvenance", issues);
+  checkFields(provenance, PROVENANCE_FIELDS, "sourceProvenance");
   if (!isHttpsRepo(provenance.repo)) {
     issues.push(issue("sourceProvenance.repo", "format", `must be an https URL without credentials, at most ${MAX_SOURCE_REPO_LENGTH} characters`));
   }
@@ -334,12 +374,18 @@ function collectIssues(input: unknown, requireSignature: boolean): ValidationIss
   if (!isPlainObject(input)) return [issue("", "type", "release manifest must be an object")];
   const issues: ValidationIssue[] = [];
   if (!checkCanonicalValue(input, issues)) return issues;
-  checkFields(input, requireSignature ? [...MANIFEST_FIELDS, "signature"] : MANIFEST_FIELDS, "", issues);
+  const v2 = input.schemaVersion === SKILLX_RELEASE_SCHEMA_VERSION_V2;
+  const schema = v2 ? SKILLX_RELEASE_SCHEMA_VERSION_V2 : SKILLX_RELEASE_SCHEMA_VERSION;
+  const checkFields = fieldCheck(schema, issues);
+  const fields = v2 ? MANIFEST_FIELDS_V2 : MANIFEST_FIELDS;
+  checkFields(input, requireSignature ? [...fields, "signature"] : fields, "");
 
-  if (input.schemaVersion !== SKILLX_RELEASE_SCHEMA_VERSION) {
-    issues.push(issue("schemaVersion", "unsupported_value", `must equal '${SKILLX_RELEASE_SCHEMA_VERSION}'`));
+  if (!v2 && input.schemaVersion !== SKILLX_RELEASE_SCHEMA_VERSION) {
+    issues.push(issue("schemaVersion", "unsupported_value", `must be one of: ${SKILLX_RELEASE_SCHEMA_VERSIONS.join(", ")}`));
   }
-  const handle = validateIdentityField(input.identity, issues);
+  // v1 is always provider `skillx`; a missing v2 `provenance` is reported by checkFields.
+  const provider = !v2 ? "skillx" : "provenance" in input ? validateReleaseProvenance(input.provenance, issues, checkFields) : null;
+  const handle = validateIdentityField(input.identity, provider, v2, issues);
   if (
     typeof input.version !== "string" ||
     input.version.length > MAX_RELEASE_VERSION_LENGTH ||
@@ -369,7 +415,7 @@ function collectIssues(input: unknown, requireSignature: boolean): ValidationIss
     issues.push(issue("artifactSize", "type", "must be a positive safe integer"));
   }
 
-  const files = validateFiles(input.files, issues);
+  const files = validateFiles(input.files, checkFields, issues);
   if (!isSize(input.fileCount)) {
     issues.push(issue("fileCount", "type", "must be a non-negative safe integer"));
   } else if (files !== null && input.fileCount !== files.length) {
@@ -383,8 +429,8 @@ function collectIssues(input: unknown, requireSignature: boolean): ValidationIss
     issues.push(issue("treeSize", "mismatch", "must equal the sum of file sizes"));
   }
 
-  validatePublisher(input.publisher, handle, issues);
-  validateProvenance(input.sourceProvenance, issues);
+  validatePublisher(input.publisher, handle, checkFields, issues);
+  validateSourceProvenance(input.sourceProvenance, checkFields, issues);
   validateDeclaredScripts(input.declaredScripts, files, issues);
   if (!isReleaseTimestamp(input.createdAt)) {
     issues.push(issue("createdAt", "format", "must be an RFC 3339 UTC timestamp with whole seconds, e.g. 2026-10-13T04:30:00Z"));
@@ -393,7 +439,7 @@ function collectIssues(input: unknown, requireSignature: boolean): ValidationIss
   return issues;
 }
 
-/** Validates a signed `skillx.release/v1` manifest (structure only, not the signature). */
+/** Validates a signed `skillx.release/v1` or `skillx.release/v2` manifest (structure only, not the signature). */
 export function validateReleaseManifest(input: unknown): ValidationResult {
   const issues = collectIssues(input, true);
   return issues.length === 0 ? validationOk() : validationFail(issues);

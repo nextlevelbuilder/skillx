@@ -21,8 +21,10 @@ import {
   sharedAliasViolation,
 } from "@skillx/contracts";
 import type { PersonalKitDocument } from "@skillx/contracts";
+import { IDENTITY_PATTERN } from "@skillx/skill-tree/rules";
 import { baseFailure, loadPinnedBase } from "./base-loader";
 import type { LoadedBase } from "./base-loader";
+import { scopeReadsKit } from "./kit-http";
 import type { KitCaller } from "./kit-http";
 import { documentOf, findKit, revisionByDigest } from "./kit-store";
 import type { RevisionRow } from "./kit-store";
@@ -38,17 +40,25 @@ const UNUSABLE_PARENT_STATES = new Set(["proposed", "rejected", "quarantined"]);
 /** AgentKit's reserved alias prefixes (`ak-`, `ak:`, any case). */
 const RESERVED_ALIAS = /^ak[-:]/i;
 const nameOf = (identity: string) => identity.slice(identity.indexOf("/") + 1);
+const reservedSkill = (identity: string, alias: string) => RESERVED_ALIAS.test(alias) || RESERVED_ALIAS.test(nameOf(identity));
+const OFFICIAL_SCOPE = "@agentkit/";
+/** The configured identities; entries that are not identities (aliases, typos, `none`) are dropped. */
+const sharedSkillList = (env: { SKILLX_SHARED_SKILL_ALIASES?: string }) =>
+  new Set((env.SKILLX_SHARED_SKILL_ALIASES ?? "").split(/[\s,]+/).filter((s) => IDENTITY_PATTERN.test(s)));
 
 /**
  * Skills that may not be overlaid in place: those owned by AgentKit
  * `kits/core` or shipped by more than one official kit. Fails closed: any
  * skill whose directory alias or name starts with `ak-` or `ak:` is always
  * shared, and `SKILLX_SHARED_SKILL_ALIASES` (comma or whitespace separated
- * identities) adds to that default.
+ * identities) adds to that default. While that list holds no valid
+ * identity, every `@agentkit/*` identity is shared too: kit releases carry
+ * no `ak-` prefix, so the prefix rule alone would protect none of them.
  */
 export function sharedSkills(env: { SKILLX_SHARED_SKILL_ALIASES?: string }): (identity: string, alias: string) => boolean {
-  const listed = new Set((env.SKILLX_SHARED_SKILL_ALIASES ?? "").split(/[\s,]+/).filter((s) => s !== ""));
-  return (identity, alias) => listed.has(identity) || RESERVED_ALIAS.test(alias) || RESERVED_ALIAS.test(nameOf(identity));
+  const listed = sharedSkillList(env);
+  return (identity, alias) =>
+    listed.has(identity) || reservedSkill(identity, alias) || (listed.size === 0 && identity.startsWith(OFFICIAL_SCOPE));
 }
 
 /** A foreign parent must be a public, activated, reviewed revision that was authored public. */
@@ -106,15 +116,26 @@ export async function loadChain(caller: KitCaller, doc: PersonalKitDocument, rea
   return { chain, parentPublic, foreign, incomplete: false, parents };
 }
 
-/** The chain as returned to the caller: own documents in full, foreign ancestors as digest references only. */
-export const chainView = ({ chain, foreign }: LoadedChain) =>
-  chain.map((d, i) => (foreign.has(i) ? { kit: d.kit, revisionDigest: chain[i - 1]!.parent!.revisionDigest, foreign: true } : d));
+/**
+ * The chain as returned to the caller: own documents in full; foreign
+ * ancestors, and for a scoped key own ancestors under a handle it holds
+ * neither `library:read` nor `kits:write:@<handle>` for, as digest
+ * references only.
+ */
+export const chainView = ({ chain, foreign }: LoadedChain, caller: Pick<KitCaller, "scopes" | "admin">) =>
+  chain.map((d, i) =>
+    i > 0 && (foreign.has(i) || !scopeReadsKit(caller, d.kit)) ? { kit: d.kit, revisionDigest: chain[i - 1]!.parent!.revisionDigest, foreign: true } : d,
+  );
 
 /** Loads and checks every base of `doc`. */
 export async function verifyDocument(caller: KitCaller, kitName: string, doc: PersonalKitDocument): Promise<VerifiedDocument> {
   const { env, userId } = caller;
   if (doc.kit !== kitName) throw kitError(KIT_CODES.documentInvalid, "kit", `document names ${doc.kit}, not ${kitName}`);
   const sharedViolation = sharedAliasViolation(doc, sharedSkills(env));
+  // Name the operator step only when the unset list, not an ak- prefix, refused the first entry.
+  if (sharedViolation !== null && sharedSkillList(env).size === 0 && sharedAliasViolation(doc, reservedSkill)?.path !== sharedViolation.path) {
+    throw kitError(KIT_CODES.sharedAlias, sharedViolation.path, `${sharedViolation.detail}; the operator has not configured SKILLX_SHARED_SKILL_ALIASES, so every ${OFFICIAL_SCOPE}* skill is treated as shared until it is set`);
+  }
   if (sharedViolation !== null) throw sharedViolation;
   const bases = new Map<string, LoadedBase>();
   const warnings: string[] = [];

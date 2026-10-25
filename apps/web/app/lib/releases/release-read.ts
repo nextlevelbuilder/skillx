@@ -1,7 +1,7 @@
 /**
  * Pinned whole-tree read API. Every endpoint: 404 while `SKILLX_RELEASES_API`
- * is off, then viewer (unscoped Bearer API key or session; never a query
- * string token; a bad key is 401), then the rate limit binding, then the
+ * is off, then viewer (unscoped or `library:read` Bearer API key, or session;
+ * never a query string token; a bad key is 401), then the rate limit binding, then the
  * access rules of `release-access`. Stored bytes are streamed from the R2
  * body exactly as written by the publish path (no redirect, no
  * transformation, served as opaque downloads so a browser never renders
@@ -11,14 +11,13 @@
  * `Authorization, Cookie` because the selected release can depend on the
  * viewer. Public file and artifact bytes are `immutable` for a year, so a
  * later quarantine cannot recall copies already held by browsers or proxies;
- * it only stops new fetches from this API.
+ * it only stops new fetches from this API. Private answers are never stored.
  */
 import { RELEASE_KEY_ID_PATTERN, RELEASE_SIGNATURE_ALGORITHM, validateReleaseManifest } from "@skillx/contracts";
 import type { SkillxReleaseManifest } from "@skillx/contracts";
 import { validatePath } from "@skillx/skill-tree";
-import { authenticateApiKey } from "~/lib/auth/authenticate-api-key";
-import { authenticateRequest } from "~/lib/auth/authenticate-request";
-import { getDb } from "~/lib/db";
+import { grantsLibraryRead } from "~/lib/auth/api-key-scopes";
+import { resolveRequestCredential } from "~/lib/auth/scoped-viewer";
 import { blobKey } from "./r2-create-only";
 import {
   listPackageReleases,
@@ -46,35 +45,23 @@ export interface ReadContext {
   db: D1Database;
   bucket: R2Bucket;
   userId: string | null;
+  /** The API key of the viewer; null or absent for a session, anonymous or a signed download URL. */
+  keyId?: string | null;
   request: Request;
 }
 
 type Params = Record<string, string | undefined>;
 
 /**
- * The viewer of a read request. A present `Authorization` header must carry
- * a valid unscoped API key as `Bearer <key>`; anything else (another scheme,
- * an unknown or revoked key, a scoped publish key) is `401 invalid_api_key`
- * rather than a silent fall back to anonymous, so a misconfigured CLI never
- * sees a private package as "not found". Without the header the session
- * decides, and no session means anonymous.
+ * The viewer of a request (see `resolveRequestCredential`): an unscoped API
+ * key, the session, or anonymous. A bad key is `401 invalid_api_key`, never a
+ * fall back. Every scoped key is refused the same way (MCP, collections).
  */
 export async function resolveViewer(request: Request, env: ReleaseReadEnv): Promise<string | null> {
-  const header = request.headers.get("Authorization");
-  if (header !== null) {
-    // The auth scheme is case-insensitive (RFC 9110 section 11.1).
-    const match = /^bearer\s+(\S+)\s*$/i.exec(header);
-    const key = match?.[1] ?? "";
-    // authenticateApiKey matches unscoped keys only (scoped keys hash differently) and rejects "".
-    const owner = await authenticateApiKey(getDb(env.DB), key);
-    if (owner === null) throw releaseError(401, "invalid_api_key", "the Authorization header does not carry a valid read API key");
-    return owner.userId;
-  }
-  const viewer = await authenticateRequest(request, env);
-  return viewer?.userId ?? null;
+  return (await resolveRequestCredential(request, env)).userId;
 }
 
-/** Runs one read endpoint behind the flag, viewer resolution and the rate limit. */
+/** Runs one read endpoint behind the flag, viewer resolution (a scoped key needs `library:read`) and the rate limit. */
 export async function serveReleaseRead(
   request: Request,
   env: ReleaseReadEnv,
@@ -82,7 +69,7 @@ export async function serveReleaseRead(
 ): Promise<Response> {
   if (!releasesApiEnabled(env)) return notFoundResponse();
   try {
-    const userId = await resolveViewer(request, env);
+    const { userId, keyId } = await resolveRequestCredential(request, env, grantsLibraryRead);
     const decision = await checkReleaseRateLimit(env.RELEASE_READ_LIMITER, rateLimitCaller(request, userId));
     if (!decision.allowed) {
       return errorResponse(
@@ -90,7 +77,7 @@ export async function serveReleaseRead(
         { "Retry-After": String(decision.retryAfterSeconds) },
       );
     }
-    return await handler({ db: env.DB, bucket: env.R2, userId, request });
+    return await handler({ db: env.DB, bucket: env.R2, userId, keyId, request });
   } catch (error) {
     if (error instanceof ReleaseHttpError) {
       return errorResponse(error, error.status === 401 ? { "WWW-Authenticate": "Bearer" } : {});
@@ -100,14 +87,20 @@ export async function serveReleaseRead(
   }
 }
 
+/**
+ * Public answers are cacheable (`immutable` for bytes). Every answer about a
+ * private package is `private, no-store`, so revoking access, a quarantine or
+ * a key revocation takes effect on the next request instead of after a
+ * browser-held copy expires.
+ */
 export function cacheControl(release: { visibility: string }, maxAge: number, immutable: boolean): string {
-  const scope = release.visibility === "public" ? "public" : "private";
-  return `${scope}, max-age=${maxAge}${immutable ? ", immutable" : ""}, no-transform`;
+  if (release.visibility !== "public") return "private, no-store";
+  return `public, max-age=${maxAge}${immutable ? ", immutable" : ""}, no-transform`;
 }
 
 /** A stored object is missing or not what D1 recorded: an integrity failure, never served. */
-function storageError(what: string): ReleaseHttpError {
-  console.error(`release read: ${what}`);
+export function storageError(what: string, context = "release read"): ReleaseHttpError {
+  console.error(`${context}: ${what}`);
   return releaseError(500, "release.storage_inconsistent", "release storage is inconsistent");
 }
 
@@ -160,12 +153,12 @@ function bytesResponse(request: Request, object: R2ObjectBody, etag: string, hea
   return new Response(object.body, { headers: { ...all, "Content-Length": String(object.size) } });
 }
 
-async function getManifestObject(bucket: R2Bucket, release: ReadableRelease): Promise<R2ObjectBody> {
+async function getManifestObject(bucket: R2Bucket, release: Pick<ReadableRelease, "manifestKey">, context?: string): Promise<R2ObjectBody> {
   const object = await bucket.get(release.manifestKey);
-  if (object === null) throw storageError(`manifest ${release.manifestKey} is missing`);
+  if (object === null) throw storageError(`manifest ${release.manifestKey} is missing`, context);
   if (object.size > MAX_MANIFEST_BYTES) {
     void object.body.cancel().catch(() => undefined);
-    throw storageError(`manifest ${release.manifestKey} exceeds ${MAX_MANIFEST_BYTES} bytes`);
+    throw storageError(`manifest ${release.manifestKey} exceeds ${MAX_MANIFEST_BYTES} bytes`, context);
   }
   return object;
 }
@@ -257,18 +250,22 @@ export function releaseFilePath(request: Request): string {
   return path;
 }
 
-/** The validated signed manifest of a readable release (also used by the personal kit base loader). */
-export async function readManifest(bucket: R2Bucket, release: ReadableRelease): Promise<SkillxReleaseManifest> {
-  const object = await getManifestObject(bucket, release);
+/** The validated signed manifest of a stored release (also used by the personal kit base loader and the kit replay check). */
+export async function readManifest(
+  bucket: R2Bucket,
+  release: Pick<ReadableRelease, "manifestKey" | "releaseDigest">,
+  context?: string,
+): Promise<SkillxReleaseManifest> {
+  const object = await getManifestObject(bucket, release, context);
   let parsed: unknown;
   try {
     parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await object.arrayBuffer()));
   } catch {
-    throw storageError(`manifest ${release.manifestKey} is not JSON`);
+    throw storageError(`manifest ${release.manifestKey} is not JSON`, context);
   }
-  if (!validateReleaseManifest(parsed).valid) throw storageError(`manifest ${release.manifestKey} is invalid`);
+  if (!validateReleaseManifest(parsed).valid) throw storageError(`manifest ${release.manifestKey} is invalid`, context);
   const manifest = parsed as SkillxReleaseManifest;
-  if (manifest.releaseDigest !== release.releaseDigest) throw storageError(`manifest ${release.manifestKey} names another tree`);
+  if (manifest.releaseDigest !== release.releaseDigest) throw storageError(`manifest ${release.manifestKey} names another tree`, context);
   return manifest;
 }
 

@@ -50,6 +50,7 @@ export default [
   route("api/v1/releases/:digest/files/*", "routes/api.v1.release-file.ts"),
   route("api/v1/releases/:digest/artifact", "routes/api.v1.release-artifact.ts"),
   route("api/v1/keys", "routes/api.v1.signing-keys.ts"),
+  route("api/v1/library", "routes/api.v1.library.ts"),
   route("api/v1/kits/:scope/:name", "routes/api.v1.kits.ts", { id: "personal-kit" }),
   route("api/v1/kits/:scope/:name/*", "routes/api.v1.kits.ts", { id: "personal-kit-sub" }),
   route("api/v1/collections", "routes/api.v1.collections.ts", { id: "collections" }),

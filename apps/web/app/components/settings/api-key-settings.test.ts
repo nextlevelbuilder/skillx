@@ -19,6 +19,20 @@ describe("key form helpers", () => {
     });
   });
 
+  it("adds library sync scopes to the selection, sorted and de-duplicated", () => {
+    expect(buildCreateKeyRequest("Laptop", [], { libraryRead: true })).toEqual({ name: "Laptop", scopes: ["library:read"] });
+    expect(buildCreateKeyRequest("Laptop", ["alpha"], { libraryRead: true, kitWriteHandles: ["beta", "alpha", "beta"] })).toEqual({
+      name: "Laptop",
+      scopes: ["kits:write:@alpha", "kits:write:@beta", "library:read", "releases:publish:@alpha"],
+    });
+    expect(buildCreateKeyRequest("CLI", [], { libraryRead: false, kitWriteHandles: [] })).toEqual({ name: "CLI" });
+  });
+
+  it("toggles a handle within a smaller limit", () => {
+    expect(toggleScopeHandle(["a"], "b", 1)).toEqual(["a"]);
+    expect(toggleScopeHandle(["a"], "a", 1)).toEqual([]);
+  });
+
   it("toggles a handle and never selects more than 8", () => {
     expect(toggleScopeHandle([], "a")).toEqual(["a"]);
     expect(toggleScopeHandle(["a", "b"], "a")).toEqual(["b"]);
@@ -32,6 +46,11 @@ describe("key form helpers", () => {
     expect(describeScope("future:scope")).toBe("future:scope");
     expect(describeKeyAccess(null)).toContain("Cannot publish releases");
     expect(describeKeyAccess(["releases:publish:@alpha"])).toContain("can only publish releases for @alpha");
+    expect(describeScope("library:read")).toBe("Read your library");
+    expect(describeScope("kits:write:@alpha")).toBe("Write kits for @alpha");
+    expect(describeKeyAccess(["kits:write:@alpha", "library:read", "releases:publish:@alpha"])).toBe(
+      "Scoped key: can only publish releases for @alpha; read your private releases and kits; write kits for @alpha. Rejected by every other API.",
+    );
   });
 });
 
@@ -46,9 +65,19 @@ describe("ApiKeyCreateDialog", () => {
     expect(html).toContain("Release publishing (optional)");
     expect(html).toContain("releases:publish:@alpha");
     expect(html).toContain("releases:publish:@beta");
-    expect(html.match(/type="checkbox"/g)).toHaveLength(2);
+    expect(html.match(/name="publish-scope"/g)).toHaveLength(2);
     expect(html).not.toMatch(/checked=""/);
     expect(html).toContain("Account key:");
+  });
+
+  it("offers library:read and kits:write for each owned publisher, unchecked", () => {
+    const html = renderToStaticMarkup(createElement(ApiKeyCreateDialog, { publishers, onSubmit: noop, onCancel: noop }));
+    expect(html).toContain("Library sync (optional)");
+    expect(html).toContain("library:read");
+    expect(html).toContain("kits:write:@alpha");
+    expect(html).toContain("kits:write:@beta");
+    expect(html.match(/name="kits-scope"/g)).toHaveLength(2);
+    expect(html.match(/name="library-scope"/g)).toHaveLength(1);
   });
 
   it("shows a server error and disables Generate while a request is in flight", () => {
@@ -61,10 +90,12 @@ describe("ApiKeyCreateDialog", () => {
     expect(html).toMatch(/<button type="submit" disabled=""/);
   });
 
-  it("explains the account-key fallback when the user owns no publisher", () => {
+  it("explains the account-key fallback when the user owns no publisher and still offers library:read", () => {
     const html = renderToStaticMarkup(createElement(ApiKeyCreateDialog, { publishers: [], onSubmit: noop, onCancel: noop }));
     expect(html).toContain("You do not own an active publisher");
-    expect(html).not.toContain('type="checkbox"');
+    expect(html).not.toContain('name="publish-scope"');
+    expect(html).not.toContain('name="kits-scope"');
+    expect(html.match(/type="checkbox"/g)).toHaveLength(1);
   });
 });
 

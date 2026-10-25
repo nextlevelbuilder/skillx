@@ -2,8 +2,8 @@
  * Loads the pinned base release of a kit entry as a `KitTree`, through the
  * same access rules as the pinned read API (`resolveReleaseByDigest` with the
  * version and package selectors, so another package shipping the same tree
- * never answers for the pin): the owner must be able to read it (public, or
- * entitled), the publisher must be active and no release of the tree may be
+ * never answers for the pin): the owner must be able to read it (public, a
+ * private package of a publisher they own, or entitled), the publisher must be active and no release of the tree may be
  * quarantined. A yanked base still
  * loads (pins keep working) and is reported. Blob bytes are checked against
  * the manifest SHA-256 before use; a mismatch is a storage failure.

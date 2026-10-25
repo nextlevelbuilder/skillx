@@ -5,7 +5,9 @@
  * and scanned at 128 KiB and at 1 MiB: 8 times the text may cost at most 24
  * times the time (a quadratic pattern costs 64 times), measured as the best
  * of several runs, with a small floor so timer noise on fast inputs is not
- * read as growth. No wall-clock bound, so a slow runner does not fail it.
+ * read as growth. No wall-clock bound, so a slow runner does not fail it:
+ * the 1 MiB cases take seconds, so they get a timeout far above vitest's
+ * 5 s default, which a parallel full-suite run would otherwise exceed.
  */
 import { describe, expect, it } from "vitest";
 import { genericSecrets, hasLocalPath, hasMultilinePassword } from "~/lib/personal-kits/proposal-detectors";
@@ -17,6 +19,7 @@ const fill = (unit: string) => repeatTo(unit, SIZE);
 const MAX_RATIO = 24;
 const FLOOR_MS = 5;
 const RUNS = 3;
+const SCAN_TIMEOUT_MS = 120_000;
 
 type Build = (size: number) => string;
 const unit = (u: string): Build => (size) => repeatTo(u, size);
@@ -77,11 +80,11 @@ describe("detector cost on hostile input", () => {
     const small = cost(build(SMALL));
     const large = cost(build(SIZE));
     expect(large).toBeLessThan(MAX_RATIO * Math.max(small, FLOOR_MS));
-  });
+  }, SCAN_TIMEOUT_MS);
 
   it("still finds a path or secret at the end of a hostile run", () => {
     expect(hasLocalPath(fill("/") + "home/alice")).toBe(true);
     expect(hasLocalPath(fill("a-") + " /srv/x/y")).toBe(true);
     expect(genericSecrets(fill("eyJ-") + " " + ["eyJ", "hbGciOiJIUzI1NiJ9", ".eyJ", "zdWIiOiIxIn0", ".c2ln"].join(""))).toEqual(["secret-jwt"]);
-  });
+  }, SCAN_TIMEOUT_MS);
 });
