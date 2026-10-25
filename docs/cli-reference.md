@@ -192,6 +192,48 @@ skillx import --dry-run
 
 ---
 
+### `skillx add <source>`
+
+Copy or symlink skills straight from a GitHub repo, a git URL or a local path
+into agent skill directories. This does not go through the registry; use the
+[installer](#installer) for signed releases, kits and collections.
+
+Skills are written once to a canonical `.agents/skills/<name>` directory and
+linked (or, with `--copy`, copied) into each target agent's skills directory.
+With `--global` they go under your home directory, and the source is recorded in
+the global skill lock.
+
+**Arguments:**
+- `<source>`: `owner/repo`, `owner/repo@skill`, a git or GitHub URL (a `tree/<ref>/<path>` URL selects a ref and subpath), or a local path.
+
+**Options:**
+| Flag | Description | Default |
+|------|-------------|---------|
+| `-g, --global` | Install under the home directory instead of the project | asks, or project with `-y` |
+| `-a, --agent <agents...>` | Target agents (`*` for all) | detected agents |
+| `-s, --skill <skills...>` | Skills to install (`*` for all) | asks, or all with `-y` |
+| `-l, --list` | List the skills in the source without installing | `false` |
+| `-y, --yes` | Skip every prompt | `false` |
+| `--copy` | Copy files instead of symlinking | symlink |
+| `--all` | Shorthand for `--skill '*' --agent '*' -y` | `false` |
+| `--full-depth` | Search all subdirectories even when a root SKILL.md exists | `false` |
+| `--json` | Envelope with `status` (`listed`, `installed` or `cancelled`) and per-agent results; implies `--yes` | `false` |
+
+A missing local path or an unknown agent is a `usage_error` (exit 2), a source
+with no matching skills is `not_found` (exit 3), and a failed clone is
+`network_error` (exit 6). Review skills before use; they run with full agent
+permissions.
+
+**Examples:**
+```bash
+skillx add owner/repo --list
+skillx add owner/repo --skill my-skill --agent claude-code codex
+skillx add https://github.com/owner/repo/tree/main/skills/my-skill -y
+skillx add ./my-skills --all --copy --json
+```
+
+---
+
 ### Release commands: `validate`, `pack`, `publish`, `promote`
 
 These commands work on immutable, digest-pinned releases. Like every other

@@ -7,8 +7,10 @@ import { parseSource, getOwnerRepo } from '../lib/source-parser.js';
 import { cloneRepo, cleanupTempDir, GitCloneError } from '../lib/git-clone.js';
 import { discoverSkills, getSkillDisplayName, filterSkills } from '../lib/skill-discovery.js';
 import { agents, detectInstalledAgents } from '../lib/agent-registry.js';
-import { installSkillForAgent, isSkillInstalled, getCanonicalPath } from '../lib/skill-installer.js';
+import { installSkillForAgent, getCanonicalPath } from '../lib/skill-installer.js';
 import { addSkillToLock } from '../lib/skill-lock.js';
+import { CliError } from '../lib/output.js';
+import { runCommand } from '../lib/run-command.js';
 import {
   shortenPath, buildAgentSummaryLines, buildResultLines,
   formatList, ensureUniversalAgents,
@@ -17,6 +19,32 @@ import {
   selectSkillsInteractive, selectAgentsInteractive,
   selectScope, selectInstallMode, confirmInstall,
 } from './add-prompts.js';
+
+interface InstallResult {
+  skill: string; agent: string; success: boolean; path: string;
+  canonicalPath?: string; mode: InstallMode; symlinkFailed?: boolean; error?: string;
+}
+
+/** What `skillx add` reports; the same data backs the `--json` envelope. */
+export type AddResult =
+  | { status: 'cancelled' }
+  | { status: 'listed'; source: string; skills: Array<{ name: string; description: string }> }
+  | {
+      status: 'installed'; source: string; global: boolean; mode: InstallMode;
+      agents: AgentType[]; results: InstallResult[];
+    };
+
+/** Clack output in human mode; silent under `--json` so stdout carries one envelope. */
+type Ui = Pick<typeof p, 'intro' | 'outro' | 'note' | 'spinner'> & { log: Pick<typeof p.log, 'info' | 'step' | 'message' | 'warn' | 'error'> };
+
+const noop = () => {};
+const silentUi: Ui = {
+  intro: noop,
+  outro: noop,
+  note: noop,
+  spinner: () => ({ start: noop, stop: noop, message: noop }) as unknown as ReturnType<typeof p.spinner>,
+  log: { info: noop, step: noop, message: noop, warn: noop, error: noop },
+};
 
 /** Parse CLI options for the add command */
 function parseAddOptions(opts: Record<string, unknown>): AddOptions {
@@ -40,10 +68,8 @@ async function cleanup(tempDir: string | null) {
   }
 }
 
-/** Main add command logic */
-async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise<void> {
-  const options = parseAddOptions(rawOpts);
-
+/** Main add command logic. Throws `CliError` on failure; never exits the process. */
+async function runAdd(source: string, options: AddOptions, ui: Ui): Promise<AddResult> {
   // --all implies --skill '*' --agent '*' -y
   if (options.all) {
     options.skill = ['*'];
@@ -51,19 +77,19 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
     options.yes = true;
   }
 
-  console.log();
-  p.intro(pc.bgCyan(pc.black(' skillx add ')));
+  ui.intro(pc.bgCyan(pc.black(' skillx add ')));
 
   let tempDir: string | null = null;
 
   try {
-    const spinner = p.spinner();
+    const spinner = ui.spinner();
 
     // 1. Parse source
     spinner.start('Parsing source...');
     const parsed = parseSource(source);
+    const sourceLabel = parsed.type === 'local' ? parsed.localPath! : parsed.url;
     spinner.stop(
-      `Source: ${parsed.type === 'local' ? parsed.localPath! : parsed.url}` +
+      `Source: ${sourceLabel}` +
       `${parsed.ref ? ` @ ${pc.yellow(parsed.ref)}` : ''}` +
       `${parsed.subpath ? ` (${parsed.subpath})` : ''}` +
       `${parsed.skillFilter ? ` ${pc.dim('@')}${pc.cyan(parsed.skillFilter)}` : ''}`
@@ -73,13 +99,19 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
     let skillsDir: string;
     if (parsed.type === 'local') {
       if (!existsSync(parsed.localPath!)) {
-        p.outro(pc.red(`Local path does not exist: ${parsed.localPath}`));
-        process.exit(1);
+        throw new CliError('usage_error', `Local path does not exist: ${parsed.localPath}`);
       }
       skillsDir = parsed.localPath!;
     } else {
       spinner.start('Cloning repository...');
-      tempDir = await cloneRepo(parsed.url, parsed.ref);
+      try {
+        tempDir = await cloneRepo(parsed.url, parsed.ref);
+      } catch (error) {
+        if (error instanceof GitCloneError) {
+          throw new CliError('network_error', 'Failed to clone repository', { hint: error.message });
+        }
+        throw error;
+      }
       skillsDir = tempDir;
       spinner.stop('Repository cloned');
     }
@@ -92,54 +124,52 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
 
     // 3. Discover skills
     spinner.start('Discovering skills...');
-    const skills = await discoverSkills(skillsDir!, parsed.subpath, {
+    const skills = await discoverSkills(skillsDir, parsed.subpath, {
       fullDepth: options.fullDepth,
     });
 
     if (skills.length === 0) {
       spinner.stop(pc.red('No skills found'));
-      p.outro(pc.red('No valid skills found. Skills require a SKILL.md with name and description.'));
-      await cleanup(tempDir);
-      process.exit(1);
+      throw new CliError('not_found', 'No valid skills found. Skills require a SKILL.md with name and description.');
     }
     spinner.stop(`Found ${pc.green(String(skills.length))} skill${skills.length > 1 ? 's' : ''}`);
 
-    // 4. --list: just show available skills and exit
+    // 4. --list: just show available skills
     if (options.list) {
-      console.log();
-      p.log.step(pc.bold('Available Skills'));
+      ui.log.step(pc.bold('Available Skills'));
       for (const skill of skills) {
-        p.log.message(`  ${pc.cyan(getSkillDisplayName(skill))}`);
-        p.log.message(`    ${pc.dim(skill.description)}`);
+        ui.log.message(`  ${pc.cyan(getSkillDisplayName(skill))}`);
+        ui.log.message(`    ${pc.dim(skill.description)}`);
       }
-      console.log();
-      p.outro('Use --skill <name> to install specific skills');
-      await cleanup(tempDir);
-      process.exit(0);
+      ui.outro('Use --skill <name> to install specific skills');
+      return {
+        status: 'listed',
+        source: sourceLabel,
+        skills: skills.map((s) => ({ name: getSkillDisplayName(s), description: s.description })),
+      };
     }
 
     // 5. Select skills
     let selectedSkills: Skill[];
     if (options.skill?.includes('*')) {
       selectedSkills = skills;
-      p.log.info(`Installing all ${skills.length} skills`);
+      ui.log.info(`Installing all ${skills.length} skills`);
     } else if (options.skill && options.skill.length > 0) {
       selectedSkills = filterSkills(skills, options.skill);
       if (selectedSkills.length === 0) {
-        p.log.error(`No matching skills for: ${options.skill.join(', ')}`);
-        p.log.info('Available: ' + skills.map((s) => getSkillDisplayName(s)).join(', '));
-        await cleanup(tempDir);
-        process.exit(1);
+        throw new CliError('not_found', `No matching skills for: ${options.skill.join(', ')}`, {
+          hint: 'Available: ' + skills.map((s) => getSkillDisplayName(s)).join(', '),
+        });
       }
     } else if (skills.length === 1) {
       selectedSkills = skills;
-      p.log.info(`Skill: ${pc.cyan(getSkillDisplayName(skills[0]!))}`);
+      ui.log.info(`Skill: ${pc.cyan(getSkillDisplayName(skills[0]!))}`);
     } else if (options.yes) {
       selectedSkills = skills;
-      p.log.info(`Installing all ${skills.length} skills`);
+      ui.log.info(`Installing all ${skills.length} skills`);
     } else {
       const result = await selectSkillsInteractive(skills);
-      if (!result) { await cleanup(tempDir); process.exit(0); }
+      if (!result) return { status: 'cancelled' };
       selectedSkills = result;
     }
 
@@ -152,9 +182,9 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
     } else if (options.agent && options.agent.length > 0) {
       const invalid = options.agent.filter((a) => !validAgents.includes(a as AgentType));
       if (invalid.length > 0) {
-        p.log.error(`Invalid agents: ${invalid.join(', ')}`);
-        await cleanup(tempDir);
-        process.exit(1);
+        throw new CliError('usage_error', `Invalid agents: ${invalid.join(', ')}`, {
+          hint: `Valid agents: ${validAgents.join(', ')}`,
+        });
       }
       targetAgents = options.agent as AgentType[];
     } else {
@@ -166,7 +196,7 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
         targetAgents = ensureUniversalAgents(installed.length > 0 ? installed : validAgents);
       } else {
         const result = await selectAgentsInteractive({ global: options.global });
-        if (!result) { await cleanup(tempDir); process.exit(0); }
+        if (!result) return { status: 'cancelled' };
         targetAgents = result;
       }
     }
@@ -175,7 +205,7 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
     let installGlobally = options.global ?? false;
     if (options.global === undefined && !options.yes) {
       const scope = await selectScope();
-      if (scope === null) { await cleanup(tempDir); process.exit(0); }
+      if (scope === null) return { status: 'cancelled' };
       installGlobally = scope;
     }
 
@@ -183,7 +213,7 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
     let installMode: InstallMode = options.copy ? 'copy' : 'symlink';
     if (!options.copy && !options.yes) {
       const mode = await selectInstallMode();
-      if (!mode) { await cleanup(tempDir); process.exit(0); }
+      if (!mode) return { status: 'cancelled' };
       installMode = mode;
     }
 
@@ -196,21 +226,17 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
       summaryLines.push(pc.cyan(shortenPath(canonical, cwd)));
       summaryLines.push(...buildAgentSummaryLines(targetAgents, installMode));
     }
-    console.log();
-    p.note(summaryLines.join('\n'), 'Installation Summary');
+    ui.note(summaryLines.join('\n'), 'Installation Summary');
 
     // 10. Confirm
     if (!options.yes) {
       const ok = await confirmInstall();
-      if (!ok) { await cleanup(tempDir); process.exit(0); }
+      if (!ok) return { status: 'cancelled' };
     }
 
     // 11. Install
     spinner.start('Installing skills...');
-    const results: Array<{
-      skill: string; agent: string; success: boolean; path: string;
-      canonicalPath?: string; mode: InstallMode; symlinkFailed?: boolean; error?: string;
-    }> = [];
+    const results: InstallResult[] = [];
 
     for (const skill of selectedSkills) {
       for (const agent of targetAgents) {
@@ -228,7 +254,7 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
     const failed = results.filter((r) => !r.success);
 
     if (successful.length > 0) {
-      const bySkill = new Map<string, typeof results>();
+      const bySkill = new Map<string, InstallResult[]>();
       for (const r of successful) {
         const arr = bySkill.get(r.skill) || [];
         arr.push(r);
@@ -248,18 +274,18 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
         }
       }
 
-      p.note(resultLines.join('\n'), pc.green(`Installed ${bySkill.size} skill${bySkill.size !== 1 ? 's' : ''}`));
+      ui.note(resultLines.join('\n'), pc.green(`Installed ${bySkill.size} skill${bySkill.size !== 1 ? 's' : ''}`));
 
       const symlinkFailures = successful.filter((r) => r.mode === 'symlink' && r.symlinkFailed);
       if (symlinkFailures.length > 0) {
-        p.log.warn(pc.yellow(`Symlinks failed for: ${formatList(symlinkFailures.map((r) => r.agent))}`));
-        p.log.message(pc.dim('  Files were copied instead. On Windows, enable Developer Mode for symlink support.'));
+        ui.log.warn(pc.yellow(`Symlinks failed for: ${formatList(symlinkFailures.map((r) => r.agent))}`));
+        ui.log.message(pc.dim('  Files were copied instead. On Windows, enable Developer Mode for symlink support.'));
       }
     }
 
     if (failed.length > 0) {
-      p.log.error(pc.red(`Failed to install ${failed.length}`));
-      for (const r of failed) p.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
+      ui.log.error(pc.red(`Failed to install ${failed.length}`));
+      for (const r of failed) ui.log.message(`  ${pc.red('✗')} ${r.skill} → ${r.agent}: ${pc.dim(r.error)}`);
     }
 
     // 13. Update lock file (global installs)
@@ -278,17 +304,17 @@ async function runAdd(source: string, rawOpts: Record<string, unknown>): Promise
       }
     }
 
-    console.log();
-    p.outro(pc.green('Done!') + pc.dim('  Review skills before use; they run with full agent permissions.'));
-  } catch (error) {
-    if (error instanceof GitCloneError) {
-      p.log.error(pc.red('Failed to clone repository'));
-      for (const line of error.message.split('\n')) p.log.message(pc.dim(line));
-    } else {
-      p.log.error(error instanceof Error ? error.message : 'Unknown error occurred');
+    if (successful.length === 0) {
+      throw new CliError('unexpected_error', `Failed to install ${failed.length} skill target${failed.length !== 1 ? 's' : ''}`, {
+        details: { results },
+      });
     }
-    p.outro(pc.red('Installation failed'));
-    process.exit(1);
+
+    ui.outro(pc.green('Done!') + pc.dim('  Review skills before use; they run with full agent permissions.'));
+    return { status: 'installed', source: sourceLabel, global: installGlobally, mode: installMode, agents: targetAgents, results };
+  } catch (error) {
+    ui.outro(pc.red('Installation failed'));
+    throw error;
   } finally {
     await cleanup(tempDir);
   }
@@ -305,4 +331,15 @@ export const addCommand = new Command('add')
   .option('--copy', 'Copy files instead of symlinking')
   .option('--all', 'Shorthand for --skill * --agent * -y')
   .option('--full-depth', 'Search all subdirs even when root SKILL.md exists')
-  .action((source: string, opts: Record<string, unknown>) => runAdd(source, opts));
+  .option('--json', 'emit a machine-readable envelope instead of text (implies --yes)')
+  .action((source: string, opts: Record<string, unknown>) => {
+    const json = opts.json === true;
+    const options = parseAddOptions(opts);
+    // An envelope caller cannot answer prompts, so --json never asks.
+    if (json) options.yes = true;
+    return runCommand<AddResult>(
+      { json },
+      () => runAdd(source, options, json ? silentUi : p),
+      () => {},
+    );
+  });

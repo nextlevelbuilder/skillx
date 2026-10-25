@@ -266,6 +266,26 @@ describe("built cli", { timeout: 30_000 }, () => {
     return (await Promise.all(names.map((name) => leafCommands([...path, name])))).flat();
   }
 
+  it("add lists and installs a local skill as one envelope, and fails a missing path as a usage error", async () => {
+    const listed = JSON.parse((await cli("add", skillDir, "--list", "--json")).stdout) as { ok: true; data: { status: string; skills: Array<{ name: string }> } };
+    expect(listed.data.status).toBe("listed");
+    expect(listed.data.skills.map((s) => s.name)).toEqual(["smoke-skill"]);
+
+    const installed = JSON.parse((await cli("add", skillDir, "--agent", "claude-code", "--copy", "--json")).stdout) as {
+      ok: true;
+      data: { status: string; global: boolean; results: Array<{ success: boolean; path: string }> };
+    };
+    expect(installed.data.status).toBe("installed");
+    expect(installed.data.global).toBe(false);
+    expect(installed.data.results).toHaveLength(1);
+    expect(installed.data.results[0]!.success).toBe(true);
+    expect(readFileSync(join(installed.data.results[0]!.path, "SKILL.md"), "utf8")).toContain("name: smoke-skill");
+
+    const missing = await cliExit("add", join(root, "no-such-dir"), "--json");
+    expect(missing.code).toBe(2);
+    expect((JSON.parse(missing.stdout) as { error: { code: string } }).error.code).toBe("usage_error");
+  });
+
   it("offers --json on every command but the stdio MCP server", async () => {
     const leaves = await leafCommands();
     expect(leaves.length).toBeGreaterThan(20);
