@@ -109,6 +109,9 @@ export const RELEASE_MANIFEST_V2_FIXTURES: FixtureCase[] = [
     d.identity = "@bestagentkits/review-guardrails";
     d.publisher.handle = "bestagentkits";
   }),
+  rejected("rejects a kit release slug with the ak- directory prefix", "identity.invalid", (d) => {
+    d.identity = "@agentkit/ak-review-guardrails";
+  }),
   rejected("rejects the @agentkit publisher with provider skillx", "identity.reserved_publisher", (d) => {
     d.provenance = { provider: "skillx" };
   }),

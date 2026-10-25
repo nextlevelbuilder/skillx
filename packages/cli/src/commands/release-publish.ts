@@ -52,14 +52,17 @@ export function assertRegistryDigests(
 /**
  * The `provenance` metadata of a publish: a kit release (`--kit-origin`) must
  * be `@agentkit/*` and is signed as `skillx.release/v2`; without the flag the
- * release is provider `skillx` (v1) and `@agentkit/*` stays reserved.
+ * release is provider `skillx` (v1) and `@agentkit/*` stays reserved. A kit
+ * slug never starts with `ak-` (the registry answers 400), so fail before packing.
  */
-export function kitProvenance(publisher: string, kitOrigin: string | undefined): { provider: 'kit'; origin: string } | undefined {
+export function kitProvenance(name: { handle: string; slug: string }, kitOrigin: string | undefined): { provider: 'kit'; origin: string } | undefined {
   if (kitOrigin === undefined) return undefined;
   if (!(KIT_ORIGINS as readonly string[]).includes(kitOrigin)) {
     throw new Error(`--kit-origin must be one of: ${KIT_ORIGINS.join(', ')}`);
   }
-  if (publisher !== 'agentkit') throw new Error('--kit-origin is only for @agentkit/* kit releases');
+  if (name.handle !== 'agentkit') throw new Error('--kit-origin is only for @agentkit/* kit releases');
+  // AgentKit maps the kit directory ak-<x> to @agentkit/<x>; the registry refuses @agentkit/ak-<x>.
+  if (name.slug.startsWith('ak-')) throw new Error(`kit release names omit the "ak-" directory prefix: use @agentkit/${name.slug.slice(3)}`);
   return { provider: 'kit', origin: kitOrigin };
 }
 
@@ -107,7 +110,7 @@ export async function runReleasePublish(input: string, options: ReleasePublishOp
   if (!options.releaseVersion) throw usageError('--release-version is required, e.g. 1.0.0');
   let provenance: ReturnType<typeof kitProvenance>;
   try {
-    provenance = kitProvenance(name.handle, options.kitOrigin);
+    provenance = kitProvenance(name, options.kitOrigin);
   } catch (error) {
     throw usageError((error as Error).message);
   }

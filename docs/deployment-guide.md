@@ -476,7 +476,22 @@ overlay of an `@agentkit/*` skill answers `422 overlay.shared_alias` (see the
 [personal kits API](./personal-kits-api.md)). Before enabling it on another deployment,
 confirm that `wrangler d1 migrations list skillx-db --remote` reports nothing
 pending. Rollback: set the flag to `"0"` and redeploy; every route answers 404
-and stored kits stay untouched.
+`kit.api_disabled` and stored kits stay untouched.
+
+**Before the first production `@agentkit` kit release.** Set the Worker var
+`SKILLX_SHARED_SKILL_ALIASES` (comma or whitespace separated identities) to
+AgentKit's shared-skill list first: the non-`ak-` skills that `kits/core` or
+more than one official kit ships (for example `@agentkit/plan`). Kit releases
+are published without the `ak-` prefix (`@agentkit/plan`; `@agentkit/ak-*` is
+`400 identity.invalid`), so only the `ak-` names are shared by default. While
+the variable is unset, a public personal kit may overlay any other
+`@agentkit/<name>` skill in place. That is by design
+([personal kits API](./personal-kits-api.md)) and the result stays
+`local-unverified`, but it lets a third-party kit override a skill every
+official kit shares. Confirm with an overlay of a listed identity, which must
+answer `422 overlay.shared_alias`. Kit releases also need skillx-sh 0.7.0 or
+later on the client: 0.6.0 and earlier report `skillx.release/v2` manifests as
+failed verification, so say so in the release notes of the first kit release.
 
 **Migration 0019 and the collections API.**
 `0019_collection_revision_lineage` adds two nullable columns

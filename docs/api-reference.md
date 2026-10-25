@@ -811,7 +811,7 @@ on v1, so v1-only verifiers keep working. Source:
 | `provenance` | Rule |
 |--------------|------|
 | `{"provider": "skillx"}` | identity must not be `@agentkit/*` (`identity.reserved_publisher`); the slug must not start with `ak-` or `ak:` (`identity.reserved_alias`) |
-| `{"provider": "kit", "origin": "remote-signed" \| "local-dev"}` | identity must be `@agentkit/*` (`identity.invalid`); `origin` records where the kit content came from |
+| `{"provider": "kit", "origin": "remote-signed" \| "local-dev"}` | identity must be `@agentkit/*` and its slug must not start with `ak-` (`identity.invalid`; the kit directory `ak-<x>` is `@agentkit/<x>`); `origin` records where the kit content came from |
 
 Other providers or origins are `unsupported_value`, a missing `origin` is
 `required` and extra members are `unknown_field`. `origin` is a claim that
@@ -822,7 +822,13 @@ trust `signed-kit` from a SkillX signature. `releaseTrust(manifest,
 tree whose digest equals the manifest `releaseDigest`; every other release is
 `local-unverified`. Golden vectors:
 `packages/contracts/src/fixtures/release-manifest-v2.json` (same test key and
-canonical form as the v1 vectors).
+canonical form as the v1 vectors); its `trust` array pairs a valid vector with
+the `kitVerifiedReleaseDigest` a verifier checked and the trust it must assign.
+
+**Client support.** skillx-sh 0.6.0 and earlier know only `skillx.release/v1`
+and report every v2 manifest, so every `@agentkit/*` release, as failed
+verification. Installing or verifying kit releases needs skillx-sh 0.7.0 or
+later.
 
 ### Signature bytes
 
@@ -1021,8 +1027,10 @@ Unscoped keys are rejected (`auth.scope_missing`).
 **Kit releases**: `@agentkit/*` is accepted only with `provenance.provider
 = "kit"`, from a key scoped `releases:publish:@agentkit` whose user owns the
 active, admin-provisioned `agentkit` publisher (`POST /api/v1/publishers`).
-They are signed as `skillx.release/v2`; the `ak-` slug forms are allowed for
-them. Kit provenance on any other publisher is `400 identity.invalid`; every
+They are signed as `skillx.release/v2`. A kit release slug must not start
+with `ak-` (`400 identity.invalid`): AgentKit maps the kit skill directory
+`ak-<x>` to `@agentkit/<x>`, so publish `@agentkit/plan`, never
+`@agentkit/ak-plan`. Kit provenance on any other publisher is `400 identity.invalid`; every
 release without it is signed as `skillx.release/v1`. Republishing an existing
 kit version with the same tree but a different `origin` is `409
 release.version_exists`.
@@ -1129,7 +1137,7 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 
 | Status | Codes |
 |--------|-------|
-| 400 | `identity.*` (invalid names), `release.invalid_metadata`, `tree.read_failed` (empty body), `idempotency.invalid_key` |
+| 400 | `identity.*` (invalid names, an `ak-` kit release slug), `release.invalid_metadata`, `tree.read_failed` (empty body), `idempotency.invalid_key` |
 | 401 | `auth.invalid_key` (also an expired, forged or revoked `sxo_` OIDC publish token) |
 | 403 | `identity.reserved_publisher` (`@agentkit` without kit provenance), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
 | 404 | `not_found` (API disabled) |
@@ -1239,17 +1247,22 @@ anonymous. The `Bearer` scheme is matched case-insensitively. Tokens are
 never accepted in the query string.
 
 **Access and state rules** (same answer on every endpoint, checked in this
-order: unknown or unentitled `404`, then quarantined `403`, then publisher
-revoked `403`, then yanked):
+order: unknown or not readable by the caller `404`, then quarantined `403`,
+then publisher revoked `403`, then yanked):
 
-- Private package (`packages.visibility = 'private'`): needs an unrevoked
-  entitlement of the caller for the package (`release_id` NULL) or the
-  release, decided by the shared payload-access gate. Otherwise the answer is
-  `404 not_found`, the same body as an unknown package, so existence is not
-  disclosed. A release-only entitlement lists only the entitled releases.
-  Publishers have no implicit access: they read their own private packages
-  through an entitlement, like any other caller.
-- Publisher `suspended` or `revoked`: `403 publisher_revoked` (after
+- Private package (`packages.visibility = 'private'`): readable by the owner
+  of its publisher (`publishers.owner_user_id`, the signed-in account of the
+  session or unscoped API key; no entitlement needed) and by a caller with an
+  unrevoked entitlement for the package (`release_id` NULL) or the release,
+  decided by the shared payload-access gate. Ownership is read on every
+  request, so a publisher that changes hands refuses new requests from the
+  previous owner (bytes already cached by their client stay usable, see
+  Caching). Anyone else (another account, anonymous) gets `404
+  not_found`, the same body and the same queries as an unknown package, so
+  existence is not disclosed. A release-only entitlement lists only the
+  entitled releases; the owner sees every release.
+- Publisher `suspended` or `revoked`: `403 publisher_revoked`, for its owner
+  too (after
   quarantine: a quarantined release of a revoked publisher answers
   `release_quarantined`). The listing has no tree of its own, so it answers
   `publisher_revoked` and hides quarantined releases.
@@ -1308,9 +1321,10 @@ public ones `public`. Every success except `/keys` carries `Vary:
 Authorization, Cookie`, because the selected release can depend on the
 caller's entitlements. Every JSON error (including `401`, `429` and the
 flag-off `404`) is `Cache-Control: no-store`. A `304` carries the same
-`ETag`, `Cache-Control` and `Vary`. Caveat: public file and artifact bytes
-cached for a year by a browser or proxy cannot be recalled by a later
-quarantine; quarantine only stops new fetches from this API.
+`ETag`, `Cache-Control` and `Vary`. Caveat: file and artifact bytes cached
+for a year by a browser or proxy (public bytes) or by the caller's own client
+(private bytes) cannot be recalled by a later quarantine, entitlement
+revocation or ownership change; those only stop new fetches from this API.
 
 **Size caps**: manifests up to 4 MiB, files up to 32 MiB, artifacts up to
 32 MiB (the publish limits). A stored object that is missing, over its cap or
@@ -1754,7 +1768,7 @@ For a tool that holds no credentials (a package manager, `curl`), a viewer who
 may read a release can mint a short-lived URL:
 
 - `POST /api/v1/releases/{digest}/artifact/url[?version=&package=]` runs the
-  normal read path (viewer, read rate limit, the private package and
+  normal read path (viewer, read rate limit, the private package owner and
   entitlement rules above, the same `?version=`/`?package=` selectors) and
   answers `{"url", "expiresAt", "identity", "version", "releaseDigest", "artifactDigest", "artifactSize"}`
   (`no-store`). Other methods are `405`.
@@ -1762,8 +1776,9 @@ may read a release can mint a short-lived URL:
   valid for 5 minutes. The token is an HMAC (`SKILLX_TOKEN_SECRET`) over the
   release digest, identity, version, viewer and expiry; it is not an API key
   and grants nothing else. Redemption re-applies the access rules for the same
-  viewer, so a revoked entitlement, a quarantine, a yank by version or a
-  suspended publisher stops a URL already issued. A forged, expired or
+  viewer, so a revoked entitlement, a change of publisher owner, a
+  quarantine, a yank by version or a suspended publisher stops a URL already
+  issued. A forged, expired or
   unverifiable token answers exactly like an unknown release (`404`).
 
 Without `SKILLX_TOKEN_SECRET`, minting is `503 download_url.unavailable`. The

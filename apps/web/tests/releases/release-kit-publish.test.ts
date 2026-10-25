@@ -6,6 +6,8 @@ import { FakeRateLimiter } from "./fake-rate-limiter";
 import { RELEASE_READ_RATE_LIMIT } from "~/lib/releases/release-rate-limit";
 import { readReleaseStatus } from "~/lib/releases/release-status-issue";
 import { publishRelease } from "~/lib/releases/release-idempotency";
+import { ingestRelease } from "~/lib/releases/ingest-release";
+import { mintOidcPublishToken } from "~/lib/releases/trusted-publish-token";
 import { NOW, createHarness, file, tarOf, TEST_KEY_ID } from "./release-harness";
 
 /** Kit releases: `@agentkit/*` content published with kit provenance and signed as `skillx.release/v2`. */
@@ -84,9 +86,11 @@ describe("kit release publish", () => {
     expect(h.r2.putLog).toEqual([]);
   });
 
-  it("lets a kit release use the ak- alias form reserved for @agentkit", async () => {
-    const res = await h.upload("@agentkit/ak-review", tarOf(skillFiles()), { key: agentkitKey, metadata: kitMetadata() });
-    expect(res.status).toBe(200);
+  it("refuses an ak- slug, which kitIdentity never produces, before authorization", async () => {
+    const res = await h.upload("@agentkit/ak-review", tarOf(skillFiles()), { key: null, metadata: kitMetadata() });
+    expect(res).toMatchObject({ status: 400, body: { error: { code: "identity.invalid" } } });
+    expect(res.body.error.message).toContain("@agentkit/review");
+    expect(h.r2.putLog).toEqual([]);
   });
 
   it("requires the releases:publish:@agentkit scope of the agentkit publisher owner", async () => {
@@ -118,6 +122,82 @@ describe("kit release publish", () => {
     const upgraded = await publish("remote-signed");
     expect(upgraded).toMatchObject({ status: 409, body: { error: { code: "release.version_exists" } } });
     expect(upgraded.body.error.message).toContain("kit origin local-dev");
+  });
+
+  it("answers a replay over a corrupt stored manifest with 500 storage_inconsistent, not an origin conflict", async () => {
+    const publish = () => h.upload("@agentkit/review", tarOf(skillFiles()), { key: agentkitKey, metadata: kitMetadata() });
+    expect((await publish()).body.created).toBe(true);
+    const [key] = h.r2.keys("manifests/");
+    h.r2.objects.get(key!)!.bytes = new TextEncoder().encode("{not json");
+    expect(await publish()).toMatchObject({ status: 500, body: { error: { code: "release.storage_inconsistent" } } });
+  });
+
+  it("lets exactly one of two racing publishes of a version with different origins win; the loser gets 409", async () => {
+    // Hold the first release insert until both publishes have looked the version up, so both reach the insert.
+    const db = h.deps.db;
+    let lookups = 0;
+    let bothLooked!: () => void;
+    const gate = new Promise<void>((resolve) => (bothLooked = resolve));
+    const counted = (statement: D1PreparedStatement): D1PreparedStatement =>
+      new Proxy(statement, {
+        get: (target, prop) =>
+          prop === "bind"
+            ? (...args: unknown[]) => counted(target.bind(...args))
+            : prop === "first"
+              ? async (...args: []) => {
+                  const row = await target.first(...args);
+                  if (++lookups === 2) bothLooked();
+                  return row;
+                }
+              : Reflect.get(target, prop, target),
+      });
+    let held = false;
+    h.deps.db = new Proxy(db, {
+      get: (target, prop) => {
+        if (prop === "prepare") return (sql: string) => (sql.includes("WHERE p.name = ? AND r.version = ?") ? counted(target.prepare(sql)) : target.prepare(sql));
+        if (prop === "batch") {
+          return async (statements: D1PreparedStatement[]) => {
+            if (!held) {
+              held = true;
+              await gate;
+            }
+            return target.batch(statements);
+          };
+        }
+        return Reflect.get(target, prop, target);
+      },
+    });
+    const publish = (origin: string) =>
+      h.upload("@agentkit/review", tarOf(skillFiles()), { key: agentkitKey, metadata: kitMetadata({ provider: "kit", origin }) });
+    const results = await Promise.all([publish("remote-signed"), publish("local-dev")]);
+    // Both signed their own manifest, so the loser hit the insert conflict path.
+    expect(lookups).toBeGreaterThanOrEqual(2);
+    expect(h.r2.keys("manifests/")).toHaveLength(2);
+    const winner = results.find((r) => r.status === 200)!;
+    const loser = results.find((r) => r.status !== 200)!;
+    expect(winner.body.created).toBe(true);
+    expect(loser).toMatchObject({ status: 409, body: { error: { code: "release.version_exists" } } });
+    const [row] = h.d1.raw.prepare("SELECT signed_manifest_key FROM package_releases").all() as Array<{ signed_manifest_key: string }>;
+    const stored = JSON.parse(new TextDecoder().decode(h.r2.objects.get(row!.signed_manifest_key)!.bytes)) as SkillxReleaseManifest;
+    expect(loser.body.error.message).toContain(`kit origin ${(stored.provenance as { origin: string }).origin}`);
+    expect(winner.body.manifestKey).toBe(row!.signed_manifest_key);
+  });
+
+  it("publishes a kit release with a GitHub OIDC publish token for @agentkit", async () => {
+    const secret = "test-token-secret-0123456789abcdef";
+    h.d1.raw
+      .prepare("INSERT INTO trusted_publishers (id, publisher_id, provider, repository, repository_id, workflow_path, ref, state, created_at) VALUES ('tp-kit', 'pub-agentkit', 'github', 'bestagentkits/agentkit', '1', '.github/workflows/release.yml', 'refs/heads/main', 'active', 1)")
+      .run();
+    const grant = { handle: "agentkit", publisherId: "pub-agentkit", trustedPublisherId: "tp-kit", jti: "jti-kit-1" };
+    const { token } = await mintOidcPublishToken(secret, grant, NOW);
+    const req = h.request("@agentkit/review", tarOf(skillFiles()) as BodyInit, { key: token, metadata: kitMetadata() });
+    const res = await ingestRelease(req, { scope: "@agentkit", slug: "review" }, { ...h.deps, tokenSecret: secret });
+    expect(res.status).toBe(200);
+    expect(storedManifest().manifest).toMatchObject({ schemaVersion: "skillx.release/v2", provenance: KIT });
+    const forOther = await mintOidcPublishToken(secret, { ...grant, handle: "bestagentkits" }, NOW);
+    const refused = h.request("@agentkit/review", tarOf(skillFiles()) as BodyInit, { key: forOther.token, metadata: kitMetadata() });
+    const scoped = await ingestRelease(refused, { scope: "@agentkit", slug: "review" }, { ...h.deps, tokenSecret: secret });
+    expect(scoped.status).toBe(403);
   });
 
   it("publishes a kit release through Idempotency-Key and refuses the key for another origin", async () => {

@@ -106,8 +106,8 @@ export function cacheControl(release: { visibility: string }, maxAge: number, im
 }
 
 /** A stored object is missing or not what D1 recorded: an integrity failure, never served. */
-function storageError(what: string): ReleaseHttpError {
-  console.error(`release read: ${what}`);
+export function storageError(what: string, context = "release read"): ReleaseHttpError {
+  console.error(`${context}: ${what}`);
   return releaseError(500, "release.storage_inconsistent", "release storage is inconsistent");
 }
 
@@ -160,12 +160,12 @@ function bytesResponse(request: Request, object: R2ObjectBody, etag: string, hea
   return new Response(object.body, { headers: { ...all, "Content-Length": String(object.size) } });
 }
 
-async function getManifestObject(bucket: R2Bucket, release: ReadableRelease): Promise<R2ObjectBody> {
+async function getManifestObject(bucket: R2Bucket, release: Pick<ReadableRelease, "manifestKey">, context?: string): Promise<R2ObjectBody> {
   const object = await bucket.get(release.manifestKey);
-  if (object === null) throw storageError(`manifest ${release.manifestKey} is missing`);
+  if (object === null) throw storageError(`manifest ${release.manifestKey} is missing`, context);
   if (object.size > MAX_MANIFEST_BYTES) {
     void object.body.cancel().catch(() => undefined);
-    throw storageError(`manifest ${release.manifestKey} exceeds ${MAX_MANIFEST_BYTES} bytes`);
+    throw storageError(`manifest ${release.manifestKey} exceeds ${MAX_MANIFEST_BYTES} bytes`, context);
   }
   return object;
 }
@@ -257,18 +257,22 @@ export function releaseFilePath(request: Request): string {
   return path;
 }
 
-/** The validated signed manifest of a readable release (also used by the personal kit base loader). */
-export async function readManifest(bucket: R2Bucket, release: ReadableRelease): Promise<SkillxReleaseManifest> {
-  const object = await getManifestObject(bucket, release);
+/** The validated signed manifest of a stored release (also used by the personal kit base loader and the kit replay check). */
+export async function readManifest(
+  bucket: R2Bucket,
+  release: Pick<ReadableRelease, "manifestKey" | "releaseDigest">,
+  context?: string,
+): Promise<SkillxReleaseManifest> {
+  const object = await getManifestObject(bucket, release, context);
   let parsed: unknown;
   try {
     parsed = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(await object.arrayBuffer()));
   } catch {
-    throw storageError(`manifest ${release.manifestKey} is not JSON`);
+    throw storageError(`manifest ${release.manifestKey} is not JSON`, context);
   }
-  if (!validateReleaseManifest(parsed).valid) throw storageError(`manifest ${release.manifestKey} is invalid`);
+  if (!validateReleaseManifest(parsed).valid) throw storageError(`manifest ${release.manifestKey} is invalid`, context);
   const manifest = parsed as SkillxReleaseManifest;
-  if (manifest.releaseDigest !== release.releaseDigest) throw storageError(`manifest ${release.manifestKey} names another tree`);
+  if (manifest.releaseDigest !== release.releaseDigest) throw storageError(`manifest ${release.manifestKey} names another tree`, context);
   return manifest;
 }
 

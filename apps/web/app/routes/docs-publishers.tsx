@@ -160,7 +160,11 @@ export default function DocsPublishers() {
             content. Those releases carry kit provenance and are signed as{" "}
             <span className="text-sx-fg">skillx.release/v2</span>. The registry signature never
             makes them signed-kit content. Every other release is signed as{" "}
-            <span className="text-sx-fg">skillx.release/v1</span>.
+            <span className="text-sx-fg">skillx.release/v1</span>. A kit release drops the{" "}
+            <span className="text-sx-fg">ak-</span> directory prefix from its name (
+            <span className="text-sx-fg">@agentkit/plan</span>, never{" "}
+            <span className="text-sx-fg">@agentkit/ak-plan</span>), and installing one needs
+            skillx-sh 0.7.0 or later.
           </p>
         </div>
       </section>

@@ -1,9 +1,19 @@
 import { getApiKey, getBaseUrl } from '../utils/config-store.js';
 
 export class ApiError extends Error {
-  constructor(public status: number, message: string) {
+  constructor(public status: number, message: string, public body = '') {
     super(message);
     this.name = 'ApiError';
+  }
+
+  /** The `error.code` of a JSON error body, or null. */
+  get code(): string | null {
+    try {
+      const code = (JSON.parse(this.body) as { error?: { code?: unknown } })?.error?.code;
+      return typeof code === 'string' ? code : null;
+    } catch {
+      return null;
+    }
   }
 }
 
@@ -28,7 +38,7 @@ export async function apiRequest<T = unknown>(
 
   if (!res.ok) {
     const body = await res.text();
-    throw new ApiError(res.status, `API error ${res.status}: ${body}`);
+    throw new ApiError(res.status, `API error ${res.status}: ${body}`, body);
   }
 
   return res.json() as Promise<T>;

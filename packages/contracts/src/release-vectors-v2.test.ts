@@ -60,6 +60,8 @@ interface ReleaseVectorsV2 {
     fileContentsBase64: Record<string, string>;
     expectedTrust: string;
   }>;
+  /** Trust after the verifier checked (or not) an AgentKit kit signature over `kitVerifiedReleaseDigest`. */
+  trust: Array<{ name: string; vector: string; kitVerifiedReleaseDigest: string | null; expectedTrust: string }>;
   rejected: Array<{ name: string; document: string; expectedCode: string }>;
   invalidManifest: Array<{ name: string; manifest: unknown; expectedCode: string }>;
 }
@@ -95,6 +97,18 @@ async function buildVectors(): Promise<ReleaseVectorsV2> {
 
   const signedKit = valid[0]!.manifest;
   const signedLocal = valid[1]!.manifest;
+  const trust: ReleaseVectorsV2["trust"] = [];
+  for (const [name, index, digest] of [
+    ["remote-signed kit release whose kit signature verified over its own tree", 0, signedKit.releaseDigest],
+    ["remote-signed kit release whose kit signature verified over another tree", 0, signedLocal.releaseDigest],
+    ["remote-signed kit release without a verified kit signature", 0, null],
+    ["local-dev kit release even with a kit signature verified over its own tree", 1, signedLocal.releaseDigest],
+    ["skillx release even with a kit signature verified over its own tree", 2, valid[2]!.manifest.releaseDigest],
+  ] as const) {
+    const vector = valid[index]!;
+    const options = digest === null ? {} : { kitVerifiedReleaseDigest: digest };
+    trust.push({ name, vector: vector.name, kitVerifiedReleaseDigest: digest, expectedTrust: releaseTrust(vector.manifest, options) });
+  }
   const tamper = (base: SkillxReleaseManifest, mutate: (m: Record<string, unknown>) => void): string => {
     const copy = clone(base) as unknown as Record<string, unknown>;
     mutate(copy);
@@ -104,6 +118,7 @@ async function buildVectors(): Promise<ReleaseVectorsV2> {
   const { provenance: _dropped, ...kitMembers } = clone(RELEASE_MANIFEST_V2_KIT_FIXTURE);
   const signedV1Agentkit = await signRaw({ ...kitMembers, schemaVersion: "skillx.release/v1" }, key);
   const signedV1 = await signReleaseManifest(RELEASE_MANIFEST_FIXTURE, key.privateKey);
+  const signedAkSlug = await signRaw({ ...clone(RELEASE_MANIFEST_V2_KIT_FIXTURE), identity: "@agentkit/ak-review-guardrails" }, key);
 
   return {
     description:
@@ -112,11 +127,13 @@ async function buildVectors(): Promise<ReleaseVectorsV2> {
       "canonicalization, tree digest and signature rules are those of skillx.release/v1 (release-manifest-v1.json)",
       "schemaVersion selects the closed member set: v1 has no provenance member (unknown_field), v2 requires it (required); any other schemaVersion is unsupported_value",
       "provenance is {provider: 'skillx'} or {provider: 'kit', origin: 'remote-signed' | 'local-dev'}; other providers or origins are unsupported_value, extra members unknown_field",
-      "@agentkit/* requires provider kit (identity.reserved_publisher); provider kit requires @agentkit/* (identity.invalid); a provider skillx slug must not start with ak- (identity.reserved_alias)",
+      "@agentkit/* requires provider kit (identity.reserved_publisher); provider kit requires @agentkit/* (identity.invalid); a provider skillx slug must not start with ak- (identity.reserved_alias); a provider kit slug must not start with ak- (identity.invalid): the kit directory ak-<x> is @agentkit/<x>",
       "trust is local-unverified unless the verifier itself verified the AgentKit kit signature of a remote-signed kit release; the registry signature alone never yields signed-kit",
+      "trust vectors name a valid vector and the releaseDigest whose AgentKit kit signature the verifier checked (null: none); signed-kit requires origin remote-signed and that digest equal to the manifest releaseDigest",
     ],
     testKey: describeVectorKey(RELEASE_FIXTURE_KEY_ID, VECTOR_KEY_SEED_TEXT, key),
     valid,
+    trust,
     rejected: [
       {
         name: "origin upgraded from local-dev to remote-signed after signing",
@@ -144,6 +161,11 @@ async function buildVectors(): Promise<ReleaseVectorsV2> {
         name: "@agentkit release signed as v1 without provenance",
         document: canonicalJson(signedV1Agentkit),
         expectedCode: "identity.reserved_publisher",
+      },
+      {
+        name: "kit release named with the ak- directory prefix",
+        document: canonicalJson(signedAkSlug),
+        expectedCode: "identity.invalid",
       },
       {
         name: "kit provenance with members out of canonical order",
@@ -178,6 +200,16 @@ describe("skillx.release/v2 cross-language vectors", () => {
       expect(vector.manifest.schemaVersion).toBe("skillx.release/v2");
       expect(vector.expectedTrust, vector.name).toBe("local-unverified");
       expect(`sha256:${hex(await sha256(encoder.encode(vector.treeSerialization)))}`).toBe(vector.manifest.releaseDigest);
+    }
+  });
+
+  it.skipIf(writeVectorsRequested)("grant signed-kit only for a remote-signed kit verified over its own tree", () => {
+    expect(committed.trust.map((t) => t.expectedTrust)).toEqual(["signed-kit", "local-unverified", "local-unverified", "local-unverified", "local-unverified"]);
+    for (const vector of committed.trust) {
+      const target = committed.valid.find((v) => v.name === vector.vector);
+      expect(target, vector.name).toBeDefined();
+      const options = vector.kitVerifiedReleaseDigest === null ? {} : { kitVerifiedReleaseDigest: vector.kitVerifiedReleaseDigest };
+      expect(releaseTrust(target!.manifest, options), vector.name).toBe(vector.expectedTrust);
     }
   });
 
