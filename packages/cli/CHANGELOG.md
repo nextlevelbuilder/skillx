@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.7.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.6.0...skillx-sh-v0.7.0) (2026-10-25)
+
+
+### Features
+
+* **cli:** add library list and kit authoring commands ([#135](https://github.com/nextlevelbuilder/skillx/issues/135)) ([9e6ec78](https://github.com/nextlevelbuilder/skillx/commit/9e6ec7822c480d81bef9584dc95d34b4d8a3d688))
+* **library:** list the caller's owned and entitled skills and kits ([#133](https://github.com/nextlevelbuilder/skillx/issues/133)) ([d0a4910](https://github.com/nextlevelbuilder/skillx/commit/d0a491002754c3ba3d490d48d4df037cb4bbfaf3))
+* **personal-kits:** answer kit.api_disabled while off and add an enablement smoke ([#127](https://github.com/nextlevelbuilder/skillx/issues/127)) ([6934e95](https://github.com/nextlevelbuilder/skillx/commit/6934e95a8b9982b30f309152296919aa44c8b0ed))
+* **releases:** choose package visibility on publish, private by default ([#130](https://github.com/nextlevelbuilder/skillx/issues/130)) ([5fb1426](https://github.com/nextlevelbuilder/skillx/commit/5fb14264d12e56783785aa4219c303dae0e72552))
+* **releases:** skillx.release/v2 kit provenance for [@agentkit](https://github.com/agentkit) releases ([#121](https://github.com/nextlevelbuilder/skillx/issues/121)) ([d62a18f](https://github.com/nextlevelbuilder/skillx/commit/d62a18f7d238cd1f6e3275b91b83d39201f31c3b))
+
+
+### Bug Fixes
+
+* **collections:** keep private packages out of collection views for readers who cannot read them ([#134](https://github.com/nextlevelbuilder/skillx/issues/134)) ([3caafa2](https://github.com/nextlevelbuilder/skillx/commit/3caafa22bd25ac7311f85c887aeca640e1f1427b))
+* **releases:** v2 kit provenance review follow-ups ([#126](https://github.com/nextlevelbuilder/skillx/issues/126)) ([433a3da](https://github.com/nextlevelbuilder/skillx/commit/433a3dab5389e80a43d024e0c18b93d5d5a66a50)), closes [#123](https://github.com/nextlevelbuilder/skillx/issues/123)
+
 ## [0.6.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.5.0...skillx-sh-v0.6.0) (2026-10-20)
 
 
