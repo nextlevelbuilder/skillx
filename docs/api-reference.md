@@ -1247,8 +1247,9 @@ then publisher revoked `403`, then yanked):
   session or unscoped API key; no entitlement needed) and by a caller with an
   unrevoked entitlement for the package (`release_id` NULL) or the release,
   decided by the shared payload-access gate. Ownership is read on every
-  request, so a publisher that changes hands stops serving the previous
-  owner at once. Anyone else (another account, anonymous) gets `404
+  request, so a publisher that changes hands refuses new requests from the
+  previous owner (bytes already cached by their client stay usable, see
+  Caching). Anyone else (another account, anonymous) gets `404
   not_found`, the same body and the same queries as an unknown package, so
   existence is not disclosed. A release-only entitlement lists only the
   entitled releases; the owner sees every release.
@@ -1312,9 +1313,10 @@ public ones `public`. Every success except `/keys` carries `Vary:
 Authorization, Cookie`, because the selected release can depend on the
 caller's entitlements. Every JSON error (including `401`, `429` and the
 flag-off `404`) is `Cache-Control: no-store`. A `304` carries the same
-`ETag`, `Cache-Control` and `Vary`. Caveat: public file and artifact bytes
-cached for a year by a browser or proxy cannot be recalled by a later
-quarantine; quarantine only stops new fetches from this API.
+`ETag`, `Cache-Control` and `Vary`. Caveat: file and artifact bytes cached
+for a year by a browser or proxy (public bytes) or by the caller's own client
+(private bytes) cannot be recalled by a later quarantine, entitlement
+revocation or ownership change; those only stop new fetches from this API.
 
 **Size caps**: manifests up to 4 MiB, files up to 32 MiB, artifacts up to
 32 MiB (the publish limits). A stored object that is missing, over its cap or
