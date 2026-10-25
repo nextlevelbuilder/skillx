@@ -12,8 +12,11 @@
  *   owns or is entitled to, the owner's kits). Never a write.
  * - `kits:write:@<handle>`: read and write the owner's personal kits named
  *   `@<handle>/...` (store revisions, rebase, resolve conflicts, activate,
- *   roll back, lock). Interactive review and public activation still need a
- *   web session.
+ *   roll back, lock, and the read-only POSTs). Kit bases load as the owner,
+ *   so through them the key reads any private release the owner can read;
+ *   the lock shows owned parent kits under handles the key holds no kit
+ *   scope for as digest references only. Interactive review and public
+ *   activation still need a web session.
  *
  * A scope never grants more than the key owner holds: every scoped request
  * still runs as the owner, through the same ownership and access rules.

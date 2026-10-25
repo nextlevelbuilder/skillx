@@ -29,7 +29,9 @@ without an explicit user approval.
   writes `kits:write:@<handle>`, for the handle of the kit. A scoped key with
   no kit scope (such as `releases:publish:@h` alone) gets 401
   `invalid_api_key`; one scoped to another handle gets 403
-  `auth.scope_missing` before any lookup. The admin secret is not an
+  `auth.scope_missing` before any lookup. The read-only `POST`s
+  (`preview-update`, `proposals/validate`) count as writes and need
+  `kits:write:@<handle>`. The admin secret is not an
   identity here: a write that presents a valid one gets 404 (an invalid one
   gets 401 `invalid_admin_secret`), and a read with only the admin secret is
   anonymous (401). A write in a web session (no `Authorization` header) must
@@ -183,8 +185,10 @@ always yield equal lock bytes. It contains:
 The lock owner key stays `personal:@<handle>/<name>` on SkillX. AgentKit keys
 its local kits `personal:<name>` (`local/<name>`) and maps that to the SkillX
 key when it publishes. The lock never contains machine paths or secrets.
-`GET /lock` returns full documents only for kits the caller owns; a foreign
-ancestor appears as `{kit, revisionDigest, foreign: true}`.
+`GET /lock` returns full documents only for kits the caller owns and, with a
+scoped key, may read; a foreign ancestor, and an owned ancestor under a handle
+the scoped key holds neither `library:read` nor `kits:write:@<handle>` for,
+appears as `{kit, revisionDigest, foreign: true}`.
 
 ## Concurrency and idempotency
 

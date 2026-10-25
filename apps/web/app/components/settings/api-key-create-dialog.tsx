@@ -100,6 +100,7 @@ export function ApiKeyCreateDialog({ publishers, onSubmit, submitting = false, e
           <legend className="mb-1 text-sm font-medium">Library sync (optional)</legend>
           <p className="mb-2 text-sm text-sx-fg-muted">
             For a second device or CI: read your private releases and kits, and write kits under your publishers.
+            A kit write key can also read any private release you can read when it is used as a kit base.
           </p>
           <ul className="max-h-48 space-y-1 overflow-y-auto">
             <li>

@@ -573,7 +573,7 @@ acts as its owner, so it never reaches more than the owner's session would:
 |-------|--------|
 | `releases:publish:@<handle>` | The release publish and promote APIs for `@<handle>` |
 | `library:read` | The release read API and signed download URLs (private releases the owner owns or is entitled to), and reads of the owner's personal kits |
-| `kits:write:@<handle>` | Reads and writes of the owner's personal kits `@<handle>/...` (store revisions, proposals, rebase, conflicts, activate, rollback, lock). Review and public activation still need a web session |
+| `kits:write:@<handle>` | Reads and writes of the owner's personal kits `@<handle>/...` (store revisions, proposals, rebase, conflicts, activate, rollback, lock, and the read-only `POST`s `preview-update` and `proposals/validate`, which `library:read` does not cover). Kit bases load as the owner, so through them (store, rebase, `preview-update`) the key can read any private release the owner can read. The lock shows owned parent kits under another handle as digest references unless the key also holds `library:read` or that handle's `kits:write`. Review and public activation still need a web session |
 
 A second device or CI that syncs a private library uses one key holding
 `library:read kits:write:@<handle>` (plus `releases:publish:@<handle>` to
