@@ -357,6 +357,15 @@ soon as the worker deploys**; no other flag holds them back.
    these releases as `skillx:bestagentkits/<x>`. The release is the skill
    directory byte for byte, so its `releaseDigest` equals the
    `agentkit.skill-tree/v1` digest AgentKit computes for that directory.
+7. Deploy order for publish visibility: deploy the web app (`skillx-web`)
+   with visibility support before dispatching the foundation workflow, which
+   publishes with `--visibility public`. An older registry rejects the
+   unknown metadata member with `400 release.invalid_metadata` before any
+   write or idempotency record, so the run fails closed and can be re-run
+   after the deploy. Do not deploy a registry with visibility support while
+   the foundation workflow on `main` still lacks `--visibility public`: a new
+   `@bestagentkits/*` package would then be created private and anonymous
+   AgentKit reads of it would answer `404`.
 
 Rollback: revoke trusted publishers (`POST .../trusted-publishers/{id}/revoke`),
 unset `SKILLX_TOKEN_SECRET` (all outstanding `sxo_` and download tokens stop

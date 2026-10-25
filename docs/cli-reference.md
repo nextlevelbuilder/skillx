@@ -250,7 +250,9 @@ a new release, an `artifactDigest`) other than the one packed locally.
 
 A source that is an existing path, or any use of `--name` /
 `--release-version`, is a release. Only a GitHub URL or an `owner/repo` that is
-not a local path runs the deprecated import (see `skillx import`).
+not a local path (or no source at all) runs the deprecated import (see
+`skillx import`). The import is always public, so `--visibility` there is a
+`usage_error` (exit `2`) and nothing is sent.
 
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -261,7 +263,7 @@ not a local path runs the deprecated import (see `skillx import`).
 | `--kind <kind>` | `skill`, `hook-pack` or `bundle` | `skill` |
 | `--repo <https-url>` | Provenance repository URL | `origin` remote (https form) |
 | `--script <path>` | Declare a packaged script (repeatable) | — |
-| `--visibility <visibility>` | `public` or `private`. Omitted: a new package is `private` (a note goes to stderr, never stdout) and an existing package keeps its visibility. A different visibility for an existing package is refused (`release.visibility_mismatch`) | — |
+| `--visibility <visibility>` | `public` or `private`. Omitted: a new package is `private` (a note goes to stderr, never stdout) and an existing package keeps its visibility. A different visibility for an existing package is refused: `api_error`, exit `1`, `error.details.code` `release.visibility_mismatch` (like `release.version_exists`) | — |
 | `--kit-origin <origin>` | Publish an `@agentkit/*` kit release (`remote-signed` or `local-dev`), signed as `skillx.release/v2`; needs a `releases:publish:@agentkit` key; the slug omits `ak-` (`@agentkit/plan`). Installing v2 releases needs skillx-sh 0.7.0 or later | — |
 | `--registry <url>` | Registry base URL; `https` only (`http` only for localhost) | configured base URL |
 | `--idempotency-key <key>` | Sends `Idempotency-Key`: a retry with the same key and bytes replays the first answer; other bytes are refused | — |
@@ -277,14 +279,18 @@ skillx publish HEAD --path skills/my-skill --name @acme/my-skill --release-versi
 CI: `.github/workflows/publish-release.yml` (manual dispatch or
 `workflow_call`, never on pull requests) runs the same command with a pinned
 CLI version, in the `skillx-publish` environment, with its
-`SKILLX_PUBLISH_KEY` secret; it passes no `--visibility`, so a package it
-creates is private. `.github/workflows/publish-agentkit-foundation.yml`
+`SKILLX_PUBLISH_KEY` secret. Its optional `visibility` input (`public` or
+`private`) passes `--visibility` and needs a `cli-version` that has the flag;
+left empty, no flag is sent, so a package it creates is private.
+`.github/workflows/publish-agentkit-foundation.yml`
 publishes an AgentKit foundation skill from `bestagentkits/agentkit` at a
 pinned commit with OIDC (fallback `SKILLX_AGENTKIT_PUBLISH_KEY`) and
 `--visibility public`: the kit
 directory `kits/<kit>/skills/ak-<x>` becomes `@bestagentkits/<x>` at the
 kit's `kit.yaml` version (see the deployment guide for why `@agentkit/*` stays
-reserved).
+reserved). Deploy the web app before running either workflow with
+`--visibility`: a registry without visibility support refuses the member with
+`400 release.invalid_metadata` and stores nothing (see the deployment guide).
 
 ### `skillx promote <@publisher/slug@version>`
 
