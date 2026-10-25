@@ -296,8 +296,8 @@ describe("private library round trip: one account, two machines", () => {
     const next = await k.h.upload(SKILL, tarOf([file("SKILL.md", skillText(BODY, "name: skill\ndescription: Second release"))]), { key: keyA, version: "1.1.0", visibility: null });
     expect(next.status).toBe(200);
     expect(next.body.visibility).toBe("private");
-    // The fixture clock is fixed; order the releases explicitly.
-    k.sql("UPDATE package_releases SET created_at = created_at + 1000 WHERE version = ?", "1.1.0");
+    // `latest` follows semver, not publish time: make 1.0.0 the newest row so the order is tested.
+    k.sql("UPDATE package_releases SET created_at = created_at + 1000 WHERE version = ?", "1.0.0");
     const library = await listLibrary({ kind: "skill" });
     expect(library.items[0]).toMatchObject({ identity: SKILL, latest: { version: "1.1.0" }, installRef: `${SKILL}@1.1.0` });
     expect((await runKitShow(KIT)).generation).toBe(4);

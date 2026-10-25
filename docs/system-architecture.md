@@ -681,7 +681,8 @@ reads, signed download URLs, kit base loading, status). Publishing writes no
 entitlement row, because `entitlements` records commerce grants and a row
 created at publish would also have to follow a change of owner. Precedence is
 unchanged: unknown or unreadable `404`, quarantined `403`, publisher not active
-`403` (so a suspended publisher's owner is blocked too), yanked `410`. A caller
+`403` (so a suspended publisher's owner is blocked too), yanked `410` when
+resolved by version (a digest lookup still serves it with its state). A caller
 who may not read a private asset gets the same `404` as for an unknown one.
 
 **Capability matrix.** Scoped keys gain two scopes next to
@@ -717,8 +718,9 @@ note on stderr); a new `@agentkit` kit release defaults to `public`, as before.
 Visibility is registry policy and not part of the signed manifest. Changing it
 later is out of scope here.
 
-**Responses.** Every answer about a private package or the private library is
-`Cache-Control: private, no-store` with `Vary: Authorization, Cookie`, so a
+**Responses.** Release reads of a private package and `/library` answers are
+`Cache-Control: private, no-store` with `Vary: Authorization, Cookie`; kit API
+and signed-URL answers are `no-store`. Either way a
 revoked key, an entitlement or a quarantine takes effect on the next request;
 public answers keep their cache lifetimes.
 
