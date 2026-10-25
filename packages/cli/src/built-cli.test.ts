@@ -235,6 +235,52 @@ describe("built cli", { timeout: 30_000 }, () => {
     }
   });
 
+  it("lists the library across pages and drives kit push/activate with machine-readable failures", async () => {
+    const seen: string[] = [];
+    const server = createServer((req, res) => {
+      req.resume();
+      req.on("end", () => {
+        seen.push(`${req.method} ${req.url} ${req.headers["if-match"] ?? ""}`.trim());
+        const url = new URL(String(req.url), "http://stub");
+        const send = (status: number, body: unknown) => res.writeHead(status, { "Content-Type": "application/json" }).end(JSON.stringify(body));
+        if (url.pathname === "/api/v1/library") {
+          const item = (identity: string) => ({ kind: "skill", identity, relation: "owner", visibility: "private", packageKind: "skill", state: "published", latest: { version: "1.0.0", releaseDigest: "sha256:aa" }, installRef: `${identity}@1.0.0` });
+          const first = url.searchParams.get("cursor") === null;
+          return send(200, { schema: "skillx.library/v1", items: [item(first ? "@a/one" : "@a/two")], nextCursor: first ? "c1" : null, kits: { status: "available" } });
+        }
+        if (url.pathname.endsWith("/revisions") && req.method === "POST") return send(412, { error: { code: "kit.generation_conflict", message: "generation is 4" } });
+        send(404, { error: { code: "kit.not_found", message: "no such kit" } });
+      });
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      expect((await cliExit("config", "set-url", `http://127.0.0.1:${(server.address() as AddressInfo).port}`, "--json")).code).toBe(0);
+      const listed = await cliExit("library", "list", "--kind", "skill", "--json");
+      expect(listed.code).toBe(0);
+      expect(JSON.parse(listed.stdout)).toMatchObject({ ok: true, data: { items: [{ identity: "@a/one" }, { identity: "@a/two" }], nextCursor: null } });
+      expect(seen.slice(0, 2)).toEqual(["GET /api/v1/library?kind=skill", "GET /api/v1/library?kind=skill&cursor=c1"]);
+
+      const doc = join(root, "kit-doc.json");
+      writeFileSync(doc, JSON.stringify({ schema: "skillx.personal-kit/v1" }));
+      const stale = await cliExit("kit", "push", "@alpha/my-kit", "--document", doc, "--if-match", "1", "--json");
+      expect(stale.code).toBe(8);
+      expect(JSON.parse(stale.stdout)).toMatchObject({ ok: false, error: { code: "conflict", details: { status: 412, code: "kit.generation_conflict" } } });
+      expect(seen.at(-1)).toBe('POST /api/v1/kits/@alpha/my-kit/revisions "g1"');
+
+      const missing = await cliExit("kit", "show", "@alpha/none", "--json");
+      expect(missing.code).toBe(3);
+      expect(JSON.parse(missing.stdout)).toMatchObject({ ok: false, error: { code: "not_found", details: { code: "kit.not_found" } } });
+
+      const before = seen.length;
+      const noDigest = await cliExit("kit", "activate", "@alpha/my-kit", "pkr_1", "--json");
+      expect(noDigest.code).toBe(2);
+      expect(JSON.parse(noDigest.stdout)).toMatchObject({ ok: false, error: { code: "usage_error" } });
+      expect(seen.length).toBe(before);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("inlines @skillx/contracts instead of leaving a workspace import", () => {
     const bundle = readFileSync(BUNDLE, "utf8");
     expect(bundle).not.toMatch(/["']@skillx\//);

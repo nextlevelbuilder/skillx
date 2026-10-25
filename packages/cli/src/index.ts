@@ -15,6 +15,8 @@ import { promoteCommand } from './commands/promote.js';
 import { releaseCommand } from './commands/release-publish.js';
 import { installCommand, listCommand, syncCommand, uninstallCommand, updateCommand } from './commands/install.js';
 import { mcpCommand } from './commands/mcp.js';
+import { libraryCommand } from './commands/library.js';
+import { kitCommand } from './commands/kit.js';
 import { routeUsageErrors } from './lib/run-command.js';
 
 /** Injected at build time from packages/cli/package.json by tsup (see tsup.config.ts). */
@@ -41,6 +43,8 @@ program.addCommand(publishCommand);
 program.addCommand(promoteCommand);
 program.addCommand(releaseCommand);
 for (const command of [installCommand, updateCommand, uninstallCommand, listCommand, syncCommand, mcpCommand]) program.addCommand(command);
+program.addCommand(libraryCommand);
+program.addCommand(kitCommand);
 
 // Parse errors exit 2 (and print a usage_error envelope under --json); see docs/cli-reference.md.
 routeUsageErrors(program);

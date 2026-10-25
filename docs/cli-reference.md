@@ -314,6 +314,57 @@ skillx promote @acme/my-skill@1.2.0 --from beta --to stable --reason "soak passe
 ```
 ---
 
+### `skillx library list`
+
+Lists the skills and personal kits you own or are entitled to
+(`GET /api/v1/library`, see the [API reference](api-reference.md)). Needs an API
+key with `library:read` (or an unscoped key). Without `--cursor` every page is
+read and merged, so `data.nextCursor` is `null`; with `--cursor` only that page
+is returned together with its `nextCursor`.
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--kind <kind>` | `skill` or `kit` | both |
+| `--query <q>` | Name fragment, at most 64 characters | — |
+| `--limit <n>` | Page size, 1 to 100 | 50 |
+| `--cursor <cursor>` | Read only the page after this cursor | follow all pages |
+| `--json` | Print the result envelope: `data` is `{ items, nextCursor, kits }` | — |
+
+Invalid flags are `usage_error` (exit `2`) before any request. `data.kits` is
+`{ "status": "unavailable", "code": "kit.api_disabled" }` while the deployment
+has personal kits off.
+
+### `skillx kit <subcommand>`
+
+Personal kit authoring against the [personal kits API](personal-kits-api.md).
+`<kit>` is `@handle/name`. Reads need `library:read` or `kits:write:@<handle>`,
+writes `kits:write:@<handle>` (or an unscoped key). There is no review command:
+reviewing a proposal and activating a public revision need your signed-in web
+session, and an API key gets `kit.interactive_approval_required`.
+
+| Command | Purpose |
+|---------|---------|
+| `kit show <kit>` | Summary: `generation`, `effectiveRevision` |
+| `kit revisions <kit>` | Revision list |
+| `kit revision <kit> <id>` | One revision with its `document` |
+| `kit push <kit> --document <file> --if-match <generation>` | Store a `draft` revision (`skillx.personal-kit/v1` JSON). `--if-match` takes `3`, `g3` or `"g3"` (`0` creates the kit); `--idempotency-key` overrides the key, which defaults to a digest of kit, generation and document so a retry replays |
+| `kit activate <kit> <revisionId> --digest <digest>` | Make a revision effective. `--digest` (required, exit `2` without it) is the exact revision digest you approve; `--if-match` is optional (default: the current generation) |
+| `kit rollback <kit> <revisionId> --digest <digest>` | Re-activate an earlier effective revision; same flags as `activate` |
+| `kit lock <kit> [--revision <id>]` | The lock of the effective (or named) revision |
+
+Every subcommand takes `--json`. Failures keep the server's machine-readable
+code in `error.details.code` next to `error.details.status`:
+
+| HTTP | `error.code` | Exit | Typical `details.code` |
+|------|--------------|------|------------------------|
+| `401`, `403` | `auth_error` | `5` | `invalid_api_key`, `auth.scope_missing`, `kit.publisher_not_owned`, `kit.interactive_approval_required` |
+| `404` | `not_found` | `3` | `kit.not_found`, `kit.api_disabled` (deployment without personal kits) |
+| `412` (stale `If-Match`), `409` `kit.generation_conflict` | `conflict` | `8` | `kit.generation_conflict` — nothing was written; run `kit show`, rebase your document and retry |
+| `429` | `rate_limited` | `7` | — |
+| other | `api_error` | `1` | e.g. `kit.approval_required`, `kit.revision_exists`, `kit.locked_incompatible` |
+
+---
+
 ### `skillx report <slug> <outcome>`
 
 Report skill usage outcome (requires API key).
@@ -629,7 +680,7 @@ carries the same answer, so a script can branch without parsing either form:
 | `5` | `auth_error` | API key missing or rejected (`401`/`403`); the hint names `skillx config set-key` |
 | `6` | `network_error` | The API could not be reached |
 | `7` | `rate_limited` | The API answered `429`; retry later |
-| `8` | `conflict` | Installer only: the change would overwrite something it does not own (see [Exit codes](#exit-codes)) |
+| `8` | `conflict` | The installer would overwrite something it does not own (see [Exit codes](#exit-codes)), or a `kit` write used a stale generation (`412`) |
 
 For `check`, exit `4` is an answer, not a failure, so its envelope is a success. Only flags before `--`
 count: `skillx check -- --json` treats `--json` as an operand.

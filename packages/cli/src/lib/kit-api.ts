@@ -59,13 +59,27 @@ function kitPath(kit: string, sub = ''): string {
   return `/api/v1/kits/${kit}${sub === '' ? '' : `/${sub}`}`;
 }
 
-const post = <T>(kit: string, sub: string, body: unknown) =>
-  apiRequest<T>(kitPath(kit, sub), { method: 'POST', body: JSON.stringify(body) });
+const post = <T>(kit: string, sub: string, body: unknown, headers?: Record<string, string>) =>
+  apiRequest<T>(kitPath(kit, sub), { method: 'POST', body: JSON.stringify(body), ...(headers ? { headers } : {}) });
+
+/**
+ * How a write names the generation it expects: in the body (a stale one is
+ * 409), or as `If-Match: "g<n>"` (a stale one is 412).
+ */
+export type GenerationGuard = 'body' | 'if-match';
+
+function guarded(generation: number, guard: GenerationGuard): { body: { expectedGeneration?: number }; headers?: Record<string, string> } {
+  return guard === 'if-match' ? { body: {}, headers: { 'If-Match': `"g${generation}"` } } : { body: { expectedGeneration: generation } };
+}
 
 export const kitApi = {
   get: (kit: string) => apiRequest<{ kit: string; generation: number; effectiveRevision: RevisionView | null }>(kitPath(kit)),
-  storeRevision: (kit: string, document: unknown, expectedGeneration: number, idempotencyKey: string) =>
-    post<StoredRevision>(kit, 'revisions', { expectedGeneration, idempotencyKey, document }),
+  revisions: (kit: string) => apiRequest<{ revisions: RevisionView[] }>(kitPath(kit, 'revisions')),
+  revision: (kit: string, revisionId: string) => apiRequest<RevisionView & { document: unknown }>(kitPath(kit, `revisions/${encodeURIComponent(revisionId)}`)),
+  storeRevision: (kit: string, document: unknown, expectedGeneration: number, idempotencyKey: string, guard: GenerationGuard = 'body') => {
+    const { body, headers } = guarded(expectedGeneration, guard);
+    return post<StoredRevision>(kit, 'revisions', { ...body, idempotencyKey, document }, headers);
+  },
   previewUpdate: (kit: string, updates: Update[], fromRevisionId?: string) =>
     post<{ report: unknown; generation: number }>(kit, 'preview-update', { updates, ...(fromRevisionId ? { fromRevisionId } : {}) }),
   rebase: (kit: string, updates: Update[], expectedGeneration: number, idempotencyKey: string) =>
@@ -76,12 +90,15 @@ export const kitApi = {
     ),
   resolveConflict: (kit: string, conflictId: string, body: { expectedGeneration: number; idempotencyKey: string; decisions: unknown[]; agentSuggestion?: unknown }) =>
     post<StoredRevision & { conflictId: string; reevalRequired: boolean }>(kit, `conflicts/${encodeURIComponent(conflictId)}/resolve`, { ...body, approvedBy: 'user' }),
-  activate: (kit: string, revision: Pick<RevisionView, 'id' | 'digest'>, expectedGeneration: number, rollback = false) =>
-    post<{ effectiveRevisionId: string; generation: number; lock: unknown; warnings: string[] }>(kit, rollback ? 'rollback' : 'activate', {
-      expectedGeneration,
-      revisionId: revision.id,
-      approval: { revisionDigest: revision.digest },
-    }),
+  activate: (kit: string, revision: Pick<RevisionView, 'id' | 'digest'>, expectedGeneration: number, rollback = false, guard: GenerationGuard = 'body') => {
+    const { body, headers } = guarded(expectedGeneration, guard);
+    return post<{ effectiveRevisionId: string; generation: number; lock: unknown; warnings: string[] }>(
+      kit,
+      rollback ? 'rollback' : 'activate',
+      { ...body, revisionId: revision.id, approval: { revisionDigest: revision.digest } },
+      headers,
+    );
+  },
   /** Dry-run of a `skillx.kit-proposal/v1` envelope: every server check, nothing stored. */
   validateProposal: (kit: string, proposal: unknown, expectedGeneration?: number) =>
     post<{ valid: true; state: 'proposed' | 'quarantined'; revisionDigest: string; requiredPermissions: string[]; findings: string[]; generationConflict: boolean }>(
