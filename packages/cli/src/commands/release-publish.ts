@@ -194,7 +194,7 @@ export function withReleasePublishOptions(command: Command): Command {
     .option('--repo <https-url>', 'source repository URL for provenance (default: git remote origin)')
     .option('--kit-origin <origin>', 'publish an @agentkit/* kit release with this origin: remote-signed | local-dev (needs a releases:publish:@agentkit key)')
     .option('--visibility <visibility>', 'public | private; omitted: a new package is private, an existing one keeps its visibility (a different one is refused)')
-    .option('--script <path>','declare a packaged file as a script (repeatable)', collect, [])
+    .option('--script <path>', 'declare a packaged file as a script (repeatable)', collect, [])
     .option('--registry <url>', 'registry base URL (default: configured base URL)')
     .option('--idempotency-key <key>', 'Idempotency-Key header: a retry with the same key replays the first answer')
     .option('--oidc', 'authenticate with the GitHub Actions OIDC token (trusted publishing) instead of an API key')

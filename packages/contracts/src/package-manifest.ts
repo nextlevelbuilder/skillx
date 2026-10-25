@@ -21,7 +21,7 @@ export type PackageKind = (typeof PACKAGE_KINDS)[number];
 export const PACKAGE_VISIBILITIES = ["public", "private"] as const;
 export type PackageVisibility = (typeof PACKAGE_VISIBILITIES)[number];
 
-export const RELEASE_STATES =["draft", "quarantined", "published", "yanked"] as const;
+export const RELEASE_STATES = ["draft", "quarantined", "published", "yanked"] as const;
 export type ReleaseState = (typeof RELEASE_STATES)[number];
 
 export const RELEASE_CHANNELS = ["stable", "beta", "alpha"] as const;
