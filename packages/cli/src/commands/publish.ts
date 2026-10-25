@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import { existsSync } from 'node:fs';
 import chalk from 'chalk';
-import { runCommand } from '../lib/release-cli.js';
+import { runCommand, usageError } from '../lib/release-cli.js';
 import { runImport } from './import.js';
 import { renderPublished, runReleasePublish, withReleasePublishOptions } from './release-publish.js';
 import type { ReleasePublishOptions } from './release-publish.js';
@@ -11,6 +11,9 @@ const OWNER_REPO = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 
 export const IMPORT_DEPRECATION =
   'warning: `skillx publish <owner/repo|github-url>` is deprecated and will be removed; use `skillx import <owner/repo>`. `skillx publish <dir>` now publishes a release.';
+
+export const IMPORT_VISIBILITY_ERROR =
+  '--visibility applies only to release publishing (`skillx publish <dir> --name <@publisher/slug> --release-version <semver>`); the deprecated GitHub import is always public';
 
 /**
  * Which `publish` the caller means: a GitHub repository (the old marketplace
@@ -38,6 +41,12 @@ export const publishCommand = withReleasePublishOptions(
     .option('--dry-run', 'import only (deprecated): show what would be imported'),
 ).action(async (source: string | undefined, options: PublishOptions) => {
   if (publishMode(source, options) === 'import') {
+    // The import registers a public marketplace entry; honouring "private" there
+    // is impossible, so refuse instead of publishing what the caller asked to hide.
+    if (options.visibility !== undefined) {
+      await runCommand('publish', options.json, () => Promise.reject(usageError(IMPORT_VISIBILITY_ERROR)), renderPublished);
+      return;
+    }
     console.error(chalk.yellow(IMPORT_DEPRECATION));
     await runImport(source, { path: options.path, scan: options.scan, dryRun: options.dryRun, json: options.json });
     return;

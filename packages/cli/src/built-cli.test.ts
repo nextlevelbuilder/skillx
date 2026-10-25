@@ -208,6 +208,33 @@ describe("built cli", { timeout: 30_000 }, () => {
     expect((await cli("promote", "--help")).stdout).toContain("--to <channel>");
   });
 
+  it("refuses --visibility on the deprecated import path (exit 2) and sends nothing", async () => {
+    const requests: string[] = [];
+    const server = createServer((req, res) => {
+      requests.push(`${req.method} ${req.url}`);
+      req.resume();
+      res.writeHead(200, { "Content-Type": "application/json" }).end("{}");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    const registry = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+    try {
+      // The import reads the configured base URL, not --registry; point both at the stub.
+      expect((await cliExit("config", "set-url", registry, "--json")).code).toBe(0);
+      for (const args of [
+        ["publish", "example/smoke", "--visibility", "private"],
+        ["publish", "https://github.com/example/smoke", "--visibility", "public"],
+        ["publish", "--visibility", "private"],
+      ]) {
+        const result = await cliExit(...args, "--registry", registry, "--json");
+        expect(result.code, args.join(" ")).toBe(2);
+        expect(JSON.parse(result.stdout)).toMatchObject({ ok: false, error: { code: "usage_error", message: expect.stringContaining("--visibility applies only to release publishing") } });
+      }
+      expect(requests).toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
   it("inlines @skillx/contracts instead of leaving a workspace import", () => {
     const bundle = readFileSync(BUNDLE, "utf8");
     expect(bundle).not.toMatch(/["']@skillx\//);
