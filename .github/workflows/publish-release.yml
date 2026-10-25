@@ -20,7 +20,7 @@
 #   jobs:
 #     publish:
 #       uses: nextlevelbuilder/skillx/.github/workflows/publish-release.yml@<sha>
-#       with: { name: "@acme/my-skill", version: "1.2.0", path: "skills/my-skill", cli-version: "0.9.0" }
+#       with: { name: "@acme/my-skill", version: "1.2.0", path: "skills/my-skill", cli-version: "0.9.0", visibility: "public" }
 #       secrets: inherit
 name: Publish SkillX release
 
@@ -55,6 +55,11 @@ on:
         description: "Exact skillx-sh CLI version used to pack and upload"
         required: true
         type: string
+      visibility:
+        description: "public or private; empty sends no --visibility (a new package is private, an existing one keeps its visibility). Needs a cli-version with --visibility"
+        required: false
+        default: ""
+        type: string
   workflow_call:
     inputs:
       name: { required: true, type: string }
@@ -64,6 +69,7 @@ on:
       kind: { required: false, default: skill, type: string }
       registry-url: { required: false, default: https://skillx.sh, type: string }
       cli-version: { required: true, type: string }
+      visibility: { required: false, default: "", type: string }
     secrets:
       SKILLX_PUBLISH_KEY:
         description: "SkillX API key scoped to releases:publish:@<publisher> (prefer a skillx-publish environment secret)"
@@ -107,6 +113,7 @@ jobs:
           KIND: ${{ inputs.kind }}
           REGISTRY: ${{ inputs.registry-url || 'https://skillx.sh' }}
           CLI_VERSION: ${{ inputs.cli-version }}
+          VISIBILITY: ${{ inputs.visibility }}
           HAS_KEY: ${{ secrets.SKILLX_PUBLISH_KEY != '' }}
         run: |
           set -euo pipefail
@@ -118,6 +125,7 @@ jobs:
           [[ "$KIND" =~ ^(skill|hook-pack|bundle)$ ]] || { echo "::error::invalid kind"; exit 1; }
           [[ "$REGISTRY" =~ ^https://[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?/?$ ]] || { echo "::error::registry-url must be an https origin"; exit 1; }
           [[ "$CLI_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo "::error::cli-version must be an exact version"; exit 1; }
+          [[ "$VISIBILITY" =~ ^(public|private)?$ ]] || { echo "::error::visibility must be public, private or empty"; exit 1; }
 
       - name: Pack and publish
         id: publish
@@ -130,9 +138,13 @@ jobs:
           KIND: ${{ inputs.kind }}
           REGISTRY: ${{ inputs.registry-url || 'https://skillx.sh' }}
           CLI_VERSION: ${{ inputs.cli-version }}
+          VISIBILITY: ${{ inputs.visibility }}
           REPO_URL: https://github.com/${{ github.repository }}
         run: |
           set -euo pipefail
+          # Empty: no flag, so a CLI without --visibility keeps working and the registry default applies.
+          visibility=()
+          [[ -z "$VISIBILITY" ]] || visibility=(--visibility "$VISIBILITY")
           npx --yes "skillx-sh@${CLI_VERSION}" release publish HEAD \
             --path "$PKG_PATH" \
             --name "$NAME" \
@@ -141,6 +153,7 @@ jobs:
             --kind "$KIND" \
             --repo "$REPO_URL" \
             --registry "$REGISTRY" \
+            "${visibility[@]}" \
             --json > "$RUNNER_TEMP/release.json"
           digest="$(node -e 'const j=require(process.argv[1]); const r=j.data ?? j; if(!/^sha256:[0-9a-f]{64}$/.test(r.releaseDigest)) process.exit(1); process.stdout.write(r.releaseDigest)' "$RUNNER_TEMP/release.json")"
           echo "release-digest=$digest" >> "$GITHUB_OUTPUT"
