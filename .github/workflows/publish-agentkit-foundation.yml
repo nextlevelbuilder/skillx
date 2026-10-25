@@ -211,7 +211,7 @@ jobs:
           cli="$RUNNER_TEMP/cli/node_modules/skillx-sh/bin/skillx.js"
           publish() {
             node "$cli" publish HEAD --path "$SKILL_PATH" --name "$NAME" --release-version "$VERSION" \
-              --channel "$CHANNEL" --repo https://github.com/bestagentkits/agentkit \
+              --channel "$CHANNEL" --visibility public --repo https://github.com/bestagentkits/agentkit \
               --registry https://skillx.sh --idempotency-key "$IDEMPOTENCY_KEY" --json "$@"
           }
           registry_code() { node -e 'try { process.stdout.write(String(require(process.argv[1]).error?.details?.code ?? "")) } catch {}' "$RUNNER_TEMP/release.json"; }

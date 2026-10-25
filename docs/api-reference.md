@@ -985,7 +985,8 @@ or `null` reasons and reason rules). Same public test key as the manifest vector
 `status_sequence` and `status_issued_at` (sequence and issue time of the last
 signed status; the state itself stays in `release_state`), and the non-unique
 index `idx_package_releases_digest`. `packages.visibility`
-(`public` default, `private`). `publishers.state` (`active` default,
+(`public` column default, `private`; the publish route always writes it
+explicitly, see Visibility below). `publishers.state` (`active` default,
 `suspended`, `revoked`). All additive; rollback SQL is in the migration header
 and ends by deleting the `0011_release_tree_digest.sql` row from
 `d1_migrations`, so the migration can be applied again.
@@ -1019,7 +1020,9 @@ Unscoped keys are rejected (`auth.scope_missing`).
   `bundle`), `sourceProvenance` (`{repo, commit, path}` or `null`) and
   `declaredScripts` (packaged paths) and `provenance` (`null`,
   `{"provider": "skillx"}`, or `{"provider": "kit", "origin":
-  "remote-signed" | "local-dev"}`). Unknown members are rejected.
+  "remote-signed" | "local-dev"}`) and `visibility` (`public` or `private`;
+  any other value is `400 release.invalid_metadata`). Unknown members are
+  rejected.
   `sourceProvenance` is asserted by the publisher and not verified (GitHub
   OIDC is a follow-up); the registry signature covers it but does not vouch
   for it.
@@ -1035,8 +1038,18 @@ release without it is signed as `skillx.release/v1`. Republishing an existing
 kit version with the same tree but a different `origin` is `409
 release.version_exists`.
 
+**Visibility** (`packages.visibility`) is set only when a publish creates the
+package: the requested `visibility`, else `private`, except a kit release
+without it, which is `public` as foundation content always was. A publish
+never changes the visibility of an existing package: omitting `visibility`
+keeps it, and naming a different one is `409 release.visibility_mismatch`
+before anything is written (also when a concurrent first publish created the
+package with the other visibility). Visibility is registry policy, not part
+of the signed manifest. The response carries the stored `visibility`.
+
 **Processing**, each step rejecting before the next runs: name and reserved
-namespaces, key and ownership, signing key, metadata, capped body, tar read
+namespaces, key and ownership, signing key, metadata, package owner, kind and
+visibility, capped body, tar read
 with the shared skill-tree rules and digest (traversal, absolute paths,
 symlinks, hardlinks, devices and duplicate paths fail), version conflict, the
 exec manifest check (below), the release scan, the signed `skillx.release/v1`
@@ -1112,6 +1125,7 @@ SHA-256, so one tree under two versions never collides).
 {
   "identity": "@acme/demo",
   "version": "1.0.0",
+  "visibility": "private",
   "releaseDigest": "sha256:...",
   "artifactDigest": "sha256:...",
   "state": "published",
@@ -1141,7 +1155,7 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 | 401 | `auth.invalid_key` (also an expired, forged or revoked `sxo_` OIDC publish token) |
 | 403 | `identity.reserved_publisher` (`@agentkit` without kit provenance), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
 | 404 | `not_found` (API disabled) |
-| 409 | `release.version_exists`, `release.kind_conflict`, `idempotency.in_progress` |
+| 409 | `release.version_exists`, `release.kind_conflict`, `release.visibility_mismatch`, `idempotency.in_progress` |
 | 413 | `tree.limit_exceeded` |
 | 415 | `release.unsupported_media_type` |
 | 422 | other `tree.*` codes from the skill-tree reader, `exec.manifest_invalid`, `exec.entrypoint_undeclared`, `idempotency.key_reused` |
@@ -1166,8 +1180,10 @@ batch of expired keys.
 - Same key, same request: the first answer (status and JSON body) is replayed
   verbatim with `Idempotent-Replayed: true`; nothing is read from or written
   to R2 or `package_releases` again.
-- Same key, another request (other bytes, version, channel, kind, provenance or
-  scripts): `422 idempotency.key_reused`.
+- Same key, another request (other bytes, version, channel, kind, provenance,
+  scripts or visibility): `422 idempotency.key_reused`. An omitted
+  `visibility` keeps the fingerprint the request had before the member
+  existed.
 - Same key while the first request still runs: `409 idempotency.in_progress`
   (a claim left pending by a crashed request is taken over by the same request
   after 5 minutes).
@@ -1314,10 +1330,12 @@ browser never renders them. A file's `ETag` is its SHA-256 (the manifest
 per-file blobs `blobs/sha256/<hex>` by the manifest `sha256`; the artifact
 from the key recorded in D1.
 
-**Caching**: files and artifacts are digest-addressed and immutable
-(`max-age=31536000, immutable`); listings, manifests and keys use
-`max-age=60` because state can change. Private packages use `private`,
-public ones `public`. Every success except `/keys` carries `Vary:
+**Caching**: public files and artifacts are digest-addressed and immutable
+(`public, max-age=31536000, immutable`); public listings, manifests and keys
+use `max-age=60` because state can change. Every answer about a private
+package (listing, manifest, status, file, artifact) is `Cache-Control:
+private, no-store`, so a revoked entitlement or a quarantine takes effect on
+the next request. Every success except `/keys` carries `Vary:
 Authorization, Cookie`, because the selected release can depend on the
 caller's entitlements. Every JSON error (including `401`, `429` and the
 flag-off `404`) is `Cache-Control: no-store`. A `304` carries the same

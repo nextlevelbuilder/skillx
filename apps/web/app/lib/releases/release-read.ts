@@ -11,7 +11,7 @@
  * `Authorization, Cookie` because the selected release can depend on the
  * viewer. Public file and artifact bytes are `immutable` for a year, so a
  * later quarantine cannot recall copies already held by browsers or proxies;
- * it only stops new fetches from this API.
+ * it only stops new fetches from this API. Private answers are never stored.
  */
 import { RELEASE_KEY_ID_PATTERN, RELEASE_SIGNATURE_ALGORITHM, validateReleaseManifest } from "@skillx/contracts";
 import type { SkillxReleaseManifest } from "@skillx/contracts";
@@ -100,9 +100,15 @@ export async function serveReleaseRead(
   }
 }
 
+/**
+ * Public answers are cacheable (`immutable` for bytes). Every answer about a
+ * private package is `private, no-store`, so revoking access, a quarantine or
+ * a key revocation takes effect on the next request instead of after a
+ * browser-held copy expires.
+ */
 export function cacheControl(release: { visibility: string }, maxAge: number, immutable: boolean): string {
-  const scope = release.visibility === "public" ? "public" : "private";
-  return `${scope}, max-age=${maxAge}${immutable ? ", immutable" : ""}, no-transform`;
+  if (release.visibility !== "public") return "private, no-store";
+  return `public, max-age=${maxAge}${immutable ? ", immutable" : ""}, no-transform`;
 }
 
 /** A stored object is missing or not what D1 recorded: an integrity failure, never served. */

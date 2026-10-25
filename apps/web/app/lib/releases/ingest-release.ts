@@ -3,19 +3,19 @@
  *
  * Order (each step rejects before any later one runs):
  * name and reserved namespaces (for the requested provider) -> scoped key and publisher ownership ->
- * signing key -> metadata -> capped upload -> tar read with limits and tree
+ * signing key -> metadata -> package owner, kind and visibility -> capped upload -> tar read with limits and tree
  * digest -> version conflict -> subrequest budget -> exec manifest -> scan -> signed manifest -> R2 artifact, blobs
  * and manifest (create-only) -> D1 row (last). Release bytes are stored
  * exactly as uploaded; nothing is sanitized. Kit releases (`@agentkit/*`,
  * see release-kit.ts) are signed as `skillx.release/v2`, all others as v1.
  */
 import { ReleaseManifestError } from "@skillx/contracts";
-import type { ReleaseProvenance } from "@skillx/contracts";
+import type { PackageVisibility, ReleaseProvenance } from "@skillx/contracts";
 import { authorizeReleasePublisher, type AuthorizedPublisher } from "./release-auth";
 import { checkExecManifest } from "./release-exec";
 import { ReleaseHttpError, errorResponse, releaseError } from "./release-http";
 import { BLOB_WRITE_CONCURRENCY, MAX_RELEASE_UPLOAD_BYTES, assertSubrequestBudget } from "./release-limits";
-import { RELEASE_METADATA_HEADER, parseReleaseMetadata, parseReleaseName, readUploadBody, requestedProvider } from "./release-request";
+import { RELEASE_METADATA_HEADER, parseReleaseMetadata, parseReleaseName, publishVisibility, readUploadBody, requestedProvider } from "./release-request";
 import { scanRelease } from "./release-scan";
 import { readTree, sha256Hex } from "./release-tree-read";
 import { findPackage, findRelease, insertRelease } from "./release-store";
@@ -41,8 +41,28 @@ export type PreparedUpload = { auth: AuthorizedPublisher; body: Uint8Array };
 type Params = { scope?: string; slug?: string };
 type Kit = { bucket: R2Bucket; provenance: ReleaseProvenance | null };
 
+/**
+ * Publishing never changes the visibility of an existing package: a request
+ * naming another one is refused (409) before anything is written.
+ */
+function assertVisibility(identity: string, requested: PackageVisibility | null, stored: string): void {
+  if (requested === null || requested === stored) return;
+  throw releaseError(
+    409,
+    "release.visibility_mismatch",
+    `${identity} is ${stored}; publishing a release does not change the visibility of an existing package (requested ${requested})`,
+  );
+}
+
 /** The replay answer for an existing version: same tree (and, for a kit release, same provenance) or 409. */
-async function existingOutcome(identity: string, version: string, existing: ExistingRelease, releaseDigest: string, kit: Kit): Promise<Response> {
+async function existingOutcome(
+  identity: string,
+  version: string,
+  existing: ExistingRelease,
+  releaseDigest: string,
+  kit: Kit,
+  visibility: PackageVisibility,
+): Promise<Response> {
   if (existing.releaseDigest !== releaseDigest) {
     throw releaseError(409, "release.version_exists", `${identity}@${version} already exists with different content`);
   }
@@ -50,6 +70,7 @@ async function existingOutcome(identity: string, version: string, existing: Exis
   return Response.json({
     identity,
     version,
+    visibility,
     releaseDigest,
     artifactDigest: existing.artifactDigest,
     state: existing.state,
@@ -71,12 +92,14 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
   if (pkg !== null && pkg.kind !== metadata.kind) {
     throw releaseError(409, "release.kind_conflict", `${name.identity} is a ${pkg.kind} package, not ${metadata.kind}`);
   }
+  if (pkg !== null) assertVisibility(name.identity, metadata.visibility, pkg.visibility);
+  const visibility = publishVisibility(metadata, pkg?.visibility ?? null);
 
   const body = prepared?.body ?? (await readUploadBody(request, MAX_RELEASE_UPLOAD_BYTES));
   const { tree, contents } = await readTree(body);
   const existing = await findRelease(deps.db, name.identity, metadata.version);
   const kit = { bucket: deps.bucket, provenance: metadata.provenance };
-  if (existing !== null) return existingOutcome(name.identity, metadata.version, existing, tree.digest, kit);
+  if (existing !== null) return existingOutcome(name.identity, metadata.version, existing, tree.digest, kit, visibility);
 
   // Budget first: an oversized publish is refused before the scan reads or the signer touches anything.
   const blobs = [...new Map(tree.files.map((f) => [f.sha256, contents.get(f.path)!])).entries()];
@@ -134,6 +157,7 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
     identity: name.identity,
     slug: name.slug,
     kind: metadata.kind,
+    visibility,
     version: metadata.version,
     channel: metadata.channel,
     state: scan.state,
@@ -150,14 +174,20 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
     createdAt: now.getTime(),
   });
   if (outcome === "conflict") {
+    // A package created concurrently with another visibility is refused like an existing one, also when ours was the default.
+    const current = await findPackage(deps.db, name.identity);
+    if (current !== null && current.publisherId === auth.publisherId && current.kind === metadata.kind) {
+      assertVisibility(name.identity, visibility, current.visibility);
+    }
     const winner = await findRelease(deps.db, name.identity, metadata.version);
     // The release insert matched no package row: one with this name was created concurrently by another publisher or kind.
     if (winner === null) throw releaseError(409, "release.kind_conflict", `${name.identity} was created concurrently with another kind or publisher`);
-    return existingOutcome(name.identity, metadata.version, winner, tree.digest, kit);
+    return existingOutcome(name.identity, metadata.version, winner, tree.digest, kit, visibility);
   }
   return Response.json({
     identity: name.identity,
     version: metadata.version,
+    visibility,
     releaseDigest: tree.digest,
     artifactDigest: `sha256:${artifactHex}`,
     state: scan.state,

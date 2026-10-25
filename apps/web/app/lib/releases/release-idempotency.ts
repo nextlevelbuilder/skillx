@@ -54,12 +54,14 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 /**
  * Binds a key to the package, the parsed metadata (fixed field order) and the exact body bytes.
- * Kit provenance is appended only when present, so a `skillx` release keeps the fingerprint it always had.
+ * Kit provenance and an explicit visibility are appended only when present, so a request without them keeps the
+ * fingerprint it always had, and the same key with another visibility is a different request.
  */
 export async function requestFingerprint(identity: string, metadata: ReleaseMetadata, body: Uint8Array): Promise<string> {
-  const { version, channel, kind, sourceProvenance, declaredScripts, provenance } = metadata;
+  const { version, channel, kind, sourceProvenance, declaredScripts, provenance, visibility } = metadata;
   const fields: unknown[] = [identity, version, channel, kind, sourceProvenance, declaredScripts, await sha256Hex(body)];
   if (provenance !== null) fields.push(provenance);
+  if (visibility !== null) fields.push({ visibility });
   const text = JSON.stringify(fields);
   return `sha256:${await sha256Hex(new TextEncoder().encode(text))}`;
 }

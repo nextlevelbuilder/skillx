@@ -3,8 +3,8 @@
  * the `X-SkillX-Release` metadata header and the capped tar body. Nothing
  * here touches storage.
  */
-import { PACKAGE_KINDS, PACKAGE_NAME_PATTERN, RELEASE_CHANNELS, RELEASE_VERSION_PATTERN } from "@skillx/contracts";
-import type { PackageKind, ReleaseChannel, ReleaseProvenance, ReleaseProvider, ReleaseSourceProvenance } from "@skillx/contracts";
+import { PACKAGE_KINDS, PACKAGE_NAME_PATTERN, PACKAGE_VISIBILITIES, RELEASE_CHANNELS, RELEASE_VERSION_PATTERN } from "@skillx/contracts";
+import type { PackageKind, PackageVisibility, ReleaseChannel, ReleaseProvenance, ReleaseProvider, ReleaseSourceProvenance } from "@skillx/contracts";
 import { ERROR_CODES, SkillTreeError, checkDirectoryAlias, checkPublisher, validateIdentity } from "@skillx/skill-tree";
 import { releaseError } from "./release-http";
 import { parseKitReleaseName, parseProvenance, treeErrorToHttp } from "./release-kit";
@@ -27,9 +27,11 @@ export interface ReleaseMetadata {
   declaredScripts: string[];
   /** `kit` releases are signed as `skillx.release/v2`; null means provider `skillx` (v1). */
   provenance: ReleaseProvenance | null;
+  /** The visibility the caller asked for; null when omitted (see `publishVisibility`). */
+  visibility: PackageVisibility | null;
 }
 
-const METADATA_FIELDS = new Set(["version", "channel", "kind", "sourceProvenance", "declaredScripts", "provenance"]);
+const METADATA_FIELDS = new Set(["version", "channel", "kind", "sourceProvenance", "declaredScripts", "provenance", "visibility"]);
 /** The AgentKit alias prefixes (`ak-plan`, `ak:plan`), compared with ASCII case folding. */
 const RESERVED_ALIAS_PREFIX = /^ak[-:]/i;
 
@@ -136,7 +138,21 @@ export function parseReleaseMetadata(header: string | null): ReleaseMetadata {
     sourceProvenance: provenance as ReleaseSourceProvenance | null,
     declaredScripts: scripts as string[],
     provenance: parseProvenance(raw.provenance),
+    visibility: raw.visibility === undefined ? null : oneOf(PACKAGE_VISIBILITIES, raw.visibility, "private", "visibility"),
   };
+}
+
+/**
+ * The visibility a publish stores. An existing package keeps the one it has
+ * (the caller refuses a different explicit request; it is never applied). A
+ * new package takes the requested one, else `private`. A new `@agentkit` kit
+ * release (provider `kit`) defaults to `public` as it always has: personal
+ * kits read foundation content as a public base.
+ */
+export function publishVisibility(metadata: ReleaseMetadata, stored: string | null): PackageVisibility {
+  if (stored !== null) return stored === "public" ? "public" : "private";
+  if (metadata.visibility !== null) return metadata.visibility;
+  return metadata.provenance?.provider === "kit" ? "public" : "private";
 }
 
 /** Reads the uncompressed tar body, failing with 413 as soon as it exceeds `max` bytes. */

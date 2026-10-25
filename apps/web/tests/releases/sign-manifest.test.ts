@@ -75,7 +75,10 @@ describe("request boundary", () => {
       sourceProvenance: null,
       declaredScripts: [],
       provenance: null,
+      visibility: null,
     });
+    expect(parseReleaseMetadata(header({ version: "1.0.0", visibility: "private" })).visibility).toBe("private");
+    expect(() => parseReleaseMetadata(header({ version: "1.0.0", visibility: "unlisted" }))).toThrow(/visibility/);
     expect(() => parseReleaseMetadata(null)).toThrow(/required/);
     expect(() => parseReleaseMetadata("%%%")).toThrow(/base64/);
     expect(() => parseReleaseMetadata(header({ version: "1.0.0+build" }))).toThrow(/SemVer/);

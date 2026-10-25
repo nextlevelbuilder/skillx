@@ -4,12 +4,13 @@
  * batch with the package row, and the unique (package_id, version) index
  * makes exactly one of two concurrent uploads of a version win.
  */
-import type { ExecSummary, PackageKind, ReleaseChannel, ReleaseSourceProvenance } from "@skillx/contracts";
+import type { ExecSummary, PackageKind, PackageVisibility, ReleaseChannel, ReleaseSourceProvenance } from "@skillx/contracts";
 
 export interface ExistingPackage {
   id: string;
   publisherId: string;
   kind: string;
+  visibility: string;
 }
 
 export interface ExistingRelease {
@@ -25,6 +26,8 @@ export interface NewRelease {
   identity: string;
   slug: string;
   kind: PackageKind;
+  /** Written only when the package is created; the release row joins only a package with exactly this visibility. */
+  visibility: PackageVisibility;
   version: string;
   channel: ReleaseChannel;
   state: "published" | "quarantined";
@@ -44,10 +47,10 @@ export interface NewRelease {
 
 export async function findPackage(db: D1Database, identity: string): Promise<ExistingPackage | null> {
   const row = await db
-    .prepare("SELECT id, publisher_id, kind FROM packages WHERE name = ?")
+    .prepare("SELECT id, publisher_id, kind, visibility FROM packages WHERE name = ?")
     .bind(identity)
-    .first<{ id: string; publisher_id: string; kind: string }>();
-  return row === null ? null : { id: row.id, publisherId: row.publisher_id, kind: row.kind };
+    .first<{ id: string; publisher_id: string; kind: string; visibility: string }>();
+  return row === null ? null : { id: row.id, publisherId: row.publisher_id, kind: row.kind, visibility: row.visibility };
 }
 
 export async function findRelease(db: D1Database, identity: string, version: string): Promise<ExistingRelease | null> {
@@ -74,7 +77,8 @@ const isUniqueViolation = (error: unknown) => error instanceof Error && /UNIQUE 
 /**
  * Creates the package when needed and inserts the release, atomically.
  * Returns "conflict" when the version already exists (a concurrent upload
- * won) or the package exists with another kind or publisher.
+ * won) or the package exists with another kind, publisher or visibility, so
+ * a release never lands in a package more visible than the caller decided.
  */
 export async function insertRelease(db: D1Database, release: NewRelease): Promise<"inserted" | "conflict"> {
   const packageId = `pkg_${crypto.randomUUID()}`;
@@ -86,17 +90,17 @@ export async function insertRelease(db: D1Database, release: NewRelease): Promis
       .prepare(
         // Only an existing name is skipped; any other constraint failure aborts the batch.
         `INSERT INTO packages (id, publisher_id, name, slug, kind, visibility, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, 'public', ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(name) DO NOTHING`,
       )
-      .bind(packageId, release.publisherId, release.identity, release.slug, release.kind, release.createdAt, release.createdAt),
+      .bind(packageId, release.publisherId, release.identity, release.slug, release.kind, release.visibility, release.createdAt, release.createdAt),
     db
       .prepare(
         `INSERT INTO package_releases (id, package_id, version, channel, release_state, manifest_schema_version,
            artifact_key, artifact_digest, artifact_size, release_digest, file_count, tree_size, signed_manifest_key,
            source_provenance, exec_summary_json, created_at, published_at, quarantined_at)
          SELECT ?, id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-           FROM packages WHERE name = ? AND publisher_id = ? AND kind = ?`,
+           FROM packages WHERE name = ? AND publisher_id = ? AND kind = ? AND visibility = ?`,
       )
       .bind(
         releaseId,
@@ -119,6 +123,7 @@ export async function insertRelease(db: D1Database, release: NewRelease): Promis
         release.identity,
         release.publisherId,
         release.kind,
+        release.visibility,
       ),
   ];
   try {

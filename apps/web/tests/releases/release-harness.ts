@@ -30,6 +30,12 @@ export interface UploadOptions {
   version?: string;
   metadata?: Record<string, unknown>;
   contentType?: string;
+  /**
+   * Metadata `visibility` added when `metadata` does not name one. Fixture
+   * packages are public unless a test says otherwise; `null` omits the field
+   * so the registry default applies.
+   */
+  visibility?: "public" | "private" | null;
 }
 
 export async function createHarness() {
@@ -65,7 +71,9 @@ export async function createHarness() {
     const headers = new Headers({ "Content-Type": options.contentType ?? "application/x-tar" });
     const key = options.key === undefined ? alphaKey : options.key;
     if (key !== null) headers.set("Authorization", `Bearer ${key}`);
-    const metadata = options.metadata ?? { version: options.version ?? "1.0.0" };
+    const base = options.metadata ?? { version: options.version ?? "1.0.0" };
+    const visibility = options.visibility === undefined ? "public" : options.visibility;
+    const metadata = visibility === null || "visibility" in base ? base : { ...base, visibility };
     headers.set("X-SkillX-Release", Buffer.from(JSON.stringify(metadata), "utf8").toString("base64"));
     // `duplex` lets Node accept a streamed body.
     const init = { method: "POST", headers, body, duplex: "half" } as RequestInit;
