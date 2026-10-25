@@ -261,6 +261,7 @@ not a local path runs the deprecated import (see `skillx import`).
 | `--kind <kind>` | `skill`, `hook-pack` or `bundle` | `skill` |
 | `--repo <https-url>` | Provenance repository URL | `origin` remote (https form) |
 | `--script <path>` | Declare a packaged script (repeatable) | — |
+| `--visibility <visibility>` | `public` or `private`. Omitted: a new package is `private` (a note goes to stderr, never stdout) and an existing package keeps its visibility. A different visibility for an existing package is refused (`release.visibility_mismatch`) | — |
 | `--kit-origin <origin>` | Publish an `@agentkit/*` kit release (`remote-signed` or `local-dev`), signed as `skillx.release/v2`; needs a `releases:publish:@agentkit` key; the slug omits `ak-` (`@agentkit/plan`). Installing v2 releases needs skillx-sh 0.7.0 or later | — |
 | `--registry <url>` | Registry base URL; `https` only (`http` only for localhost) | configured base URL |
 | `--idempotency-key <key>` | Sends `Idempotency-Key`: a retry with the same key and bytes replays the first answer; other bytes are refused | — |
@@ -269,16 +270,18 @@ not a local path runs the deprecated import (see `skillx import`).
 | `--json` | Print the result envelope | — |
 
 ```bash
-SKILLX_API_KEY=sx_... skillx publish skills/my-skill --name @acme/my-skill --release-version 1.2.0
+SKILLX_API_KEY=sx_... skillx publish skills/my-skill --name @acme/my-skill --release-version 1.2.0 --visibility public
 skillx publish HEAD --path skills/my-skill --name @acme/my-skill --release-version 1.2.0 --oidc --idempotency-key "$GITHUB_RUN_ID"
 ```
 
 CI: `.github/workflows/publish-release.yml` (manual dispatch or
 `workflow_call`, never on pull requests) runs the same command with a pinned
 CLI version, in the `skillx-publish` environment, with its
-`SKILLX_PUBLISH_KEY` secret. `.github/workflows/publish-agentkit-foundation.yml`
+`SKILLX_PUBLISH_KEY` secret; it passes no `--visibility`, so a package it
+creates is private. `.github/workflows/publish-agentkit-foundation.yml`
 publishes an AgentKit foundation skill from `bestagentkits/agentkit` at a
-pinned commit with OIDC (fallback `SKILLX_AGENTKIT_PUBLISH_KEY`): the kit
+pinned commit with OIDC (fallback `SKILLX_AGENTKIT_PUBLISH_KEY`) and
+`--visibility public`: the kit
 directory `kits/<kit>/skills/ak-<x>` becomes `@bestagentkits/<x>` at the
 kit's `kit.yaml` version (see the deployment guide for why `@agentkit/*` stays
 reserved).

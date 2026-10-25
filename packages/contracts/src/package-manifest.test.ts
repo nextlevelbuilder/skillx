@@ -16,6 +16,7 @@ import { validateReleaseManifest } from "./release-manifest";
 import { validateReleaseStatus } from "./release-status";
 import {
   PACKAGE_KINDS,
+  PACKAGE_VISIBILITIES,
   RELEASE_STATES,
   SEMVER_PATTERN,
   isPackageKind,
@@ -91,6 +92,10 @@ describe("package kinds and release states", () => {
     expect([...PACKAGE_KINDS]).toEqual(["skill", "hook-pack", "bundle"]);
     for (const kind of PACKAGE_KINDS) expect(isPackageKind(kind)).toBe(true);
     expect(isPackageKind("plugin")).toBe(false);
+  });
+
+  it("defines exactly the public and private package visibilities", () => {
+    expect([...PACKAGE_VISIBILITIES]).toEqual(["public", "private"]);
   });
 
   it("defines exactly the four release states", () => {

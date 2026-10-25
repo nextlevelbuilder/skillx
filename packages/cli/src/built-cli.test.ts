@@ -101,6 +101,7 @@ describe("built cli", { timeout: 30_000 }, () => {
     expect(stdout).toContain("Usage: skillx");
     expect(stdout).toContain("release");
     expect((await cli("release", "publish", "--help")).stdout).toContain("--release-version");
+    for (const command of [["publish"], ["release", "publish"]]) expect((await cli(...command, "--help")).stdout).toContain("--visibility <visibility>");
   });
 
   it("packs a skill with YAML frontmatter through the skill-tree reader", async () => {
@@ -114,7 +115,7 @@ describe("built cli", { timeout: 30_000 }, () => {
 
   it("publishes a release to a loopback stub registry", async () => {
     const packDigest = (JSON.parse((await cli("pack", skillDir, "--out", join(root, "pub.tar"), "--json")).stdout) as { data: { releaseDigest: string } }).data.releaseDigest;
-    const received: { url?: string; auth?: string; type?: string; digest?: string; idempotency?: string } = {};
+    const received: { url?: string; auth?: string; type?: string; digest?: string; idempotency?: string; visibility?: string } = {};
     const server = createServer((req, res) => {
       const chunks: Buffer[] = [];
       req.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -127,27 +128,44 @@ describe("built cli", { timeout: 30_000 }, () => {
           digest: `sha256:${createHash("sha256").update(body).digest("hex")}`,
           idempotency: req.headers["idempotency-key"],
         });
-        const meta = JSON.parse(Buffer.from(String(req.headers["x-skillx-release"]), "base64").toString("utf8")) as { version: string };
+        const meta = JSON.parse(Buffer.from(String(req.headers["x-skillx-release"]), "base64").toString("utf8")) as { version: string; visibility?: string };
+        received.visibility = meta.visibility;
         res.writeHead(201, { "Content-Type": "application/json" });
-        // The stub cannot recompute the tree digest; it echoes the one the pack test asserts on.
-        res.end(JSON.stringify({ created: true, state: "published", version: meta.version, artifactDigest: received.digest, releaseDigest: packDigest }));
+        // The stub cannot recompute the tree digest; it echoes the one the pack test asserts on. Like a new package, it defaults to private.
+        const visibility = meta.visibility ?? "private";
+        res.end(JSON.stringify({ created: true, state: "published", version: meta.version, visibility, artifactDigest: received.digest, releaseDigest: packDigest }));
       });
     });
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     try {
       const { port } = server.address() as AddressInfo;
-      const { stdout } = await cli(
-        "publish", skillDir,
-        "--name", "@smoke/smoke-skill",
-        "--release-version", "1.0.0",
-        "--repo", "https://github.com/example/smoke",
-        "--registry", `http://127.0.0.1:${port}`,
-        "--idempotency-key", "smoke-run-1",
-        "--json",
-      );
+      const publish = (...extra: string[]) =>
+        cli(
+          "publish", skillDir,
+          "--name", "@smoke/smoke-skill",
+          "--release-version", "1.0.0",
+          "--repo", "https://github.com/example/smoke",
+          "--registry", `http://127.0.0.1:${port}`,
+          "--idempotency-key", "smoke-run-1",
+          "--json",
+          ...extra,
+        );
+      const { stdout, stderr } = await publish();
       const result = (JSON.parse(stdout) as { ok: true; data: { releaseDigest: string; artifactDigest: string; state: string } }).data;
-      expect(result).toMatchObject({ releaseDigest: packDigest, artifactDigest: received.digest, state: "published" });
+      expect(result).toMatchObject({ releaseDigest: packDigest, artifactDigest: received.digest, state: "published", visibility: "private" });
       expect(received).toMatchObject({ url: "/api/v1/packages/@smoke/smoke-skill/releases", auth: "Bearer sx_test_smoke_key", type: "application/x-tar", idempotency: "smoke-run-1" });
+      // Omitted flag: nothing sent, and the private default is noted on stderr only, never in the JSON stdout.
+      expect(received.visibility).toBeUndefined();
+      expect(stderr).toContain("note: @smoke/smoke-skill is private");
+
+      const explicit = await publish("--visibility", "public");
+      expect(JSON.parse(explicit.stdout)).toMatchObject({ ok: true, data: { visibility: "public" } });
+      expect(received.visibility).toBe("public");
+      expect(explicit.stderr).not.toContain("note:");
+
+      const bad = await publish("--visibility", "unlisted").catch((e) => e);
+      expect(bad.code).toBe(2);
+      expect(JSON.parse(bad.stdout)).toMatchObject({ ok: false, error: { code: "usage_error", message: expect.stringContaining("--visibility") } });
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));
     }

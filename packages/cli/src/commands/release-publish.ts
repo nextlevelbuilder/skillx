@@ -2,6 +2,8 @@ import { Command } from 'commander';
 import { spawnSync } from 'node:child_process';
 import chalk from 'chalk';
 import { KIT_ORIGINS } from '@skillx/skill-tree';
+import { PACKAGE_VISIBILITIES } from '@skillx/contracts';
+import type { PackageVisibility } from '@skillx/contracts';
 import { getBaseUrl } from '../utils/config-store.js';
 import { CliError, parsePackageName, publishCredential, registryFetch, runCommand, usageError } from '../lib/release-cli.js';
 import { createPackCommand, packOrFail } from './pack.js';
@@ -66,9 +68,30 @@ export function kitProvenance(name: { handle: string; slug: string }, kitOrigin:
   return { provider: 'kit', origin: kitOrigin };
 }
 
-/** The base64 `X-SkillX-Release` header; `provenance` is sent only for a kit release. */
-export function releaseMetadataHeader({ provenance, ...fields }: Record<string, unknown> & { provenance?: unknown }): string {
-  const metadata = provenance === undefined ? fields : { ...fields, provenance };
+/** `--visibility`: undefined when omitted (the registry decides), else exactly public or private. */
+export function requestedVisibility(raw: string | undefined): PackageVisibility | undefined {
+  if (raw === undefined) return undefined;
+  if (!(PACKAGE_VISIBILITIES as readonly string[]).includes(raw)) {
+    throw new Error(`--visibility must be one of: ${PACKAGE_VISIBILITIES.join(', ')}`);
+  }
+  return raw as PackageVisibility;
+}
+
+/** The stderr note for a publish without --visibility that the registry stored as private, else null. */
+export function defaultVisibilityNote(requested: PackageVisibility | undefined, body: Record<string, unknown>, name: string): string | null {
+  if (requested !== undefined || body.visibility !== 'private') return null;
+  return `note: ${name} is private (no --visibility given: a new package defaults to private, an existing one keeps its visibility)`;
+}
+
+/** The base64 `X-SkillX-Release` header; `provenance` and `visibility` are sent only when set. */
+export function releaseMetadataHeader({
+  provenance,
+  visibility,
+  ...fields
+}: Record<string, unknown> & { provenance?: unknown; visibility?: unknown }): string {
+  const metadata: Record<string, unknown> = { ...fields };
+  if (provenance !== undefined) metadata.provenance = provenance;
+  if (visibility !== undefined) metadata.visibility = visibility;
   return Buffer.from(JSON.stringify(metadata), 'utf8').toString('base64');
 }
 
@@ -85,6 +108,7 @@ export interface ReleasePublishOptions {
   kind: string;
   repo?: string;
   kitOrigin?: string;
+  visibility?: string;
   script: string[];
   registry?: string;
   idempotencyKey?: string;
@@ -109,8 +133,10 @@ export async function runReleasePublish(input: string, options: ReleasePublishOp
   const name = parsePackageName(options.name);
   if (!options.releaseVersion) throw usageError('--release-version is required, e.g. 1.0.0');
   let provenance: ReturnType<typeof kitProvenance>;
+  let visibility: PackageVisibility | undefined;
   try {
     provenance = kitProvenance(name, options.kitOrigin);
+    visibility = requestedVisibility(options.visibility);
   } catch (error) {
     throw usageError((error as Error).message);
   }
@@ -133,6 +159,7 @@ export async function runReleasePublish(input: string, options: ReleasePublishOp
       sourceProvenance: repo === null ? null : { repo, commit: packed.commit, path: packed.path },
       declaredScripts: [...options.script].sort(),
       provenance,
+      visibility,
     }),
   };
   if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
@@ -142,12 +169,16 @@ export async function runReleasePublish(input: string, options: ReleasePublishOp
   } catch (error) {
     throw new CliError('api_error', (error as Error).message, { details: { local: packSummary(packed) } });
   }
+  // stderr only: under --json, stdout carries nothing but the envelope.
+  const note = defaultVisibilityNote(visibility, body, name.name);
+  if (note !== null) console.error(chalk.yellow(note));
   return { ...packSummary(packed), ...body, name: name.name } as ReturnType<typeof packSummary> & Record<string, unknown> & { name: string };
 }
 
 export function renderPublished(result: Awaited<ReturnType<typeof runReleasePublish>>): void {
   console.log(chalk.bold.green(`${result.created ? 'Published' : 'Already published'} ${result.name}@${String(result.version)}`));
   console.log(`  releaseDigest: ${chalk.cyan(String(result.releaseDigest))}`);
+  if (typeof result.visibility === 'string') console.log(`  visibility: ${result.visibility}`);
   console.log(`  state: ${result.state === 'published' ? chalk.green('published') : chalk.yellow(String(result.state))}`);
 }
 
@@ -162,7 +193,8 @@ export function withReleasePublishOptions(command: Command): Command {
     .option('--kind <kind>', 'skill | hook-pack | bundle', 'skill')
     .option('--repo <https-url>', 'source repository URL for provenance (default: git remote origin)')
     .option('--kit-origin <origin>', 'publish an @agentkit/* kit release with this origin: remote-signed | local-dev (needs a releases:publish:@agentkit key)')
-    .option('--script <path>', 'declare a packaged file as a script (repeatable)', collect, [])
+    .option('--visibility <visibility>', 'public | private; omitted: a new package is private, an existing one keeps its visibility (a different one is refused)')
+    .option('--script <path>','declare a packaged file as a script (repeatable)', collect, [])
     .option('--registry <url>', 'registry base URL (default: configured base URL)')
     .option('--idempotency-key <key>', 'Idempotency-Key header: a retry with the same key replays the first answer')
     .option('--oidc', 'authenticate with the GitHub Actions OIDC token (trusted publishing) instead of an API key')
