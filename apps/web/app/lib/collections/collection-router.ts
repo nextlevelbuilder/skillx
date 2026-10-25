@@ -21,6 +21,7 @@ import {
   prepareContent,
   readableCollection,
   updateMetadata,
+  viewRevisions,
 } from "./collection-store";
 import { collectionView, isHidden, revisionView } from "./collection-views";
 
@@ -90,8 +91,8 @@ const ROUTES: RouteDef[] = [
   {
     pattern: /^revisions$/,
     get: async (c, id) => {
-      await readableCollection(c, id);
-      return json({ revisions: (await listRevisions(c, id)).map(revisionView) });
+      const row = await readableCollection(c, id);
+      return json({ revisions: await viewRevisions(c, row, await listRevisions(c, id)) });
     },
     post: async (c, id) => {
       const row = await ownedCollection(c, id);
@@ -104,7 +105,8 @@ const ROUTES: RouteDef[] = [
     pattern: /^revisions\/(\d{1,9}|latest)$/,
     get: async (c, id, [n]) => {
       const row = await readableCollection(c, id);
-      return json({ revision: revisionView(await findRevision(c, id, n === "latest" ? row.latest_revision_number : Number(n))) });
+      const [revision] = await viewRevisions(c, row, [await findRevision(c, id, n === "latest" ? row.latest_revision_number : Number(n))]);
+      return json({ revision });
     },
   },
   {
@@ -125,7 +127,7 @@ const ROUTES: RouteDef[] = [
       if (isHidden(source)) throw releaseError(403, "collection.hidden", "a collection hidden by moderation cannot be cloned");
       const b = await readBody(c.request, ["slug", "name", "visibility", "revisionNumber"]);
       const number = b.revisionNumber === undefined ? source.latest_revision_number : requireRevisionNumber(b.revisionNumber, "revisionNumber");
-      const from = revisionView(await findRevision(c, id, number));
+      const [from] = await viewRevisions(c, source, [await findRevision(c, id, number)]);
       const created = await insertCollection(
         c,
         { slug: requireSlug(b.slug ?? source.slug), name: requireName(b.name, source.name), visibility: requireVisibility(b.visibility), clonedFrom: from.id },

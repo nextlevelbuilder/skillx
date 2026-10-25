@@ -4,6 +4,7 @@ import { serveDownloadRedeem } from "~/lib/releases/release-download-url";
 import { callTool } from "~/lib/mcp/tools";
 import { handleSkillMarkdown } from "~/lib/markdown/skill-markdown-handler";
 import { action as mintAction } from "~/routes/api.v1.release-download-url";
+import { action as collectionAction, loader as collectionLoader } from "~/routes/api.v1.collections";
 import { loader as apiSkillDetail } from "~/routes/api.skill-detail";
 import { loader as artifactLoader } from "~/routes/api.v1.release-artifact";
 import { loader as fileLoader } from "~/routes/api.v1.release-file";
@@ -342,6 +343,60 @@ describe("library", () => {
       expect(res.body, who).not.toContain(SLUG);
       expect(res.body, who).not.toContain(digest);
     }
+  });
+});
+
+describe("collections", () => {
+  async function collections(path: string, viewer: Viewer, body?: unknown, method = body === undefined ? "GET" : "POST") {
+    const [, , , , id, ...rest] = path.split("/");
+    const params = { ...(id === undefined ? {} : { id }), ...(rest.length === 0 ? {} : { "*": rest.join("/") }) };
+    const req = request(path, viewer, { method, headers: { "Content-Type": "application/json" }, body: method === "GET" ? undefined : JSON.stringify(body ?? {}) });
+    const args = { request: req, params, context: { cloudflare: { env: env() } } } as never;
+    const res = method === "GET" ? await collectionLoader(args) : await collectionAction(args);
+    return { status: res.status, cache: res.headers.get("Cache-Control"), text: await res.text() };
+  }
+
+  const members = [
+    { packageName: PRIVATE, version: "1.0.0", digest },
+    { packageName: "@alpha/openthing", version: "1.0.0" },
+  ];
+
+  async function sharedCollection(visibility: string) {
+    await k.publish("@alpha/openthing", "1.0.0", { "SKILL.md": skillText(BODY, "name: openthing\ndescription: open") });
+    const created = await collections("/api/v1/collections", viewers().owner, { slug: "starter", name: "Starter", visibility, members, config: {} });
+    expect(created.status).toBe(201);
+    return JSON.parse(created.text).collection.id as string;
+  }
+
+  it.each(["public", "unlisted"])("a %s collection does not name the private package to viewers who cannot read it", async (visibility) => {
+    const id = await sharedCollection(visibility);
+    for (const path of [`/api/v1/collections/${id}/revisions/1`, `/api/v1/collections/${id}/revisions/latest`, `/api/v1/collections/${id}/revisions`]) {
+      for (const who of ["anonymous", "unrelatedKey", "unrelatedSession", "stranger"] as const) {
+        const res = await collections(path, viewers()[who]);
+        expect(res.status, `${who} ${path}`).toBe(200);
+        expect(res.text, `${who} ${path}`).not.toContain(SLUG);
+        expect(res.text, `${who} ${path}`).toContain("@alpha/openthing");
+        expect(res.cache).toBe("no-store");
+      }
+    }
+  });
+
+  it("shows the private member to the owner and to an entitled reader", async () => {
+    const id = await sharedCollection("public");
+    for (const who of ALLOWED) {
+      const res = await collections(`/api/v1/collections/${id}/revisions/1`, viewers()[who]);
+      expect(res.text, who).toContain(PRIVATE);
+    }
+  });
+
+  it("a clone made by a viewer who cannot read the package does not carry it", async () => {
+    const id = await sharedCollection("public");
+    const clone = await collections(`/api/v1/collections/${id}/clone`, viewers().unrelatedKey, { slug: "mine" });
+    expect(clone.status).toBe(201);
+    expect(clone.text).not.toContain(SLUG);
+    const cloneId = JSON.parse(clone.text).collection.id as string;
+    const latest = await collections(`/api/v1/collections/${cloneId}/revisions/latest`, viewers().unrelatedKey);
+    expect(latest.text).not.toContain(SLUG);
   });
 });
 
