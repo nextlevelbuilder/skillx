@@ -8,10 +8,12 @@
  *   and answers `{url, expiresAt, ...}`. The URL is valid for 5 minutes.
  * - `GET /api/v1/downloads/:token` streams the artifact. The token is an
  *   HMAC (`SKILLX_TOKEN_SECRET`, purpose `artifact-download`) over the
- *   release digest, identity, version, viewer and expiry; it is never an API
- *   key and grants nothing else. Redemption re-applies the access rules for
- *   the same viewer, so a revoked entitlement, a quarantine or a suspended
- *   publisher stops a URL that was already issued. Answers are `no-store`.
+ *   release digest, identity, version, viewer, minting API key id (null for a
+ *   session) and expiry; it is never an API key and grants nothing else.
+ *   Redemption re-applies the access rules for the same viewer and requires
+ *   the minting key to be unrevoked, so a revoked key or entitlement, a
+ *   quarantine or a suspended publisher stops a URL that was already issued.
+ *   Answers are `no-store`.
  *
  * The public artifact path (`/api/v1/releases/:digest/artifact`) is
  * unchanged. Without the secret, minting is `503 download_url.unavailable`
@@ -47,6 +49,7 @@ export function serveDownloadUrlMint(request: Request, env: Env, params: Params,
       i: release.identity,
       n: release.version,
       u: ctx.userId,
+      k: ctx.keyId ?? null,
       exp,
     });
     const origin = new URL(request.url).origin;
@@ -67,12 +70,20 @@ export function serveDownloadUrlMint(request: Request, env: Env, params: Params,
 
 function parsePayload(payload: Record<string, unknown> | null) {
   if (payload === null || payload.v !== 1) return null;
-  const { d, i, n, u } = payload;
+  const { d, i, n, u, k } = payload;
   if (typeof d !== "string" || !RELEASE_DIGEST_PATTERN.test(d)) return null;
   if (typeof i !== "string" || !PACKAGE_NAME_PATTERN.test(i)) return null;
   if (typeof n !== "string" || !RELEASE_VERSION_PATTERN.test(n)) return null;
   if (u !== null && typeof u !== "string") return null;
-  return { digest: d, identity: i, version: n, userId: u as string | null };
+  // `k` is absent only from URLs minted before it existed (they expire within the TTL).
+  if (k !== undefined && k !== null && (typeof k !== "string" || k === "" || u === null)) return null;
+  return { digest: d, identity: i, version: n, userId: u as string | null, keyId: (k ?? null) as string | null };
+}
+
+/** The minting key is still unrevoked and still belongs to the viewer. */
+async function keyStillValid(db: D1Database, keyId: string, userId: string): Promise<boolean> {
+  const row = await db.prepare("SELECT 1 AS ok FROM api_keys WHERE id = ? AND user_id = ? AND revoked_at IS NULL").bind(keyId, userId).first();
+  return row !== null;
 }
 
 /** `GET /api/v1/downloads/:token` */
@@ -89,6 +100,8 @@ export async function serveDownloadRedeem(request: Request, env: Env, params: Pa
     const target = secret === null ? null : parsePayload(await verifyToken(secret, "artifact-download", params.token ?? "", now()));
     // Forged, expired and unconfigured all answer like an unknown release.
     if (target === null) throw notFound();
+    // A URL minted with an API key dies with the key: revocation answers like an unknown release.
+    if (target.keyId !== null && !(await keyStillValid(env.DB, target.keyId, target.userId!))) throw notFound();
     const release = await resolveReleaseByDigest(env.DB, target.digest, target.userId, target.version, target.identity);
     return await artifactResponse({ db: env.DB, bucket: env.R2, userId: target.userId, request }, release, "no-store");
   } catch (error) {

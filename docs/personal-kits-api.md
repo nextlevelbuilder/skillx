@@ -24,8 +24,12 @@ without an explicit user approval.
 
 ## Authentication, ownership and limits
 
-- Callers authenticate with a session or an **unscoped** API key. Scoped keys,
-  such as `releases:publish:@h`, get 401. The admin secret is not an
+- Callers authenticate with a session, an **unscoped** API key, or a scoped
+  key acting as its owner: reads need `library:read` or `kits:write:@<handle>`,
+  writes `kits:write:@<handle>`, for the handle of the kit. A scoped key with
+  no kit scope (such as `releases:publish:@h` alone) gets 401
+  `invalid_api_key`; one scoped to another handle gets 403
+  `auth.scope_missing` before any lookup. The admin secret is not an
   identity here: a write that presents a valid one gets 404 (an invalid one
   gets 401 `invalid_admin_secret`), and a read with only the admin secret is
   anonymous (401). A write in a web session (no `Authorization` header) must

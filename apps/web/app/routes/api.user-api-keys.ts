@@ -61,7 +61,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
         );
       }
 
-      // Optional scopes make a scoped key (e.g. CI release publishing), which legacy endpoints reject.
+      // Optional scopes make a scoped key (CI release publishing, library sync), which legacy endpoints reject.
       let scopes: string[] | null = null;
       // `scopes: null` is the same as omitting the field: an account key.
       if (body.scopes !== undefined && body.scopes !== null) {
@@ -71,7 +71,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
         } catch (error) {
           return Response.json({ error: error instanceof Error ? error.message : "Invalid scopes" }, { status: 400 });
         }
-        // A key may only grant what its owner holds: publishing for active publishers they own.
+        // A key may only grant what its owner holds: publishing and kit writes for active publishers they own.
         const owned = new Set((await listOwnedActivePublishers(db, session.user.id, requested.handles)).map((p) => p.handle));
         const missing = requested.handles.find((handle) => !owned.has(handle));
         if (missing !== undefined) {

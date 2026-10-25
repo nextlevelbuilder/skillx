@@ -548,7 +548,7 @@ Generate a new API key. Plaintext returned **once** — not stored.
 | Field | Type | Required | Validation |
 |-------|------|----------|------------|
 | `name` | string | No | Max 100 chars (default: `"Default"`) |
-| `scopes` | string[] | No | 1-8 entries of `releases:publish:@<handle>`; each handle must be an active publisher you own (`403` otherwise). `null` is the same as omitting the field: an account key |
+| `scopes` | string[] | No | 1-8 entries of `releases:publish:@<handle>`, `kits:write:@<handle>` or `library:read`; each handle must be an active publisher you own (`403` otherwise); any other scope is `400`. `null` is the same as omitting the field: an account key |
 
 **Response** `200`:
 
@@ -566,11 +566,26 @@ the site's own origin: a request whose `Origin` differs (or, without `Origin`,
 whose `Sec-Fetch-Site` is not `same-origin`/`none`) gets `403`. A body that is
 not a JSON object gets `400`.
 
-A scoped key is accepted only by endpoints that check its scope (today the
-release publish API). Endpoints that take unscoped keys (`authenticateRequest`,
-skill install and usage reports) reject scoped keys, so a CI publish key cannot
-act as the user anywhere else. A scoped key is stored under a domain-separated
-hash (`hashScopedApiKey`), so this also holds for code that predates scopes.
+A scoped key is accepted only by endpoints that check its scope, and always
+acts as its owner, so it never reaches more than the owner's session would:
+
+| Scope | Grants |
+|-------|--------|
+| `releases:publish:@<handle>` | The release publish and promote APIs for `@<handle>` |
+| `library:read` | The release read API and signed download URLs (private releases the owner owns or is entitled to), and reads of the owner's personal kits |
+| `kits:write:@<handle>` | Reads and writes of the owner's personal kits `@<handle>/...` (store revisions, proposals, rebase, conflicts, activate, rollback, lock). Review and public activation still need a web session |
+
+A second device or CI that syncs a private library uses one key holding
+`library:read kits:write:@<handle>` (plus `releases:publish:@<handle>` to
+publish) and can be revoked on its own. On the read and kit APIs a scoped key
+holding none of the scopes the route accepts answers `401 invalid_api_key`,
+like a revoked key; a kit key for another handle answers `403
+auth.scope_missing` before any lookup. Release state changes, review,
+collections, MCP and the other endpoints that take unscoped keys
+(`authenticateRequest`, skill install and usage reports) reject every scoped
+key. A scoped key is stored under a domain-separated hash
+(`hashScopedApiKey`), so this also holds for code that predates scopes.
+Settings (API keys, "Generate New API Key") offers these scopes as checkboxes.
 
 #### `DELETE /api/user/api-keys`
 
@@ -1253,11 +1268,12 @@ Read-only, behind the same flag: unless `SKILLX_RELEASES_API` is `"1"` or
 | `GET /api/v1/releases/{releaseDigest}/artifact[?version=&package=]` | The uploaded tar, streamed same-origin from R2 (no redirect) |
 | `GET /api/v1/keys` | `{"algorithm": "ed25519", "active": [...], "revoked": [...]}` registry key IDs |
 
-**Auth**: optional. `Authorization: Bearer sx_...` with an unscoped API key,
-or the web session. Without an `Authorization` header the session decides,
+**Auth**: optional. `Authorization: Bearer sx_...` with an unscoped API key
+or a `library:read` scoped key (acting as its owner), or the web session.
+Without an `Authorization` header the session decides,
 and no session means anonymous. A present header that does not carry a valid
-unscoped key (unknown, revoked, malformed, another scheme, or a scoped
-publish key, which never authenticates reads) answers `401 invalid_api_key`
+unscoped or `library:read` key (unknown, revoked, malformed, another scheme, or a scoped
+key without `library:read`, such as a publish key) answers `401 invalid_api_key`
 with `WWW-Authenticate: Bearer`; it never falls back to the session or to
 anonymous. The `Bearer` scheme is matched case-insensitively. Tokens are
 never accepted in the query string.
@@ -1792,9 +1808,11 @@ may read a release can mint a short-lived URL:
   (`no-store`). Other methods are `405`.
 - `GET /api/v1/downloads/{token}` streams the artifact (`no-store`). The URL is
   valid for 5 minutes. The token is an HMAC (`SKILLX_TOKEN_SECRET`) over the
-  release digest, identity, version, viewer and expiry; it is not an API key
-  and grants nothing else. Redemption re-applies the access rules for the same
-  viewer, so a revoked entitlement, a change of publisher owner, a
+  release digest, identity, version, viewer, the id of the minting API key
+  (null for a session) and expiry; it is not an API key and grants nothing
+  else. Redemption re-applies the access rules for the same viewer and
+  requires the minting key to be unrevoked, so a revoked key or entitlement,
+  a change of publisher owner, a
   quarantine, a yank by version or a suspended publisher stops a URL already
   issued. A forged, expired or
   unverifiable token answers exactly like an unknown release (`404`).

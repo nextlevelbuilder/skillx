@@ -1,7 +1,7 @@
 /**
  * Pinned whole-tree read API. Every endpoint: 404 while `SKILLX_RELEASES_API`
- * is off, then viewer (unscoped Bearer API key or session; never a query
- * string token; a bad key is 401), then the rate limit binding, then the
+ * is off, then viewer (unscoped or `library:read` Bearer API key, or session;
+ * never a query string token; a bad key is 401), then the rate limit binding, then the
  * access rules of `release-access`. Stored bytes are streamed from the R2
  * body exactly as written by the publish path (no redirect, no
  * transformation, served as opaque downloads so a browser never renders
@@ -16,9 +16,8 @@
 import { RELEASE_KEY_ID_PATTERN, RELEASE_SIGNATURE_ALGORITHM, validateReleaseManifest } from "@skillx/contracts";
 import type { SkillxReleaseManifest } from "@skillx/contracts";
 import { validatePath } from "@skillx/skill-tree";
-import { authenticateApiKey } from "~/lib/auth/authenticate-api-key";
-import { authenticateRequest } from "~/lib/auth/authenticate-request";
-import { getDb } from "~/lib/db";
+import { grantsLibraryRead } from "~/lib/auth/api-key-scopes";
+import { resolveRequestCredential } from "~/lib/auth/scoped-viewer";
 import { blobKey } from "./r2-create-only";
 import {
   listPackageReleases,
@@ -46,35 +45,23 @@ export interface ReadContext {
   db: D1Database;
   bucket: R2Bucket;
   userId: string | null;
+  /** The API key of the viewer; null or absent for a session, anonymous or a signed download URL. */
+  keyId?: string | null;
   request: Request;
 }
 
 type Params = Record<string, string | undefined>;
 
 /**
- * The viewer of a read request. A present `Authorization` header must carry
- * a valid unscoped API key as `Bearer <key>`; anything else (another scheme,
- * an unknown or revoked key, a scoped publish key) is `401 invalid_api_key`
- * rather than a silent fall back to anonymous, so a misconfigured CLI never
- * sees a private package as "not found". Without the header the session
- * decides, and no session means anonymous.
+ * The viewer of a request (see `resolveRequestCredential`): an unscoped API
+ * key, the session, or anonymous. A bad key is `401 invalid_api_key`, never a
+ * fall back. Every scoped key is refused the same way (MCP, collections).
  */
 export async function resolveViewer(request: Request, env: ReleaseReadEnv): Promise<string | null> {
-  const header = request.headers.get("Authorization");
-  if (header !== null) {
-    // The auth scheme is case-insensitive (RFC 9110 section 11.1).
-    const match = /^bearer\s+(\S+)\s*$/i.exec(header);
-    const key = match?.[1] ?? "";
-    // authenticateApiKey matches unscoped keys only (scoped keys hash differently) and rejects "".
-    const owner = await authenticateApiKey(getDb(env.DB), key);
-    if (owner === null) throw releaseError(401, "invalid_api_key", "the Authorization header does not carry a valid read API key");
-    return owner.userId;
-  }
-  const viewer = await authenticateRequest(request, env);
-  return viewer?.userId ?? null;
+  return (await resolveRequestCredential(request, env)).userId;
 }
 
-/** Runs one read endpoint behind the flag, viewer resolution and the rate limit. */
+/** Runs one read endpoint behind the flag, viewer resolution (a scoped key needs `library:read`) and the rate limit. */
 export async function serveReleaseRead(
   request: Request,
   env: ReleaseReadEnv,
@@ -82,7 +69,7 @@ export async function serveReleaseRead(
 ): Promise<Response> {
   if (!releasesApiEnabled(env)) return notFoundResponse();
   try {
-    const userId = await resolveViewer(request, env);
+    const { userId, keyId } = await resolveRequestCredential(request, env, grantsLibraryRead);
     const decision = await checkReleaseRateLimit(env.RELEASE_READ_LIMITER, rateLimitCaller(request, userId));
     if (!decision.allowed) {
       return errorResponse(
@@ -90,7 +77,7 @@ export async function serveReleaseRead(
         { "Retry-After": String(decision.retryAfterSeconds) },
       );
     }
-    return await handler({ db: env.DB, bucket: env.R2, userId, request });
+    return await handler({ db: env.DB, bucket: env.R2, userId, keyId, request });
   } catch (error) {
     if (error instanceof ReleaseHttpError) {
       return errorResponse(error, error.status === 401 ? { "WWW-Authenticate": "Bearer" } : {});

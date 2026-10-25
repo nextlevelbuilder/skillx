@@ -1,8 +1,11 @@
 /**
  * HTTP boundary of the personal kit API (`/api/v1/kits/@handle/name/...`).
  * 404 `kit.api_disabled` while `SKILLX_PERSONAL_KITS_API` is off. The caller is the release
- * viewer (unscoped account API key or web session; scoped publish keys are
- * refused); a kit is visible only to its owner, everyone else gets the same
+ * viewer: unscoped account API key, web session, or a scoped key acting as
+ * its owner (reads: `library:read` or `kits:write:@<handle>`; writes:
+ * `kits:write:@<handle>`; a key without any kit scope is 401
+ * `invalid_api_key`, one scoped to another handle 403 `auth.scope_missing`
+ * before any lookup). A kit is visible only to its owner, everyone else gets the same
  * 404 as an unknown kit. Reads count against `RELEASE_READ_LIMITER`, writes
  * against `RELEASE_WRITE_LIMITER` (fail closed) before the body is read.
  * Every answer is `no-store`; failures are `{error:{code,message}}`.
@@ -11,8 +14,9 @@ import { PersonalKitError } from "@skillx/contracts";
 import { IDENTITY_PATTERN, validateIdentity } from "@skillx/skill-tree";
 import { ReleaseHttpError, errorResponse, releaseError } from "~/lib/releases/release-http";
 import { checkReleaseRateLimit, rateLimitCaller } from "~/lib/releases/release-rate-limit";
-import { resolveViewer } from "~/lib/releases/release-read";
-import { NO_STORE, failureHeaders, readJsonObject, resolveLimitedActor } from "~/lib/releases/release-state-http";
+import { LIBRARY_READ_SCOPE, grantsAnyKitRead, grantsAnyKitWrite, kitsWriteScope } from "~/lib/auth/api-key-scopes";
+import { requireScope, resolveRequestCredential } from "~/lib/auth/scoped-viewer";
+import { NO_STORE, failureHeaders, readJsonObject, resolveLimitedScopedActor } from "~/lib/releases/release-state-http";
 import { newBaseCache } from "./base-loader";
 import type { BaseCache } from "./base-loader";
 
@@ -151,6 +155,8 @@ export interface KitCaller {
   admin: boolean;
   /** A signed-in web session (no API key, no admin secret): a human at the browser. */
   interactive: boolean;
+  /** Scopes of a scoped API key; null for a session, an unscoped key or the admin (see `requireKitScope`). */
+  scopes: readonly string[] | null;
   env: KitEnv;
   request: Request;
   now: Date;
@@ -161,14 +167,25 @@ export interface KitCaller {
 /** `read` (viewer), `write` (owner) or `admin` (operator secret only). */
 export type KitAccess = "read" | "write" | "admin";
 
-async function readCaller(request: Request, env: KitEnv): Promise<string> {
-  const userId = await resolveViewer(request, env);
+async function readCaller(request: Request, env: KitEnv): Promise<{ userId: string; scopes: readonly string[] | null }> {
+  const { userId, scopes } = await resolveRequestCredential(request, env, grantsAnyKitRead);
   const decision = await checkReleaseRateLimit(env.RELEASE_READ_LIMITER, rateLimitCaller(request, userId));
   if (!decision.allowed) {
     throw Object.assign(releaseError(429, "rate_limited", `too many requests; retry after ${decision.retryAfterSeconds} seconds`), { retryAfter: decision.retryAfterSeconds });
   }
   if (userId === null) throw releaseError(401, "auth.required", "sign in, or send Authorization: Bearer <account API key>");
-  return userId;
+  return { userId, scopes };
+}
+
+/**
+ * The scope a scoped key needs on `kit`: `library:read` or
+ * `kits:write:@<handle>` to read, `kits:write:@<handle>` to write. Sessions
+ * and unscoped keys pass. Ownership is still checked by every handler.
+ */
+export function requireKitScope(caller: Pick<KitCaller, "scopes" | "admin">, kit: string, access: KitAccess): void {
+  if (caller.admin) return;
+  const write = kitsWriteScope(handleOfKit(kit));
+  requireScope(caller, access === "read" ? [LIBRARY_READ_SCOPE, write] : [write]);
 }
 
 /** Runs one endpoint: flag, caller and limit, then the handler; maps every failure to the error shape. */
@@ -182,18 +199,22 @@ export async function serveKit(
   if (!personalKitsApiEnabled(env)) return kitApiDisabledResponse();
   try {
     let userId: string;
+    let scopes: readonly string[] | null;
     if (access === "read") {
-      userId = await readCaller(request, env);
+      ({ userId, scopes } = await readCaller(request, env));
     } else {
-      const actor = await resolveLimitedActor(request, env);
+      // Only a key holding some kits:write scope gets past here; admin routes accept no scoped key.
+      const resolved = await resolveLimitedScopedActor(request, env, access === "write" ? grantsAnyKitWrite : undefined);
+      const { actor } = resolved;
       // The admin secret names no owner, so it sees no kit except on an admin route.
       if (access === "admin" && actor.kind !== "admin") throw releaseError(403, "kit.admin_only", "this action is reserved to operators");
       if (access === "write" && actor.kind !== "user") throw kitNotFound();
       userId = actor.id;
+      scopes = resolved.scopes;
     }
-    // resolveViewer authenticates the API key whenever Authorization is present, the session otherwise.
+    // The API key decides whenever Authorization is present, the session otherwise.
     const interactive = access !== "admin" && !request.headers.has("Authorization") && !request.headers.has("X-Admin-Secret");
-    return await handler({ userId, admin: access === "admin", interactive, env, request, now: now(), bases: newBaseCache() });
+    return await handler({ userId, admin: access === "admin", interactive, scopes, env, request, now: now(), bases: newBaseCache() });
   } catch (error) {
     if (error instanceof PersonalKitError) return errorResponse(contractError(error));
     if (error instanceof DetailedKitError) {

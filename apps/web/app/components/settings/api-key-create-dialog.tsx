@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MAX_KEY_SCOPES } from "~/lib/auth/api-key-scopes";
+import { LIBRARY_READ_SCOPE, MAX_KEY_SCOPES, kitsWriteScope } from "~/lib/auth/api-key-scopes";
 import { buildCreateKeyRequest, describeKeyAccess, toggleScopeHandle } from "~/lib/auth/api-key-form";
 import type { CreateKeyRequest } from "~/lib/auth/api-key-form";
 import type { OwnedPublisher } from "~/lib/auth/user-api-keys";
@@ -16,15 +16,20 @@ interface ApiKeyCreateDialogProps {
 }
 
 /**
- * New-key form. With no publisher selected (the default) it creates an
- * account key, which can never publish releases; selecting publishers makes a
- * release-publishing key restricted to exactly those handles.
+ * New-key form. With nothing selected (the default) it creates an account
+ * key, which can never publish releases; selecting publishing or library sync
+ * scopes makes a scoped key restricted to exactly those scopes.
  */
 export function ApiKeyCreateDialog({ publishers, onSubmit, submitting = false, error = null, onCancel }: ApiKeyCreateDialogProps) {
   const [name, setName] = useState("");
   const [selected, setSelected] = useState<string[]>([]);
-  const request = buildCreateKeyRequest(name, selected);
-  const atLimit = selected.length >= MAX_KEY_SCOPES;
+  const [libraryRead, setLibraryRead] = useState(false);
+  const [kitHandles, setKitHandles] = useState<string[]>([]);
+  const request = buildCreateKeyRequest(name, selected, { libraryRead, kitWriteHandles: kitHandles });
+  const total = request.scopes?.length ?? 0;
+  const atLimit = total >= MAX_KEY_SCOPES;
+  /** Room left for one list once every other selected scope is counted. */
+  const roomFor = (list: readonly string[]) => MAX_KEY_SCOPES - (total - list.length);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
@@ -78,7 +83,7 @@ export function ApiKeyCreateDialog({ publishers, onSubmit, submitting = false, e
                           value={p.handle}
                           checked={checked}
                           disabled={!checked && atLimit}
-                          onChange={() => setSelected((s) => toggleScopeHandle(s, p.handle))}
+                          onChange={() => setSelected((s) => toggleScopeHandle(s, p.handle, roomFor(s)))}
                         />
                         <span className="font-mono">releases:publish:@{p.handle}</span>
                         <span className="text-sx-fg-muted">{p.display_name}</span>
@@ -89,6 +94,46 @@ export function ApiKeyCreateDialog({ publishers, onSubmit, submitting = false, e
               </ul>
             </>
           )}
+        </fieldset>
+
+        <fieldset className="mb-4">
+          <legend className="mb-1 text-sm font-medium">Library sync (optional)</legend>
+          <p className="mb-2 text-sm text-sx-fg-muted">
+            For a second device or CI: read your private releases and kits, and write kits under your publishers.
+          </p>
+          <ul className="max-h-48 space-y-1 overflow-y-auto">
+            <li>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  name="library-scope"
+                  checked={libraryRead}
+                  disabled={!libraryRead && atLimit}
+                  onChange={() => setLibraryRead((v) => !v)}
+                />
+                <span className="font-mono">{LIBRARY_READ_SCOPE}</span>
+              </label>
+            </li>
+            {publishers.map((p) => {
+              const checked = kitHandles.includes(p.handle);
+              return (
+                <li key={p.handle}>
+                  <label className="flex items-center gap-2 text-sm">
+                    <input
+                      type="checkbox"
+                      name="kits-scope"
+                      value={p.handle}
+                      checked={checked}
+                      disabled={!checked && atLimit}
+                      onChange={() => setKitHandles((s) => toggleScopeHandle(s, p.handle, roomFor(s)))}
+                    />
+                    <span className="font-mono">{kitsWriteScope(p.handle)}</span>
+                    <span className="text-sx-fg-muted">{p.display_name}</span>
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
         </fieldset>
 
         <p className="mb-4 rounded-lg bg-sx-bg-elevated p-3 text-sm text-sx-fg-muted" aria-live="polite">

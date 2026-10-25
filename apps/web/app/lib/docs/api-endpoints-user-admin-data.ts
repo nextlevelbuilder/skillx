@@ -47,7 +47,7 @@ export const USER_ENDPOINTS: EndpointProps[] = [
     }
   ]
 }`,
-    notes: ["scopes is null for an account key, or the scopes a release publishing key holds (e.g. releases:publish:@acme)."],
+    notes: ["scopes is null for an account key, or the scopes a scoped key holds (e.g. releases:publish:@acme, library:read)."],
     errors: [
       { status: 401, body: "Authentication required", cause: "Not logged in" },
     ],
@@ -60,7 +60,7 @@ export const USER_ENDPOINTS: EndpointProps[] = [
     description: "Generate a new API key. Plaintext returned once — not stored.",
     params: [
       { name: "name", type: "string", required: false, description: "Key label (max 100 chars)", default: '"Default"' },
-      { name: "scopes", type: "string[]", required: false, description: "1-8 releases:publish:@<handle> scopes for active publishers you own. Omit for an account key." },
+      { name: "scopes", type: "string[]", required: false, description: "1-8 scopes: releases:publish:@<handle> and kits:write:@<handle> for active publishers you own, or library:read. Omit for an account key." },
     ],
     requestExample: `{ "name": "CI publishing", "scopes": ["releases:publish:@acme"] }`,
     responseExample: `{
