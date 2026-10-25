@@ -358,7 +358,7 @@ code in `error.details.code` next to `error.details.status`:
 | HTTP | `error.code` | Exit | Typical `details.code` |
 |------|--------------|------|------------------------|
 | `401`, `403` | `auth_error` | `5` | `invalid_api_key`, `auth.scope_missing`, `kit.publisher_not_owned`, `kit.interactive_approval_required` |
-| `404` | `not_found` | `3` | `kit.not_found`, `kit.api_disabled` (deployment without personal kits) |
+| `404` | `not_found` | `3` | `not_found` (unknown kit, and a kit of another account), `kit.api_disabled` (deployment without personal kits) |
 | `412` (stale `If-Match`), `409` `kit.generation_conflict` | `conflict` | `8` | `kit.generation_conflict` — nothing was written; run `kit show`, rebase your document and retry |
 | `429` | `rate_limited` | `7` | — |
 | other | `api_error` | `1` | e.g. `kit.approval_required`, `kit.revision_exists`, `kit.locked_incompatible` |

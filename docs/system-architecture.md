@@ -665,6 +665,81 @@ D1: personal_kits (generation CAS), personal_kit_revisions (immutable), personal
   owner's review (exact digest, declared permissions, consent) makes it
   activatable. Operators can quarantine any revision.
 
+## Private Library: Owner Access, Capability Scopes, Visibility
+
+Decision record for the private library (a user's private skills and personal
+kits, synced across their machines). Everything below describes what shipped;
+contracts are in the [API reference](./api-reference.md#private-library), the
+[personal kits API](./personal-kits-api.md) and the [CLI reference](./cli-reference.md).
+The local proof is `apps/web/tests/e2e/private-library-roundtrip.test.ts`
+(in-process routes over the D1/R2 test fakes, not a deployed SkillX).
+
+**Owner access is a gate, not an entitlement.** The owner of a publisher
+(`publishers.owner_user_id`, read at request time) reads its private releases
+through the same single gate every read path uses (`release-access.ts`: release
+reads, signed download URLs, kit base loading, status). Publishing writes no
+entitlement row, because `entitlements` records commerce grants and a row
+created at publish would also have to follow a change of owner. Precedence is
+unchanged: unknown or unreadable `404`, quarantined `403`, publisher not active
+`403` (so a suspended publisher's owner is blocked too), yanked `410`. A caller
+who may not read a private asset gets the same `404` as for an unknown one.
+
+**Capability matrix.** Scoped keys gain two scopes next to
+`releases:publish:@<handle>`; a scoped key always acts as its owner and never
+exceeds what the owner's session reads.
+
+| Scope | Release read API, downloads | `GET /api/v1/library` | Kit reads | Kit writes |
+|-------|-----------------------------|-----------------------|-----------|------------|
+| `releases:publish:@h` | no | no | no | no |
+| `library:read` | yes | yes | yes | no |
+| `kits:write:@h` | no | no | kits `@h/...` | kits `@h/...` (revisions, rebase, conflicts, activate private, rollback, the read-only `POST`s) |
+
+- A scoped key holding no scope the route family accepts answers
+  `401 invalid_api_key`, like a revoked key, and never falls back to the
+  session or anonymous. Only a kit key for the wrong handle answers
+  `403 auth.scope_missing`, before any lookup. Release state changes, review,
+  collections, MCP and the legacy endpoints reject every scoped key.
+- Review and public activation need a web session (`403
+  kit.interactive_approval_required` for a key).
+- `kits:write:@h` loads kit bases as the owner, so through them it reads any
+  private release the owner can read. In a lock, a parent kit under a handle
+  for which the key holds neither `library:read` nor that handle's
+  `kits:write` is shown digest-only (`{kit, revisionDigest, foreign: true}`).
+- One key per machine (`releases:publish:@h kits:write:@h library:read`),
+  revocable on its own; unscoped keys keep their legacy behavior.
+
+**Visibility is chosen at publish and is not a signed field.** Release
+metadata takes `visibility` (`public` or `private`; anything else is `400`).
+An existing package keeps its visibility: omitting the field keeps it, naming
+the other one is `409 release.visibility_mismatch` and writes nothing. A new
+package published without `visibility` is `private` (`skillx publish` prints a
+note on stderr); a new `@agentkit` kit release defaults to `public`, as before.
+Visibility is registry policy and not part of the signed manifest. Changing it
+later is out of scope here.
+
+**Responses.** Every answer about a private package or the private library is
+`Cache-Control: private, no-store` with `Vary: Authorization, Cookie`, so a
+revoked key, an entitlement or a quarantine takes effect on the next request;
+public answers keep their cache lifetimes.
+
+**Library listing.** `GET /api/v1/library` lists the skills the caller owns or
+holds an unrevoked entitlement for, plus the caller's kits, each with a
+`relation` (`owner` or `entitled`). Assets the caller cannot read are absent,
+never a `403`.
+
+**Collections.** A collection view for a non-owner keeps only the members that
+viewer can read; unknown names are dropped like private ones, and a trimmed
+revision has `revisionDigest: null` so a client cannot mistake it for the
+whole.
+
+**CLI.** A stale kit write (`412`, or `409 kit.generation_conflict`) is the
+`conflict` error with exit code `8`; nothing was written.
+
+**No migration.** `packages.visibility`, `api_keys.scopes` and the existing
+owner indexes already carry all of this. A later change that needs a migration
+takes the next number and the backup steps in the
+[deployment guide](./deployment-guide.md).
+
 ## Deployment Architecture
 
 ```
