@@ -189,6 +189,22 @@ describe("publish visibility: reads of a new private package", () => {
     for (const answer of await reads("@alpha/notes", digest)) expect(answer.status).toBe(404);
   });
 
+  it("serves the publisher owner every read path of their new private package with private, no-store", async () => {
+    const res = await publish("@alpha/notes", OMITTED);
+    expect(res.body.visibility).toBe("private");
+    const digest = res.body.releaseDigest as string;
+    const ownerKey = await h.createKey("user-a", null);
+    for (const answer of await reads("@alpha/notes", digest, ownerKey)) {
+      expect(answer.status).toBe(200);
+      expect(answer.headers.get("Cache-Control")).toBe("private, no-store");
+    }
+    session.user = { id: "user-a" };
+    for (const answer of await reads("@alpha/notes", digest)) {
+      expect(answer.status).toBe(200);
+      expect(answer.headers.get("Cache-Control")).toBe("private, no-store");
+    }
+  });
+
   it("serves an admitted reader every private answer with Cache-Control private, no-store", async () => {
     const res = await publish("@alpha/notes", OMITTED);
     h.d1.raw
