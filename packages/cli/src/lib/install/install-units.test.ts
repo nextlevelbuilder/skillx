@@ -85,8 +85,8 @@ describe('trusted keys', () => {
     const key = Buffer.alloc(32, 7).toString('base64');
     writeFileSync(join(root, 'trusted-keys.json'), JSON.stringify({ keys: { 'file-key': key } }));
     const keys = loadTrustedKeys(root, { SKILLX_TRUSTED_KEYS: `env-key=${key}` });
-    expect([...keys.keys()].sort()).toEqual(['env-key', 'file-key']);
-    expect(loadTrustedKeys(join(root, 'none'), {}).size).toBe(0);
+    expect([...keys.keys()].sort()).toEqual(['env-key', 'file-key', 'skillx-reg-993cd14a011f7b76']);
+    expect([...loadTrustedKeys(join(root, 'none'), {}).keys()]).toEqual(['skillx-reg-993cd14a011f7b76']);
     expect(() => loadTrustedKeys(root, { SKILLX_TRUSTED_KEYS: 'short=AAAA' })).toThrow(/32-byte/);
   });
 });

@@ -557,7 +557,8 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
 Verification fails closed: with no trusted key every install is an
 `integrity_error`. Keys (raw 32-byte Ed25519, base64) are merged from:
 
-1. keys embedded in the CLI (none yet);
+1. keys embedded in the CLI: the production registry key
+   `skillx-reg-993cd14a011f7b76` (since 0.7.1);
 2. `~/.skillx/trusted-keys.json`: `{"keys": {"<keyId>": "<base64>"}}`;
 3. `SKILLX_TRUSTED_KEYS=<keyId>=<base64>[,...]`.
 

@@ -8,15 +8,19 @@ import { usageError } from './install-errors.js';
  * key id fails verification, so with no trusted key nothing installs (fail
  * closed). Sources, merged in this order:
  *
- * 1. `EMBEDDED_KEYS`: keys shipped with the CLI. Empty until the registry
- *    operator publishes the production public key.
+ * 1. `EMBEDDED_KEYS`: keys shipped with the CLI, the production registry
+ *    key published by the SkillX owner in nextlevelbuilder/skillx#31.
  * 2. `<skillxHome>/trusted-keys.json`: `{"keys": {"<keyId>": "<base64 raw Ed25519 key>"}}`.
  * 3. `SKILLX_TRUSTED_KEYS`: `<keyId>=<base64>[,<keyId>=<base64>...]`.
  *
  * Public keys are not secrets; they are still never printed in full.
  */
 
-const EMBEDDED_KEYS: Record<string, string> = {};
+// The key id is the first 8 bytes of SHA-256 over the raw key, in hex.
+// AgentKit embeds the same key (`skillxsource/keys.go`).
+const EMBEDDED_KEYS: Record<string, string> = {
+  'skillx-reg-993cd14a011f7b76': 'D76gfU7S7+yl9ubULT4FQP8ocJgXES46rzY/gp9hG+A=',
+};
 
 const KEY_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
