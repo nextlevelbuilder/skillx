@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.7.0...skillx-sh-v0.7.1) (2026-10-27)
+
+
+### Bug Fixes
+
+* **cli:** trust the production registry signing key by default ([#138](https://github.com/nextlevelbuilder/skillx/issues/138)) ([61d16be](https://github.com/nextlevelbuilder/skillx/commit/61d16be89778466a9bf42fbd2188651e4eca1b52))
+
 ## [0.7.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.6.0...skillx-sh-v0.7.0) (2026-10-25)
 
 
