@@ -482,8 +482,9 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
   scope is a `usage_error` (pass `--lock other.json` or `--no-lock`).
   Nothing in a release is ever run: files the release marks executable are
   written with mode 755 and listed on stderr (`--json`: `executable` on each
-  changed skill) so a reviewer sees them. Use `--dry-run` as the preview a
-  person approves before the real install.
+  changed skill) after the install. `--dry-run` previews the files that would
+  be written; the executable files and declared permissions to review before
+  installing come from the MCP `prepare_install` answer (`trust`).
 - **update** re-resolves installed sources (all, or those named) and applies the
   difference, then refreshes the lock file when its scope was updated. With
   nothing installed it prints `Nothing to update.` (`--json`: empty `outcomes`).

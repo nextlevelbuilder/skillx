@@ -25,7 +25,7 @@ export const POPULARITY_NOTICE =
 const RISK_MEANINGS: Record<RiskLabel, string> = {
   safe: "no scanner rule matched; this is not a security review or endorsement",
   caution: "the content scanner matched several suspicious patterns; review before use",
-  danger: "the content scanner flagged instruction injection or hidden content; the body is withheld",
+  danger: "the content scanner matched a high-risk pattern (instruction injection, hidden characters, shell execution or active URLs); the body is withheld",
   unknown: "this listing was never scanned; its safety is unknown",
 };
 
@@ -139,9 +139,9 @@ export const FAILURE_EXPLANATIONS: Record<string, string> = {
   release_quarantined: "The registry quarantined this release after its security scan; it must not be installed until a reviewer approves it.",
   publisher_revoked: "The publisher is suspended or revoked, so none of its releases can be trusted or installed.",
   release_yanked: "The publisher withdrew this version; choose another published version.",
-  release_not_installable: "Only a published release can be installed; this version is not in that state.",
   digest_mismatch: "The release digest differs from the pinned one, so the content changed since it was reviewed. Re-review before installing.",
   origin_mismatch: "The signed manifest names a different package or version than requested; the release is refused.",
+  "release.storage_inconsistent": "The stored manifest is missing or does not match the registry's digest for this release; the release is refused.",
 };
 
 export function explainFailure(code: string): string {

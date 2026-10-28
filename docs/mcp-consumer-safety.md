@@ -54,13 +54,25 @@ flags at all, so nothing about the body leaks through them.
 |---|---|---|
 | Recommend | `search_packages` / `get_package`: show `trust` beside every result | Same |
 | Decide | `prepare_install` with `host: "read_only"` (default) | `prepare_install` with `host: "installer"` |
-| Install | Cannot. The answer has `installed: false`, links to the release and its signed manifest, and manual steps. Never report a successful install. | Show the plan, red flags and the output of `skillx install --dry-run <ref>`; run `skillx install <ref>` only after the person explicitly approves |
+| Install | Cannot. The answer has `installed: false`, links to the release and its signed manifest, and manual steps. Never report a successful install. | Show `trust` (executable files and declared permissions come from here, not from the dry-run), the red flags and the files `skillx install --dry-run '<ref>'` would write; run `skillx install '<ref>'` only after the person explicitly approves |
 | Pin | `@publisher/slug@version#sha256:<digest>` | Same; the CLI refuses a different digest (`integrity_error`) |
 | Scripts | Never run | Written (mode 755 kept), listed on stderr, never run |
 
 `prepare_install` requires `version`, so a plan always names one immutable
 release. Passing the `digest` the person reviewed turns any later change into
 `digest_mismatch` instead of a silent substitution.
+
+The CLI refuses a quarantined release, a revoked publisher and a different
+digest. A version the publisher yanks after the plan still installs with a
+warning (on stderr and in `--json` warnings), so a pinned recipe keeps
+working; an installer host stops and re-plans when that warning appears.
+The ref is single-quoted in the generated commands because `#` and a leading
+`@` are special in some shells.
+
+Red flags come from a fresh scan of the stored body, which had invisible
+characters and ANSI escapes stripped before storage, while `scan.riskLabel`
+was computed before that. A listing can therefore be `danger` without a
+`hidden_content` flag.
 
 ## Refusal codes
 
@@ -69,9 +81,10 @@ release. Passing the `digest` the person reviewed turns any later change into
 | `not_found` | Unknown, private, draft or unsigned; identical to an unknown package |
 | `release_quarantined` | The publish-time scan quarantined the tree |
 | `publisher_revoked` | Publisher suspended or revoked |
-| `release_yanked` / `release_not_installable` | The version is not `published` |
+| `release_yanked` | The publisher withdrew the version |
 | `digest_mismatch` | The release digest differs from the pinned one |
 | `origin_mismatch` | The signed manifest names another package or version than the registry row |
+| `release.storage_inconsistent` | The stored manifest is missing or its digest differs from the registry row |
 
 ## Tests
 

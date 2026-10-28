@@ -83,10 +83,11 @@ describe("prepare_install: an installable release", () => {
     const { releaseDigest } = await publish();
     const { body } = await prepare({ package: "@alpha/demo", version: "1.0.0", digest: releaseDigest, host: "installer" });
 
-    const ref = `@alpha/demo@1.0.0#${releaseDigest}`;
+    const ref = `'@alpha/demo@1.0.0#${releaseDigest}'`;
     expect(body.installable).toBe(true);
     expect(body.host).toMatchObject({ mode: "installer", preview: `skillx install --dry-run ${ref}`, command: `skillx install ${ref}` });
     expect(body.host.steps.join(" ")).toMatch(/explicitly approves/);
+    expect(body.host.steps.join(" ")).toMatch(/yanked after this plan/);
   });
 
   it("labels a release without a source commit as unknown provenance", async () => {
@@ -137,10 +138,7 @@ describe("prepare_install fails closed", () => {
   it("on a yanked release", async () => {
     await publish();
     sql("UPDATE package_releases SET release_state = 'yanked' WHERE version = '1.0.0'");
-    const { body } = await prepare({ package: "@alpha/demo", version: "1.0.0" });
-    expect(body.installable).toBe(false);
-    expect(["release_yanked", "release_not_installable"]).toContain(body.code);
-    expect(body.explanation).toBe(explainFailure(body.code));
+    refused((await prepare({ package: "@alpha/demo", version: "1.0.0" })).body, "release_yanked");
   });
 
   it("on a digest that differs from the reviewed one, in get_release too", async () => {
@@ -151,6 +149,12 @@ describe("prepare_install fails closed", () => {
     const env = { SKILLX_RELEASES_API: "1", DB: h.deps.db } as unknown as Env;
     const release = JSON.parse((await callTool("get_release", { package: "@alpha/demo", version: "1.0.0", digest: other }, { env })).content[0].text);
     expect(release).toMatchObject({ found: false, code: "digest_mismatch", explanation: explainFailure("digest_mismatch") });
+  });
+
+  it("on a manifest that no longer matches the registry row", async () => {
+    await publish();
+    sql("UPDATE package_releases SET release_digest = ? WHERE version = '1.0.0'", `sha256:${"1".repeat(64)}`);
+    refused((await prepare({ package: "@alpha/demo", version: "1.0.0" })).body, "release.storage_inconsistent");
   });
 
   it("on a substituted origin: a registry row whose signed manifest names another version", async () => {

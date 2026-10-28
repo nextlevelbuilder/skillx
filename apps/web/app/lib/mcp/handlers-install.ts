@@ -45,15 +45,18 @@ async function readExecSummary(db: D1Database, releaseId: string): Promise<ExecS
 }
 
 function hostSteps(host: Host, ref: string, links: { release: string; manifest: string }) {
+  // Quoted: `#` starts a comment or glob in some shells and a leading `@` is special in PowerShell.
+  const arg = `'${ref}'`;
   if (host === "installer") {
     return {
       mode: "installer" as const,
-      preview: `skillx install --dry-run ${ref}`,
-      command: `skillx install ${ref}`,
+      preview: `skillx install --dry-run ${arg}`,
+      command: `skillx install ${arg}`,
       steps: [
-        "Show the person this plan, the red flags and the dry-run preview.",
+        "Show the person this plan: trust (including executableFiles and permissions), the red flags, and the files the dry-run would write.",
         "Run the install command only after the person explicitly approves it.",
         "The CLI verifies the signed manifest and the pinned digest, and refuses a mismatch.",
+        "A version yanked after this plan still installs with a warning on stderr (and in --json warnings); stop and re-plan if one appears.",
       ],
     };
   }
@@ -64,7 +67,7 @@ function hostSteps(host: Host, ref: string, links: { release: string; manifest: 
     steps: [
       "This host cannot install skills; nothing was installed.",
       `Review the signed manifest at ${links.manifest}.`,
-      `To install, run \`skillx install ${ref}\` in a terminal after reviewing it.`,
+      `To install, run \`skillx install ${arg}\` in a terminal after reviewing it.`,
     ],
   };
 }
@@ -84,7 +87,6 @@ export async function prepareInstall(rawArgs: unknown, ctx: ToolContext) {
   let manifest: SkillxReleaseManifest;
   try {
     release = await resolveReleaseByVersion(ctx.env.DB, identity, version, null);
-    if (release.state !== "published") return { installable: false, ...releaseFailure("release_not_installable", identity, pinned) };
     if (digest !== undefined && digest !== release.releaseDigest) return { installable: false, ...releaseFailure("digest_mismatch", identity, pinned) };
     // Also refuses a manifest whose digest differs from the row's.
     manifest = await readManifest(ctx.env.R2, release, "prepare_install");
