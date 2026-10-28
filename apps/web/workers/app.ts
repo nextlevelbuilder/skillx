@@ -26,6 +26,11 @@ declare global {
      * (`sxo_`) and signed artifact download URLs. Secret; unset disables both features.
      */
     SKILLX_TOKEN_SECRET?: string;
+    /**
+     * Domain verification token issued by the OpenAI plugin portal, served verbatim at
+     * `/.well-known/openai-apps-challenge`. Unset answers 404.
+     */
+    OPENAI_APPS_CHALLENGE?: string;
     /** Audience a GitHub Actions OIDC token must carry; defaults to `skillx`. */
     SKILLX_OIDC_AUDIENCE?: string;
   }

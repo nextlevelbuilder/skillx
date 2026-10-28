@@ -226,6 +226,10 @@ wrangler secret put BETTER_AUTH_SECRET --name skillx-web
 wrangler secret put GITHUB_CLIENT_ID --name skillx-web
 wrangler secret put GITHUB_CLIENT_SECRET --name skillx-web
 
+# Optional: ChatGPT Plugin Directory domain verification (token from the OpenAI portal).
+# /.well-known/openai-apps-challenge serves it as plain text; 404 while unset.
+wrangler secret put OPENAI_APPS_CHALLENGE --name skillx-web
+
 # Verify secrets are set
 wrangler secret list --name skillx-web
 ```

@@ -8,7 +8,7 @@ export function Footer() {
           SKILL<span className="text-sx-accent">X</span>.sh
         </div>
 
-        <div className="flex gap-6">
+        <div className="flex flex-wrap justify-center gap-x-6 gap-y-2">
           <a
             href="https://github.com/skillx-sh"
             target="_blank"
@@ -19,6 +19,15 @@ export function Footer() {
           </a>
           <Link to="/docs" className="transition-colors hover:text-sx-fg">
             Docs
+          </Link>
+          <Link to="/support" className="transition-colors hover:text-sx-fg">
+            Support
+          </Link>
+          <Link to="/privacy" className="transition-colors hover:text-sx-fg">
+            Privacy
+          </Link>
+          <Link to="/terms" className="transition-colors hover:text-sx-fg">
+            Terms
           </Link>
         </div>
 

@@ -6,6 +6,7 @@ export default [
   // `/skills/<slug>.md` is dispatched in workers/app.ts (see skill-markdown-handler.ts).
   route("llms.txt", "routes/llms-txt.ts"),
   route("llms-full.txt", "routes/llms-full-txt.ts"),
+  route(".well-known/openai-apps-challenge", "routes/well-known.openai-apps-challenge.ts"),
   route("profile", "routes/profile.tsx"),
   route("settings", "routes/settings.tsx"),
   route("docs", "routes/docs.tsx"),
@@ -13,6 +14,9 @@ export default [
   route("docs/api", "routes/docs-api.tsx"),
   route("docs/publishers", "routes/docs-publishers.tsx"),
   route("docs/harness", "routes/docs-harness.tsx"),
+  route("privacy", "routes/privacy.tsx"),
+  route("terms", "routes/terms.tsx"),
+  route("support", "routes/support.tsx"),
   route("leaderboard", "routes/leaderboard.tsx"),
   route("search", "routes/search.tsx"),
   route("api/auth/*", "routes/auth-catchall.tsx"),
