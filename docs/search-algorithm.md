@@ -7,9 +7,7 @@ Hybrid search engine combining keyword (FTS5/BM25) and semantic (vector/cosine) 
 ```
 Query
   │
-  ├── Alias expansion (k8s→kubernetes, etc.)
-  │
-  ├── Prefix wildcards (term → term*)
+  ├── Term split + prefix wildcards (term → term*, OR-joined)
   │
   ├──► FTS5 Search (weighted BM25 + pre-filters)
   │         │
@@ -37,12 +35,11 @@ Query
 
 ### Stage 0: Query Preprocessing
 
-Before retrieval, the query goes through two transformations:
+Before FTS5 retrieval (`toFts5Query`), every character that is not a Unicode letter, number or underscore becomes a separator, terms are lowercased, and each gets a `*` suffix; terms are OR-joined. Example: `Node.js end-to-end` → `node* OR js* OR end* OR to* OR end*`. Lowercasing means a user's `NOT`, `AND`, `OR` or `NEAR` is a plain word, never an FTS5 operator, and non-ASCII words (`kiểm thử`, `テスト`) are kept. A query with no searchable term skips FTS5. Vector search embeds the raw query.
 
-1. **Alias expansion**: Common abbreviations expanded via OR-join. Example: `k8s deploy` → `(kubernetes OR k8s) deploy`. Map of ~30 entries in `query-aliases.ts`.
-2. **Prefix wildcards**: Each term gets a `*` suffix for partial matching. Example: `deploy` → `deploy*` (matches deploy, deployment, deployer). FTS5 operators (OR, AND, NOT) and parentheses preserved.
+`query-aliases.ts` (abbreviation expansion such as `k8s` → `kubernetes`) exists but is not wired into retrieval.
 
-**Source**: `apps/web/app/lib/search/query-aliases.ts`, `apps/web/app/lib/search/fts5-search.ts`
+**Source**: `apps/web/app/lib/search/fts5-search.ts`
 
 ### Stage 1: Parallel Retrieval with Pre-Filtering
 
@@ -54,7 +51,7 @@ FTS5 and vector search run concurrently via `Promise.all()`. Filters (category, 
 - **Ranking**: Weighted BM25 — `bm25(skills_fts, 10.0, 5.0, 1.0)` (name 10x, description 5x, content 1x)
 - **Indexed fields**: Skill name, description, content (via `skills_fts` virtual table joined to `skills` on rowid)
 - **Pre-filters**: Optional `category` and `is_paid` in SQL WHERE clause (parameterized)
-- **Query sanitization**: Strips non-alphanumeric/whitespace chars to prevent FTS5 injection
+- **Query sanitization**: Punctuation and FTS5 syntax become separators and terms are lowercased (see Stage 0), so no user input reaches FTS5 as an operator
 - **Output**: List of `{ skill_id, bm25_score, rank }` ordered by weighted BM25 relevance
 
 **Source**: `apps/web/app/lib/search/fts5-search.ts`

@@ -20,12 +20,17 @@ export interface FTS5Filters {
 }
 
 /** Convert user query to FTS5 OR-joined prefix query.
- *  Each term gets a prefix wildcard and all terms are OR-joined
- *  so partial matches on any term return results.
+ *  Anything but a Unicode letter, number or underscore separates terms, so
+ *  "end-to-end" is three terms (not "endtoend") and non-ASCII words survive.
+ *  Terms are lowercased (the tokenizer is case-insensitive) so a user's
+ *  "NOT", "AND", "OR" or "NEAR" is never read as an FTS5 operator.
  *  Example: "ui ux" → "ui* OR ux*"
- *  Example: "deploy tool" → "deploy* OR tool*" */
-function toFts5Query(query: string): string {
+ *  Example: "Node.js end-to-end" → "node* OR js* OR end* OR to* OR end*"
+ *  Returns "" when the query has no searchable term. */
+export function toFts5Query(query: string): string {
   return query
+    .replace(/[^\p{L}\p{N}_\s]/gu, ' ')
+    .toLowerCase()
     .split(/\s+/)
     .filter(Boolean)
     .map((term) => `${term}*`)
@@ -48,16 +53,14 @@ export async function fts5Search(
   limit = 20,
   filters?: FTS5Filters
 ): Promise<FTS5Result[]> {
-  // Sanitize: strip FTS5 special characters to prevent injection
-  const sanitized = query.replace(/[^\w\s]/g, '').trim();
+  // OR-joined prefix query with FTS5 syntax stripped — vector search handles semantic expansion
+  const matchQuery = toFts5Query(query);
 
-  if (!sanitized) {
+  if (!matchQuery) {
     return [];
   }
 
   try {
-    // OR-joined prefix query — vector search handles semantic expansion
-    const matchQuery = toFts5Query(sanitized);
 
     // Build dynamic SQL with optional pre-filters
     let sql = `
