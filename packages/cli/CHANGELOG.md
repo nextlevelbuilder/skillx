@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.8.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.7.1...skillx-sh-v0.8.0) (2026-10-28)
+
+
+### Features
+
+* **mcp:** skill provenance, red flags and approval-gated install plans ([#155](https://github.com/nextlevelbuilder/skillx/issues/155)) ([3968b91](https://github.com/nextlevelbuilder/skillx/commit/3968b91c4ca3d8d9de5626fc1fff7dc15bd296d1))
+
+
+### Bug Fixes
+
+* **cli:** add `skillx use --exact` with no search or register fallback ([#158](https://github.com/nextlevelbuilder/skillx/issues/158)) ([f96a06a](https://github.com/nextlevelbuilder/skillx/commit/f96a06ac9947da1e10f928a755f380983d88fb58))
+
 ## [0.7.1](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.7.0...skillx-sh-v0.7.1) (2026-10-27)
 
 
