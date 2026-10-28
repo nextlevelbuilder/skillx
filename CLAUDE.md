@@ -84,7 +84,9 @@ pnpm db:migrate:remote    # Apply migrations to remote D1
 | `/skills/<slug>.md` | lib/markdown/skill-markdown-handler.ts, dispatched in `workers/app.ts` (React Router has no partial dynamic segment) | None; always anonymous, public cache |
 | `/llms.txt`, `/llms-full.txt` | llms-txt.ts, llms-full-txt.ts (`?limit=` snaps to fixed sizes; KV-cached per origin and size) | None; protected bodies withheld |
 | `/docs/harness`, `/docs/publishers` | docs-harness.tsx, docs-publishers.tsx | None |
-| `/api/mcp` | api.mcp.ts (read-only MCP over JSON-RPC: `search_packages`, `get_package`, `get_release`, `check_compatibility`, `get_kit`; 64 KiB body cap, `RELEASE_READ_LIMITER` under `mcp:`) | None; only `get_kit` reads an unscoped Key/Session (owner view) |
+| `/privacy`, `/terms`, `/support` | privacy.tsx, terms.tsx, support.tsx (shared `components/legal/`; linked from the footer and the ChatGPT plugin listing) | None |
+| `*` (unknown path) | $.tsx (loader answers 404) | None |
+| `/api/mcp` | api.mcp.ts (read-only MCP over JSON-RPC: `search_packages`, `get_package`, `get_release`, `check_compatibility`, `get_kit`; 64 KiB body cap, `RELEASE_READ_LIMITER` under `mcp:`) | None; only `get_kit` reads an unscoped Key/Session (owner view). Tools are annotated read-only; the ChatGPT plugin in `integrations/chatgpt/plugin` (docs/chatgpt-plugin.md) depends on them |
 | `/profile` | profile.tsx | Session |
 | `/settings` | settings.tsx | Session |
 | `/api/auth/*` | auth-catchall.tsx | Better Auth |

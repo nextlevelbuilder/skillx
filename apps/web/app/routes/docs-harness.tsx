@@ -114,6 +114,14 @@ export default function DocsHarness() {
             because &ldquo;not in the registry&rdquo; and &ldquo;the call failed&rdquo; are
             different answers.
           </p>
+          <p className="mt-4 text-sm text-sx-fg-muted">
+            Every tool is annotated read-only (
+            <span className="font-mono text-xs text-sx-fg">readOnlyHint: true</span>, not destructive,
+            not open-world), and a listing the scanner marks{" "}
+            <span className="font-mono text-xs text-sx-fg">danger</span> never returns its body from
+            search or detail. The SkillX plugin for ChatGPT and Codex connects to this endpoint
+            anonymously and never installs or runs a skill.
+          </p>
         </div>
       </section>
 

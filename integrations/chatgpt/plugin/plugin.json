@@ -1,0 +1,93 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "skillx",
+  "version": "1.0.0",
+  "description": "Read-only discovery of AI agent skills in the SkillX.sh catalog: ranked search with publisher, source, release pin, runtime compatibility and security scan state. Never installs or runs a skill.",
+  "author": {
+    "name": "SkillX.sh",
+    "url": "https://skillx.sh"
+  },
+  "homepage": "https://skillx.sh",
+  "repository": "https://github.com/nextlevelbuilder/skillx",
+  "license": "MIT",
+  "keywords": ["agent-skills", "skill-discovery", "skill-md", "mcp", "codex", "claude-code"],
+  "extensions": {
+    "com.openai": {
+      "onboardingSkill": "./skills/setup/SKILL.md",
+      "interface": {
+        "displayName": "SkillX",
+        "shortDescription": "Find and vet agent skills",
+        "longDescription": "SkillX helps you find AI agent skills (SKILL.md packages) for ChatGPT, Codex, Claude Code and other agent runtimes, and decide whether one is worth adopting.\n\nAsk for a skill in plain language and SkillX searches the SkillX.sh catalog with hybrid semantic and keyword ranking. Every result shows its publisher, source repository, SkillX page, whether it is pinned to an immutable release (version and SHA-256 digest) or is a mutable listing, the runtime compatibility its publisher declared, and the result of SkillX's content security scan.\n\nSkillX is deliberately honest about what it does not know: undeclared compatibility is reported as unknown rather than support, an unscanned skill is reported as unknown rather than safe, and install counts and ratings are shown as popularity, never as a safety signal. Skills flagged dangerous by the scan are shown without their body, and quarantined, revoked or withdrawn releases are refused with the reason.\n\nSkillX is read-only. It never installs, enables or runs a skill. When you decide to adopt one, it gives you the source and manual steps to review and install it yourself in your own agent host. No account or sign-in is needed; searches reach SkillX anonymously and SkillX never receives your conversation.",
+        "developerName": "SkillX.sh",
+        "category": "Developer Tools",
+        "capabilities": ["Read"],
+        "websiteURL": "https://skillx.sh",
+        "supportURL": "https://skillx.sh/support",
+        "privacyPolicyURL": "https://skillx.sh/privacy",
+        "termsOfServiceURL": "https://skillx.sh/terms",
+        "defaultPrompt": [
+          "Find a skill for reviewing pull requests in Codex.",
+          "Compare the top SkillX skills for PDF extraction.",
+          "Is the SkillX skill phodal-pdf safe to adopt?"
+        ],
+        "brandColor": "#00A574",
+        "brandColorDark": "#00E5A0",
+        "composerIcon": "./assets/composer-icon.png",
+        "logo": "./assets/logo.png"
+      },
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Ranked discovery for a named runtime",
+              "prompt": "Find a SkillX skill that helps review pull requests in Codex.",
+              "tools_triggered": "search_packages, get_package",
+              "expected_behavior": "Shows up to five result cards with author, SkillX page, source URL, an 'Unpinned listing' release line, compatibility for codex (unknown when undeclared, never presented as support) and risk label. Popularity is labelled as popularity, not safety. Nothing is installed."
+            },
+            {
+              "description": "Compare candidates side by side",
+              "prompt": "Compare the top two SkillX skills for PDF extraction and tell me which one to try first.",
+              "tools_triggered": "search_packages, get_package",
+              "expected_behavior": "Presents two cards side by side with publisher, source, release pin and scan state, explains the trade-off from the returned metadata only, and asks the user to choose rather than picking by install count."
+            },
+            {
+              "description": "Evaluate one skill's trust state",
+              "prompt": "Is the SkillX skill phodal-pdf safe to adopt?",
+              "tools_triggered": "get_package",
+              "expected_behavior": "Reports the risk label exactly (an unscanned skill is 'not scanned: safety unknown', not safe), the source URL, that the listing is unpinned, and suggests reviewing the SKILL.md at the source. Does not claim the skill is safe or install it."
+            },
+            {
+              "description": "Runtime compatibility check",
+              "prompt": "Does the SkillX skill pipecat-ai-code-review support Claude Code?",
+              "tools_triggered": "check_compatibility",
+              "expected_behavior": "Quotes the compatibility status for claude-code. When the status is unknown it says no compatibility claim was made, which is neither support nor incompatibility."
+            },
+            {
+              "description": "Honest no-match answer",
+              "prompt": "Find a SkillX skill for calibrating a quantum flux capacitor in COBOL.",
+              "tools_triggered": "search_packages",
+              "expected_behavior": "If SkillX returns no relevant result, says so plainly, suggests one or two broader searches, and does not invent a skill or recommend one from memory."
+            }
+          ],
+          "negative": [
+            {
+              "description": "General coding request with no skill discovery",
+              "prompt": "Write a Python function that reverses a linked list."
+            },
+            {
+              "description": "Unrelated everyday question",
+              "prompt": "What should I cook tonight with chicken and rice?"
+            },
+            {
+              "description": "Writing task unrelated to agent skills",
+              "prompt": "Draft a polite email asking my landlord to fix the heating."
+            }
+          ]
+        }
+      },
+      "publication": {
+        "release_notes": "Initial release: read-only SkillX skill discovery with source attribution, release pinning, compatibility and security scan state."
+      }
+    }
+  }
+}

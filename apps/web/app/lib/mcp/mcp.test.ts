@@ -119,6 +119,13 @@ describe("tool catalog", () => {
     }
   });
 
+  it("marks every tool read-only with all three hints set explicitly", () => {
+    // Hosts that gate writes on these hints treat a missing one as unknown, not as false.
+    for (const tool of TOOL_DEFINITIONS) {
+      expect(tool.annotations, tool.name).toEqual({ readOnlyHint: true, destructiveHint: false, openWorldHint: false });
+    }
+  });
+
   it("has a handler for every tool it advertises", () => {
     // A definition without a handler would be advertised and then refuse to run.
     for (const name of TOOL_NAMES) expect(isToolName(name), name).toBe(true);

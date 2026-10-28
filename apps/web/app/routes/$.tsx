@@ -1,4 +1,15 @@
-import { Link } from "react-router";
+import { Link, data, type MetaFunction } from "react-router";
+
+/**
+ * Every path no other route matches lands here. The loader sets the status so
+ * the Not Found page answers HTTP 404, not 200, while still rendering below.
+ */
+export function loader() {
+  return data(null, { status: 404 });
+}
+
+export const meta: MetaFunction = () => [{ title: "Page Not Found — SkillX.sh" }];
+
 
 export default function NotFound() {
   return (

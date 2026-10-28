@@ -1921,8 +1921,8 @@ entry but its body is replaced by a warning. An embedded body is fenced with mor
 backticks than its longest backtick run, so it cannot close its own block.
 Name, author, category and description are flattened to one line with a leading `#` or `>`
 and backticks escaped, so listing metadata cannot open a heading, quote or fence. The same
-`danger` policy applies to `GET /skills/<slug>.md` and to the MCP `get_package` tool (no
-`content`, `contentIncluded: false`, plus `contentOmitted`). Only `danger` is omitted: `unknown`
+`danger` policy applies to `GET /skills/<slug>.md` and to the MCP `get_package` and
+`search_packages` tools (no `content`, `contentIncluded: false`, plus `contentOmitted`). Only `danger` is omitted: `unknown`
 (rows created before the scanner ran), `caution` and `safe` keep their bodies, with the label
 shown beside them.
 
@@ -1933,6 +1933,10 @@ Remote MCP server (JSON-RPC 2.0, streamable HTTP; `GET` answers 405). Methods:
 `get_kit` runs as the anonymous viewer: the request's session or API key is never read.
 `get_kit` alone reads an unscoped API key or a session to recognise the owner; a scoped,
 unknown or revoked key is a tool error with `details.code = "invalid_api_key"`.
+Every tool is declared read-only in `tools/list`, with all three annotations set explicitly
+(`readOnlyHint: true`, `destructiveHint: false`, `openWorldHint: false`); hosts such as ChatGPT
+use them to decide whether a call needs the user's confirmation. The ChatGPT plugin that
+connects to this endpoint is described in [chatgpt-plugin.md](./chatgpt-plugin.md).
 
 | Tool | Arguments | Answer |
 |------|-----------|--------|

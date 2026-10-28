@@ -45,9 +45,13 @@ export async function searchPackages(rawArgs: unknown, ctx: ToolContext) {
 
   // The filter report and note travel with the result: a filter that hides
   // undecidable listings silently would make the catalog look smaller.
+  // Same danger policy as `get_package`: a flagged body never reaches the agent from either tool.
+  const results = outcome.results.map((result) =>
+    applyDangerPolicy({ ...result, contentIncluded: typeof result.content === "string" }, result.riskLabel),
+  );
   return {
-    results: outcome.results,
-    count: outcome.results.length,
+    results,
+    count: results.length,
     ...(outcome.compatibilityFilter ? { compatibilityFilter: outcome.compatibilityFilter } : {}),
     ...(outcome.note ? { note: outcome.note } : {}),
   };

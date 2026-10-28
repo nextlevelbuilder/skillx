@@ -33,6 +33,9 @@ skillx/
 │       │   ├── lib/                   # API client, config store
 │       │   └── index.ts               # Commander.js CLI setup
 │       └── package.json
+├── integrations/chatgpt/
+│   ├── plugin/                        # OpenAI plugin package (plugin.json, mcp.json, skills/, assets/); see docs/chatgpt-plugin.md
+│   └── brand/logo.svg                 # Source for the plugin icons
 ├── .claude-plugin/
 │   └── marketplace.json               # Claude Code plugin marketplace catalog
 ├── .claude/skills/
@@ -45,6 +48,7 @@ skillx/
 ├── scripts/
 │   ├── seed-data.json                 # 30 real skills from skills.sh
 │   └── seed-skills.mjs                # Seed script runner
+│   └── pack-chatgpt-plugin.sh         # Builds the reproducible plugin ZIP (pnpm pack:chatgpt-plugin)
 ├── docs/                              # Documentation
 ├── plans/                             # Planning & reports
 └── README.md                          # Project overview

@@ -21,9 +21,16 @@ export interface McpToolDefinition {
     required?: string[];
     additionalProperties: boolean;
   };
+  annotations: typeof READ_ONLY;
 }
 
 const STRING = { type: "string" } as const;
+/**
+ * Every tool only reads the bounded SkillX catalog. Hosts such as ChatGPT
+ * require all three hints as explicit booleans and use them to decide whether
+ * a call needs user confirmation, so a missing hint is not "probably fine".
+ */
+const READ_ONLY = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
 const LIMIT = { type: "number", minimum: 1, maximum: 100 } as const;
 
 export const TOOL_DEFINITIONS: McpToolDefinition[] = [
@@ -42,6 +49,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       required: ["query"],
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
   },
   {
     name: "get_package",
@@ -57,6 +65,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       required: ["slug"],
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
   },
   {
     name: "get_release",
@@ -73,6 +82,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       required: ["package"],
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
   },
   {
     name: "check_compatibility",
@@ -88,6 +98,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       required: ["slug", "target"],
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
   },
   {
     name: "get_kit",
@@ -106,6 +117,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       required: ["kit"],
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
   },
 ];
 
