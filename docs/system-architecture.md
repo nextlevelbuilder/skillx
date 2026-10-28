@@ -42,7 +42,7 @@
 |---------|---------|---------|
 | `DB` | D1 Database | Primary data store (SQLite) |
 | `VECTORIZE` | Vectorize Index | Vector search (768-dim) |
-| `KV` | KV Namespace | Query result caching (5min TTL) |
+| `KV` | KV Namespace | Home, leaderboard and llms.txt caching (5min TTL); recompute checkpoint |
 | `R2` | R2 Bucket | Asset storage (SKILL.md files) |
 | `AI` | Workers AI | Text embedding (bge-base-en-v1.5) |
 
@@ -118,50 +118,42 @@
 ```
 User Query (text)
     ↓
-Hash query string
+    (no result cache: every request runs the full pipeline)
     ↓
-Check KV cache: cache:{hash}
+    Embed query via Workers AI
+    (bge-base-en-v1.5, 768 dimensions)
     ↓
-    ├─ Hit (5min TTL) → Return cached results
-    │
-    └─ Miss:
-        ↓
-        Embed query via Workers AI
-        (bge-base-en-v1.5, 768 dimensions)
-        ↓
-        ┌────────────────────────────────────┐
-        │ Parallel Search (no await)         │
-        ├────────────────────────────────────┤
-        │ 1. Vectorize cosine search         │
-        │    - Query embedding vs skill data │
-        │    - Returns top 100 by similarity │
-        │                                    │
-        │ 2. FTS5 keyword search (D1)        │
-        │    - Match skill name/description  │
-        │    - Returns BM25-ranked results   │
-        └────────────────────────────────────┘
-        ↓
-        RRF Fusion: Merge rank lists
-        (reciprocal rank fusion formula)
-        ↓
-        Boost Scoring (8 signals):
-        - avg_rating × 0.3
-        - install_count × 0.2
-        - net_votes × 0.07
-        - freshness × 0.1
-        - has_reviews × 0.015
-        - is_favorited × 0.015
-        (vector: 0.5, FTS5: 0.215)
-        ↓
-        Filter:
-        - category (if specified)
-        - is_paid (if specified)
-        ↓
-        Sort by final score, limit 100
-        ↓
-        Cache result (KV, 5min TTL)
-        ↓
-        Response JSON
+    ┌────────────────────────────────────┐
+    │ Parallel Search (no await)         │
+    ├────────────────────────────────────┤
+    │ 1. Vectorize cosine search         │
+    │    - Query embedding vs skill data │
+    │    - Returns top 100 by similarity │
+    │                                    │
+    │ 2. FTS5 keyword search (D1)        │
+    │    - Match skill name/description  │
+    │    - Returns BM25-ranked results   │
+    └────────────────────────────────────┘
+    ↓
+    RRF Fusion: Merge rank lists
+    (reciprocal rank fusion formula)
+    ↓
+    Boost Scoring (8 signals):
+    - avg_rating × 0.3
+    - install_count × 0.2
+    - net_votes × 0.07
+    - freshness × 0.1
+    - has_reviews × 0.015
+    - is_favorited × 0.015
+    (vector: 0.5, FTS5: 0.215)
+    ↓
+    Filter:
+    - category (if specified)
+    - is_paid (if specified)
+    ↓
+    Sort by final score, limit 100
+    ↓
+    Response JSON
 ```
 
 ### 2. Vectorization Pipeline
@@ -303,16 +295,20 @@ Response:
 
 ### KV Cache Layers
 
-| Key Pattern | TTL | Size | Purpose |
-|-------------|-----|------|---------|
-| `cache:{query_hash}` | 5 min | <25KB | Search results |
-| `user:{userId}` | 1 hour | <10KB | User profile (favorites) |
-| `skill:{skillId}:detail` | 30 min | <20KB | Skill detail page |
-| `leaderboard:top100` | 10 min | <25KB | Leaderboard rankings |
+All entries go through the read-through helper `getCached` (`apps/web/app/lib/cache/kv-cache.ts`). Search (`/api/search`, the search palette, MCP `search_packages`) does not read or write KV.
 
-**Cache Invalidation:**
-- On rating/review/favorite write → invalidate skill cache + leaderboard
-- On skill content change → invalidate vectorize index
+| Key Pattern | TTL | Purpose |
+|-------------|-----|---------|
+| `stats:global`, `categories:distinct` | 5 min | Home page stats and category list |
+| `leaderboard:home:best:0:{size}` | 5 min | Home page leaderboard |
+| `leaderboard:v2:{sort}:0:{size}` | 5 min | Leaderboard page |
+| `leaderboard:v3:{sort}:{category}:{offset}:{limit}` | 5 min | `/api/leaderboard` |
+| `leaderboard:thresholds` | 5 min | Leaderboard scoring percentiles |
+| `llms-txt:v5:{origin}:{limit}`, `llms-full-txt:v5:{origin}:{limit}` | 5 min | `/llms.txt` and `/llms-full.txt` bodies |
+
+The leaderboard recompute job (`apps/web/app/lib/leaderboard/recompute-state.ts`) also keeps its checkpoint in KV with a 24 hour TTL; that is state, not a cache.
+
+**Cache Invalidation:** none. Entries expire by TTL only, so a write shows up within 5 minutes.
 
 ## API Endpoints
 
@@ -803,7 +799,7 @@ takes the next number and the backup steps in the
 
 | Operation | Latency | Notes |
 |-----------|---------|-------|
-| Skill search | 200-800ms | Vectorize + FTS5, cached |
+| Skill search | 200-800ms | Vectorize + FTS5, uncached |
 | Leaderboard | 100-500ms | D1 query, sorted by rating |
 | Rate skill | 100-300ms | D1 insert + update |
 | API key lookup | 50-150ms | D1 hash index |
