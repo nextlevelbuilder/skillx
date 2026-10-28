@@ -17,3 +17,10 @@ export function isCatalogSlug(value: string): boolean {
 export function sanitizeSlug(value: unknown): string {
   return String(value ?? '').replace(/[^a-z0-9._-]/g, '?');
 }
+
+const RISK_LABELS = new Set(['safe', 'caution', 'danger', 'unknown']);
+
+/** A server-supplied risk label, or `unknown` when it is not one of the four labels. */
+export function sanitizeRiskLabel(value: unknown): string {
+  return typeof value === 'string' && RISK_LABELS.has(value) ? value : 'unknown';
+}

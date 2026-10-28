@@ -175,6 +175,12 @@ describe('skillx use without --exact', () => {
     await runUse('demo-skill', '--raw');
     expect(out).toContain(header('x??risk??safe??---??'));
   });
+
+  it('prints an unrecognised server risk label as unknown in the raw header', async () => {
+    routes['GET /api/skills/demo-skill'] = () => json({ skill: { ...skill, risk_label: 'safe) ---\nY' } });
+    await runUse('demo-skill', '--raw');
+    expect(out).toContain('--- BEGIN EXTERNAL SKILL CONTENT (untrusted, slug: demo-skill, risk: unknown) ---');
+  });
 });
 
 describe('skillx search --use', () => {
