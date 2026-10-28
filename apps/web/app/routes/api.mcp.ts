@@ -2,7 +2,7 @@
  * Remote read-only MCP server.
  *
  * `POST /api/mcp` speaks JSON-RPC 2.0 over the MCP streamable-HTTP transport.
- * Implemented: `initialize`, `notifications/initialized`, `tools/list`,
+ * Implemented: `initialize`, `notifications/initialized`, `ping`, `tools/list`,
  * `tools/call`. Everything else is answered with `method not found` rather than
  * being stubbed, so a client can see exactly what this server does.
  *
@@ -105,6 +105,10 @@ export async function action({ request, context }: ActionFunctionArgs) {
         { headers: JSON_HEADERS },
       );
 
+    // Hosts such as ChatGPT ping a connector to check it is alive; the reply is empty by spec.
+    case "ping":
+      return Response.json(rpcResult(id, {}), { headers: JSON_HEADERS });
+
     case "tools/list":
       return Response.json(
         rpcResult(id, { tools: TOOL_DEFINITIONS }),
@@ -142,7 +146,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
     default:
       return Response.json(
         rpcError(id, RPC.methodNotFound, "Method not found", {
-          supportedMethods: ["initialize", "tools/list", "tools/call"],
+          supportedMethods: ["initialize", "ping", "tools/list", "tools/call"],
         }),
         { status: 404, headers: JSON_HEADERS },
       );

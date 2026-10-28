@@ -21,9 +21,21 @@ export interface McpToolDefinition {
     required?: string[];
     additionalProperties: boolean;
   };
+  annotations: typeof READ_ONLY;
 }
 
 const STRING = { type: "string" } as const;
+/**
+ * Every tool only reads the SkillX catalog: nothing is written, installed or run,
+ * and repeating a call has no effect. Hosts such as ChatGPT decide confirmation
+ * prompts from these hints, so they must stay true for every tool listed here.
+ */
+const READ_ONLY = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
 const LIMIT = { type: "number", minimum: 1, maximum: 100 } as const;
 
 export const TOOL_DEFINITIONS: McpToolDefinition[] = [
@@ -42,6 +54,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       required: ["query"],
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
   },
   {
     name: "get_package",
@@ -57,6 +70,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       required: ["slug"],
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
   },
   {
     name: "get_release",
@@ -73,6 +87,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       required: ["package"],
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
   },
   {
     name: "check_compatibility",
@@ -88,6 +103,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       required: ["slug", "target"],
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
   },
   {
     name: "get_kit",
@@ -106,6 +122,7 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       required: ["kit"],
       additionalProperties: false,
     },
+    annotations: READ_ONLY,
   },
 ];
 

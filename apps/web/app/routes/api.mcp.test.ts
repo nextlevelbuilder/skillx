@@ -77,6 +77,24 @@ describe("POST /api/mcp", () => {
     ]);
   });
 
+  it("marks every tool read-only, non-destructive and idempotent", async () => {
+    const { json } = await post('{"jsonrpc":"2.0","id":2,"method":"tools/list"}');
+    for (const tool of json.result.tools) {
+      expect(tool.annotations).toEqual({
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      });
+    }
+  });
+
+  it("answers ping with an empty result", async () => {
+    const { response, json } = await post('{"jsonrpc":"2.0","id":7,"method":"ping"}');
+    expect(response.status).toBe(200);
+    expect(json).toEqual({ jsonrpc: "2.0", id: 7, result: {} });
+  });
+
   it("resolves the caller for get_kit only, from the session or an unscoped key", async () => {
     callToolSpy.ctx.length = 0;
     await post(GET_KIT, KITS_ON, { Cookie: "session=abc" });
