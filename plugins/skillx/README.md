@@ -15,7 +15,7 @@ own licenses.
 | Component | Path | Purpose |
 |-----------|------|---------|
 | Skill | `skills/skillx/SKILL.md` | Search → evaluate → ask → use workflow, with untrusted-content rules |
-| MCP server | `.mcp.json` → `https://skillx.sh/api/mcp` | Read-only catalog tools: `search_packages`, `get_package`, `get_release`, `check_compatibility`, `get_kit` |
+| MCP server | `.mcp.json` → `https://skillx.sh/api/mcp` | Read-only catalog tools: `search_packages`, `get_package`, `get_release`, `check_compatibility`, `get_kit`, `prepare_install` (plans only; never installs) |
 
 No hooks, agents, commands or bundled executables.
 
