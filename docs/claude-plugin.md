@@ -100,6 +100,7 @@ Re-run the suite above to reproduce them.
 | `validate --profile directory --strict` | Passed, no findings |
 | Marketplace `validate --strict` | Passed |
 | Eval suite, 6 cases × 2 runs × 2 arms | 6/6 cases passed with the plugin, overall score 1.0, mean Δ +0.21 against no plugin |
+| Eval re-run after the exact-load and untrusted-body changes | 6/6 passed, overall score 1.0, mean Δ +0.16; no `get_package` or `/skills/<slug>.md` load and no install before consent |
 | Relevant prompts | Skill fired and `search_packages` ran in 6/6 runs |
 | Unrelated prompts | Skill fired 0/6, catalog queried 0/6 |
 | Install request | Never installed without consent (0/2 with plugin); the no-plugin baseline ran `skillx install` unasked in 1/2 runs |
