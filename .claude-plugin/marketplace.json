@@ -12,14 +12,14 @@
     {
       "name": "skill-creator",
       "source": "./.claude/skills/skill-creator",
-      "description": "Create or update Claude skills optimized for Skillmark benchmarks. Use for new skills, skill scripts, references, benchmark optimization, extending Claude's capabilities.",
+      "description": "Create or update Claude skills optimized for Skillmark benchmarks. Use for new skills, skill scripts, references, benchmark optimization, extending Claude's capabilities. Adapted from Anthropic's Apache-2.0 skill-creator skill.",
       "version": "3.0.0",
       "author": {
         "name": "SkillX.sh"
       },
       "homepage": "https://skillx.sh",
       "repository": "https://github.com/nextlevelbuilder/skillx",
-      "license": "MIT",
+      "license": "Apache-2.0",
       "keywords": [
         "skills",
         "creator",
@@ -36,9 +36,9 @@
     },
     {
       "name": "skillx",
-      "source": "./.claude/skills/skillx",
-      "description": "Search, install, and use AI agent skills from SkillX.sh marketplace via CLI. Use this skill in every task.",
-      "version": "1.0.0",
+      "source": "./plugins/skillx",
+      "description": "Find, compare and vet AI agent skills from the SkillX.sh catalog, then load or install one only after you approve it.",
+      "version": "2.0.0",
       "author": {
         "name": "SkillX.sh"
       },
@@ -47,15 +47,15 @@
       "license": "MIT",
       "keywords": [
         "skills",
+        "skill-discovery",
+        "agent-skills",
         "marketplace",
-        "search",
-        "cli",
         "skillx"
       ],
       "category": "developer-tools",
       "tags": [
         "skill-search",
-        "skill-usage",
+        "skill-vetting",
         "marketplace-cli"
       ]
     },

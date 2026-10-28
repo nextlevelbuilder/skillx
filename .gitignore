@@ -58,3 +58,4 @@ __pycache__/
 
 # Pi agent per-session state
 .pi/
+.claude/worktrees/
