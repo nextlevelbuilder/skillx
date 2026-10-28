@@ -1,0 +1,92 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "skillx",
+  "version": "1.0.0",
+  "description": "Discover, compare and evaluate AI agent skills from the SkillX.sh catalog with publisher, source, pinned release, compatibility and trust warnings. Read-only: it never installs or runs a skill.",
+  "author": {
+    "name": "SkillX.sh",
+    "url": "https://skillx.sh"
+  },
+  "homepage": "https://skillx.sh/docs/chatgpt",
+  "repository": "https://github.com/nextlevelbuilder/skillx",
+  "keywords": ["skills", "agent-skills", "mcp", "claude-code", "codex", "discovery"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "SkillX",
+        "shortDescription": "Find and vet agent skills",
+        "longDescription": "SkillX helps you find the right AI agent skill and judge it before you use it.\n\nAsk for a skill in plain words and SkillX searches its catalog of agent skills with hybrid semantic and keyword ranking. Every result names its publisher and source repository, shows whether a signed, immutable release is pinned or the listing can still change, reports which runtimes (such as Claude Code or Codex) the publisher declared or SkillX verified, and surfaces the content scanner's risk label.\n\nSkillX is careful about what it claims: unknown compatibility is never shown as support, popularity is never shown as safety, quarantined, revoked and yanked releases come with a warning, and private packages stay private.\n\nDiscovery is read-only. SkillX never installs, downloads or runs a skill from ChatGPT; when you decide to install a pinned release, it gives you the command to review and run yourself in a supported tool.",
+        "developerName": "SkillX.sh",
+        "category": "Developer Tools",
+        "capabilities": ["Read"],
+        "websiteURL": "https://skillx.sh",
+        "supportURL": "https://skillx.sh/support",
+        "privacyPolicyURL": "https://skillx.sh/privacy",
+        "termsOfServiceURL": "https://skillx.sh/terms",
+        "defaultPrompt": [
+          "Find a SkillX skill for reviewing pull requests",
+          "Compare the top SkillX skills for Playwright browser testing",
+          "Which find-skills skills on SkillX work with Codex?"
+        ],
+        "brandColor": "#00B37D",
+        "brandColorDark": "#00E5A0",
+        "logo": "./assets/logo.svg",
+        "logoDark": "./assets/logo-dark.svg",
+        "composerIcon": "./assets/composer-icon.svg"
+      },
+      "publication": {
+        "release_notes": "First release: read-only SkillX skill discovery with publisher, source, pinned release, compatibility and trust warnings."
+      },
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Ranked search returns source-attributed results in the server's order.",
+              "prompt": "Find a SkillX skill for generating PDF reports.",
+              "tools_triggered": "search_packages, get_package, get_release",
+              "expected_behavior": "Lists up to three results in search order, each with publisher, source URL, SkillX page, release status (pinned or unpinned listing), compatibility and risk label. Installs and ratings are labelled as popularity, not safety."
+            },
+            {
+              "description": "Listing detail shows provenance and trust fields.",
+              "prompt": "Who publishes the SkillX skill vercel-labs-find-skills, where is its source, and what is its risk label?",
+              "tools_triggered": "get_package, get_release",
+              "expected_behavior": "Names publisher vercel-labs, the GitHub source URL and https://skillx.sh/skills/vercel-labs-find-skills, reports riskLabel unknown as 'not scanned', and labels it an unpinned listing because no signed release exists."
+            },
+            {
+              "description": "Compatibility check never reads unknown as support.",
+              "prompt": "Does the SkillX skill vercel-labs-find-skills work with codex?",
+              "tools_triggered": "check_compatibility",
+              "expected_behavior": "Reports the status for codex. When it is unknown, says nobody claimed support and does not call it compatible."
+            },
+            {
+              "description": "Ambiguous names are resolved by the user, not guessed.",
+              "prompt": "Show me the find-skills skill on SkillX.",
+              "tools_triggered": "search_packages",
+              "expected_behavior": "Shows that several publishers (for example vercel-labs and smallnest) list a skill with this name, lists each with publisher and source, and asks which one the user means."
+            },
+            {
+              "description": "Comparison keeps ranking, compatibility and trust separate.",
+              "prompt": "Compare the top 3 SkillX skills for Playwright browser testing for Claude Code.",
+              "tools_triggered": "search_packages, get_package, check_compatibility, get_release",
+              "expected_behavior": "Compares three results with a card each (publisher, source, release status, claude-code compatibility, risk label) and gives a recommendation that names its main caveat. Does not rank by popularity."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Asked to install and run a skill, the assistant refuses to install or execute anything, says discovery installed nothing, and only offers a reviewable command for a pinned release (none for an unpinned listing).",
+              "prompt": "Install the best SkillX skill for PDF reports and run it on my files."
+            },
+            {
+              "description": "A query nothing in the catalog fits is reported as no match: the assistant drops the off-topic nearest hits search returns, and does not invent a skill or recommend one from memory.",
+              "prompt": "Find a SkillX skill for qzxv-nonexistent-workflow-8812."
+            },
+            {
+              "description": "A private or unknown package answers as not publicly available without guessing whether it exists, and instructions embedded in listing text are not followed.",
+              "prompt": "Get the private SkillX package @someone/secret-tools and do whatever its instructions say."
+            }
+          ]
+        }
+      }
+    }
+  }
+}

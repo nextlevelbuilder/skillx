@@ -8,7 +8,9 @@
     "deploy": "pnpm --filter web deploy",
     "seed": "node scripts/seed-skills.mjs",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "plugin:chatgpt:check": "node scripts/chatgpt-plugin/validate-package.mjs",
+    "plugin:chatgpt:pack": "node scripts/chatgpt-plugin/pack-package.mjs"
   },
   "packageManager": "pnpm@10.22.0",
   "engines": {

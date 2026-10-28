@@ -1,0 +1,13 @@
+interface:
+  display_name: "SkillX Discovery"
+  short_description: "Find, compare and vet agent skills"
+  brand_color: "#00B37D"
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "skillx"
+      description: "Read-only SkillX catalog: search, listing detail, compatibility and signed releases"
+      transport: "streamable_http"
+      url: "https://skillx.sh/api/mcp"
+policy:
+  allow_implicit_invocation: true
