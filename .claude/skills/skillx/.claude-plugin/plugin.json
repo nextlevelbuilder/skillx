@@ -1,8 +1,0 @@
-{
-  "name": "skillx",
-  "description": "Search, install, and use AI agent skills from SkillX.sh marketplace via CLI.",
-  "version": "1.0.0",
-  "author": { "name": "SkillX.sh" },
-  "license": "MIT",
-  "skills": ["./"]
-}

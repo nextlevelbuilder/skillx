@@ -1,0 +1,21 @@
+{
+  "name": "skillx",
+  "displayName": "SkillX",
+  "version": "2.0.0",
+  "description": "Find, compare and vet AI agent skills from the SkillX.sh catalog, then load or install one only after you approve it.",
+  "author": {
+    "name": "SkillX.sh",
+    "url": "https://skillx.sh"
+  },
+  "homepage": "https://skillx.sh",
+  "repository": "https://github.com/nextlevelbuilder/skillx",
+  "license": "MIT",
+  "privacyPolicyUrl": "https://github.com/nextlevelbuilder/skillx/blob/main/plugins/skillx/README.md#privacy",
+  "keywords": [
+    "skills",
+    "skill-discovery",
+    "agent-skills",
+    "marketplace",
+    "skillx"
+  ]
+}

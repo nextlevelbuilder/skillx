@@ -35,13 +35,17 @@ skillx/
 │       └── package.json
 ├── .claude-plugin/
 │   └── marketplace.json               # Claude Code plugin marketplace catalog
+├── plugins/skillx/                    # Standalone SkillX plugin (v2.0.0), see docs/claude-plugin.md
+│   ├── .claude-plugin/plugin.json     # Plugin manifest (+ icon.png)
+│   ├── .mcp.json                      # Read-only https://skillx.sh/api/mcp
+│   ├── skills/skillx/SKILL.md         # Search → evaluate → consent → use
+│   └── evals/                         # claude plugin eval cases (relevant vs unrelated)
 ├── .claude/skills/
-│   ├── skill-creator/                 # Skill creation tool (v3.0.0)
+│   ├── skill-creator/                 # Skill creation tool (v3.0.0, Apache-2.0)
 │   │   └── .claude-plugin/
 │   │       └── plugin.json            # skill-creator plugin manifest
-│   └── skillx/                        # SkillX marketplace CLI skill (v1.0.0)
-│       └── .claude-plugin/
-│           └── plugin.json            # skillx plugin manifest
+│   ├── hol-guard/                     # Third-party skill (Hashgraph Online)
+│   └── marketing-mindset/             # Third-party skill (Axel Freeman)
 ├── scripts/
 │   ├── seed-data.json                 # 30 real skills from skills.sh
 │   └── seed-skills.mjs                # Seed script runner
