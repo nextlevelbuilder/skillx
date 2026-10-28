@@ -1,8 +1,12 @@
 {
   "name": "skill-creator",
-  "description": "Create or update Claude skills optimized for Skillmark benchmarks. Use for new skills, skill scripts, references, benchmark optimization, extending Claude's capabilities.",
+  "description": "Create or update Claude skills optimized for Skillmark benchmarks. Use for new skills, skill scripts, references, benchmark optimization, extending Claude's capabilities. Adapted from Anthropic's Apache-2.0 skill-creator skill.",
   "version": "3.0.0",
-  "author": { "name": "SkillX.sh" },
-  "license": "MIT",
-  "skills": ["./"]
+  "author": {
+    "name": "SkillX.sh"
+  },
+  "license": "Apache-2.0",
+  "skills": [
+    "./"
+  ]
 }
