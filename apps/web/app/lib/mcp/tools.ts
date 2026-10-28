@@ -66,10 +66,12 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       "newest first, or resolve one `version`. Uses the same access rules as the public release " +
       "API: private, unknown and draft releases answer `found: false` with code `not_found`; a " +
       "quarantined tree answers `release_quarantined`, a revoked publisher `publisher_revoked`, " +
-      "and a yanked version `release_yanked`. Fields match `GET /api/v1/packages/:scope/:slug/releases`.",
+      "and a yanked version `release_yanked`; every failure carries a readable `explanation`. Pass " +
+      "`digest` with `version` to pin the reviewed tree: a different digest answers `digest_mismatch`. " +
+      "Fields match `GET /api/v1/packages/:scope/:slug/releases`.",
     inputSchema: {
       type: "object",
-      properties: { package: STRING, version: STRING },
+      properties: { package: STRING, version: STRING, digest: STRING },
       required: ["package"],
       additionalProperties: false,
     },
@@ -104,6 +106,24 @@ export const TOOL_DEFINITIONS: McpToolDefinition[] = [
       type: "object",
       properties: { kit: STRING },
       required: ["kit"],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: "prepare_install",
+    title: "Prepare install",
+    description:
+      "Prepare a person's decision to install one published release (`package` is `@publisher/slug`, " +
+      "`version` is required, optional `digest` pins the reviewed tree). Returns the signed provenance " +
+      "(publisher verification, source commit or `unknown`), declared scripts, executable files, declared " +
+      "permissions, red flags and the pinned reference. It installs nothing and runs nothing. `host` is " +
+      "`read_only` (default; manual steps and links, `installed: false`) or `installer` (a dry-run preview " +
+      "and the pinned command to run only after explicit approval). Quarantined, yanked, revoked, private, " +
+      "changed-digest or mismatched releases answer `installable: false` with a code and an explanation.",
+    inputSchema: {
+      type: "object",
+      properties: { package: STRING, version: STRING, digest: STRING, host: { type: "string", enum: ["read_only", "installer"] } },
+      required: ["package", "version"],
       additionalProperties: false,
     },
   },

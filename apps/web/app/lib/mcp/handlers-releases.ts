@@ -17,6 +17,7 @@
 import {
   listPackageReleases,
   parsePackageIdentity,
+  parseReleaseDigest,
   parseReleaseVersion,
   resolveReleaseByVersion,
 } from "~/lib/releases/release-access";
@@ -26,6 +27,7 @@ import { releasesApiEnabled } from "~/lib/releases/release-limits";
 import { ToolInputError, asRecord } from "./protocol";
 import { optionalString, requiredString } from "./args";
 import type { ToolContext } from "./handlers";
+import { explainFailure } from "./trust";
 
 /** Most releases one `get_release` listing returns (newest first). */
 export const MAX_MCP_RELEASES = 20;
@@ -56,10 +58,28 @@ export function toPublicRelease(release: ReadableRelease): PublicRelease {
   };
 }
 
-/** `@handle/slug` and an optional SemVer, validated by the release API's own parsers. */
-function readArgs(args: Record<string, unknown>): { identity: string; version: string | undefined } {
+/** A release is immutable: its pin is the version plus the tree digest, and it is registry-signed. */
+export function releaseTrust(identity: string, release: ReadableRelease) {
+  return {
+    kind: "immutable_release" as const,
+    immutable: true,
+    signed: true,
+    pinned: { package: identity, version: release.version, releaseDigest: release.releaseDigest },
+    state: release.state,
+  };
+}
+
+/** A stable failure: the code, a sentence a person can read, and nothing else. */
+export function releaseFailure(code: string, identity: string, pinned: Record<string, string>) {
+  return { found: false, code, explanation: explainFailure(code), package: identity, ...pinned };
+}
+
+/** `@handle/slug`, an optional SemVer and an optional pinned digest, validated by the release API's own parsers. */
+export function readReleaseArgs(args: Record<string, unknown>): { identity: string; version: string | undefined; digest: string | undefined } {
   const name = requiredString(args, "package");
   const version = optionalString(args, "version");
+  const digest = optionalString(args, "digest");
+  if (digest !== undefined && version === undefined) throw new ToolInputError("digest pins one version; pass version too");
   const slash = name.indexOf("/");
   try {
     const identity = parsePackageIdentity(
@@ -67,7 +87,8 @@ function readArgs(args: Record<string, unknown>): { identity: string; version: s
       slash < 0 ? undefined : name.slice(slash + 1),
     );
     if (version !== undefined) parseReleaseVersion(version);
-    return { identity, version };
+    if (digest !== undefined) parseReleaseDigest(digest);
+    return { identity, version, digest };
   } catch (error) {
     if (error instanceof ReleaseHttpError) throw new ToolInputError(error.message);
     throw error;
@@ -75,16 +96,18 @@ function readArgs(args: Record<string, unknown>): { identity: string; version: s
 }
 
 export async function getRelease(rawArgs: unknown, ctx: ToolContext) {
-  const { identity, version } = readArgs(asRecord(rawArgs));
-  const pinned = version === undefined ? {} : { version };
+  const { identity, version, digest } = readReleaseArgs(asRecord(rawArgs));
+  const pinned: Record<string, string> = version === undefined ? {} : { version };
 
   // Flag off answers like an unknown package, as the public API does.
-  if (!releasesApiEnabled(ctx.env)) return { found: false, code: "not_found", package: identity, ...pinned };
+  if (!releasesApiEnabled(ctx.env)) return releaseFailure("not_found", identity, pinned);
 
   try {
     if (version !== undefined) {
       const release = await resolveReleaseByVersion(ctx.env.DB, identity, version, ANONYMOUS);
-      return { found: true, package: release.identity, release: toPublicRelease(release) };
+      // A pinned digest that no longer matches fails closed: the bytes changed since review.
+      if (digest !== undefined && digest !== release.releaseDigest) return releaseFailure("digest_mismatch", identity, pinned);
+      return { found: true, package: release.identity, release: toPublicRelease(release), trust: releaseTrust(release.identity, release) };
     }
     const list = await listPackageReleases(ctx.env.DB, identity, ANONYMOUS);
     return {
@@ -94,9 +117,7 @@ export async function getRelease(rawArgs: unknown, ctx: ToolContext) {
     };
   } catch (error) {
     // Access decisions keep the release API's stable codes; the message is not forwarded.
-    if (error instanceof ReleaseHttpError) {
-      return { found: false, code: error.code, package: identity, ...pinned };
-    }
+    if (error instanceof ReleaseHttpError) return releaseFailure(error.code, identity, pinned);
     throw error;
   }
 }

@@ -73,10 +73,12 @@ export function createMcpMirrorTools(options: { fetchImpl: typeof fetch; baseUrl
         "newest first, or resolve one `version`. Uses the same access rules as the public release " +
         "API: private, unknown and draft releases answer `found: false` with code `not_found`; a " +
         "quarantined tree answers `release_quarantined`, a revoked publisher `publisher_revoked`, " +
-        "and a yanked version `release_yanked`. Fields match `GET /api/v1/packages/:scope/:slug/releases`.",
+        "and a yanked version `release_yanked`; every failure carries a readable `explanation`. Pass " +
+        "`digest` with `version` to pin the reviewed tree: a different digest answers `digest_mismatch`. " +
+        "Fields match `GET /api/v1/packages/:scope/:slug/releases`.",
       inputSchema: {
         type: "object",
-        properties: { package: STRING, version: STRING },
+        properties: { package: STRING, version: STRING, digest: STRING },
         required: ["package"],
         additionalProperties: false,
       },

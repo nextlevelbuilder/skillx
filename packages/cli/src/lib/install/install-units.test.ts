@@ -50,6 +50,8 @@ describe('refs and versions', () => {
     expect(parseRefs([`collection:${col}#3`])).toEqual({ kind: 'collection', id: col, revision: 3 });
     expect(parseRefs([`collection:${col}`])).toEqual({ kind: 'collection', id: col, revision: 'latest' });
     expect(parseRefs(['@alpha/demo@1.2.0', '@alpha/tools'])).toEqual({ kind: 'packages', packages: [{ name: '@alpha/demo', version: '1.2.0' }, { name: '@alpha/tools' }] });
+    expect(parseRefs([`@alpha/demo@1.2.0#${D('a')}`])).toEqual({ kind: 'packages', packages: [{ name: '@alpha/demo', version: '1.2.0', digest: D('a') }] });
+    expect(() => parseRefs(['@alpha/demo@1.2.0#sha256:abc'])).toThrow(/is not/);
     expect(() => parseRefs(['demo'])).toThrow(/is not/);
     expect(() => parseRefs([`kit:@alpha/my-kit`, '@alpha/demo'])).toThrow(/one kit/);
   });
@@ -77,6 +79,15 @@ describe('collection resolve', () => {
     const digest = (probe.lock.source as { revisionDigest: string }).revisionDigest;
     const res = await resolveSource(registryWith(digest), { kind: 'collection', id: col, revision: 'latest' });
     expect(res.warnings).toEqual([]);
+  });
+});
+
+describe('digest pins', () => {
+  const registry = { releases: async () => [{ version: '1.2.0', state: 'published', releaseDigest: D('b') }] } as unknown as Registry;
+
+  it('refuses a release whose digest differs from the pinned one, before fetching anything', async () => {
+    const ref = parseRefs([`@alpha/demo@1.2.0#${D('a')}`]);
+    await expect(resolveSource(registry, ref)).rejects.toMatchObject({ code: 'integrity_error' });
   });
 });
 

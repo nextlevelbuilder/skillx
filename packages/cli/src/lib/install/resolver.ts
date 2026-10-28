@@ -24,7 +24,7 @@ import { resolvePin } from './release-pins.js';
 export type SourceRef =
   | { kind: 'kit'; kit: string; revisionId?: string }
   | { kind: 'collection'; id: string; revision: number | 'latest' }
-  | { kind: 'packages'; packages: Array<{ name: string; version?: string }> };
+  | { kind: 'packages'; packages: Array<{ name: string; version?: string; digest?: string }> };
 
 export interface Resolution {
   lock: InstallLock;
@@ -35,9 +35,10 @@ export interface Resolution {
 
 const KIT_REF = /^kit:(@[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9._-]{0,63})(?:#([a-z]+_[0-9a-f-]{36}))?$/;
 const COLLECTION_REF = /^collection:(col_[0-9a-f-]{36})(?:#(\d{1,9}|latest))?$/;
-const PACKAGE_REF = /^(@[^@\s]+\/[^@\s]+)(?:@(\S+))?$/;
+/** `#sha256:<hex>` pins the reviewed tree: a release with another digest is refused, never installed. */
+const PACKAGE_REF = /^(@[^@\s#]+\/[^@\s#]+)(?:@([^\s#]+))?(?:#(sha256:[0-9a-f]{64}))?$/;
 
-/** `kit:@h/k[#revId]`, `collection:<id>[#n]`, or one or more `@p/s[@version]`. */
+/** `kit:@h/k[#revId]`, `collection:<id>[#n]`, or one or more `@p/s[@version][#sha256:<hex>]`. */
 export function parseRefs(refs: readonly string[]): SourceRef {
   if (refs.length === 0) throw usageError('name a source: kit:@handle/kit, collection:<id> or @publisher/package');
   const kit = KIT_REF.exec(refs[0]!);
@@ -49,8 +50,8 @@ export function parseRefs(refs: readonly string[]): SourceRef {
     kind: 'packages',
     packages: refs.map((ref) => {
       const m = PACKAGE_REF.exec(ref);
-      if (!m || !PACKAGE_NAME_PATTERN.test(m[1]!)) throw usageError(`'${ref}' is not kit:@h/k, collection:<id> or @publisher/package[@version]`);
-      return { name: m[1]!, ...(m[2] ? { version: m[2] } : {}) };
+      if (!m || !PACKAGE_NAME_PATTERN.test(m[1]!)) throw usageError(`'${ref}' is not kit:@h/k, collection:<id> or @publisher/package[@version][#sha256:<hex>]`);
+      return { name: m[1]!, ...(m[2] ? { version: m[2] } : {}), ...(m[3] ? { digest: m[3] } : {}) };
     }),
   };
 }

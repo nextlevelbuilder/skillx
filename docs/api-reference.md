@@ -1936,11 +1936,19 @@ unknown or revoked key is a tool error with `details.code = "invalid_api_key"`.
 
 | Tool | Arguments | Answer |
 |------|-----------|--------|
-| `search_packages` | `query`, `category?`, `limit?`, `compatible?` | Same executor and filter report as `POST /api/search` |
-| `get_package` | `slug`, `target?` | Listing detail (alias-aware) and declared compatibility |
-| `get_release` | `package` (`@handle/slug`), `version?` | Public published releases only, through the release access module; private, draft, and unsigned rows are `not_found`, quarantined is `release_quarantined` |
+| `search_packages` | `query`, `category?`, `limit?`, `compatible?` | Same executor and filter report as `POST /api/search`; each hit adds `trust`, a `danger` hit loses its body |
+| `get_package` | `slug`, `target?` | Listing detail (alias-aware), declared compatibility, and `trust` with `redFlags` read from a body the caller may already read |
+| `get_release` | `package` (`@handle/slug`), `version?`, `digest?` (needs `version`) | Public published releases only, through the release access module; private, draft, and unsigned rows are `not_found`, quarantined is `release_quarantined`, a pinned digest that differs is `digest_mismatch`. A resolved version adds `trust` (immutable, signed, pin); every failure adds `explanation` |
+| `prepare_install` | `package`, `version`, `digest?`, `host?` (`read_only` default, or `installer`) | Install decision for one published release: signed publisher and source provenance (`unknown` without a commit), declared scripts, executable files, declared permissions (`agentkit-exec.json`), `redFlags`, and the digest-pinned ref. `approval.required` is always true and nothing is installed or run. A read-only host gets links and manual steps (`installed: false`); an installer gets `skillx install --dry-run <ref>` and `skillx install <ref>`. Refusals are `installable: false` with `code` and `explanation`: `not_found`, `release_quarantined`, `publisher_revoked`, `release_yanked`, `release_not_installable`, `digest_mismatch`, `origin_mismatch` (the signed manifest names another package or version) |
 | `check_compatibility` | `slug`, `target` (`runtime[@version]`) | Version-aware status plus reason codes; returns the canonical slug |
 | `get_kit` | `kit` (`@handle/name`) | One personal kit and its effective revision. The owner reads their own kit at any visibility, with the full revision document. Anyone else sees only a `public` kit whose effective revision is reviewed, activated and authored public, and then only its metadata and `{ digest, number, activatedAt }` (the reference a foreign ancestor gets in the lock); otherwise `not_found`. A suspended or revoked publisher answers `publisher_revoked`. While `SKILLX_PERSONAL_KITS_API` is off it is a tool error with `details.code = "feature_disabled"` and credentials are not read |
+
+Consumer safety (see [mcp-consumer-safety.md](./mcp-consumer-safety.md)): every
+listing carries `trust` (`scan.riskLabel` with its meaning, `origin` with `verified:
+"unknown"`, `pinned: "unknown"` for a mutable listing), a readable body adds
+`contentTrust` (third-party data, never instructions), and results add a `notices` line that
+popularity is not safety. Red flags name a scanner rule or a manifest fact, never the matched
+text.
 
 A miss is `{ "found": false, "code": "not_found" }`. Invalid arguments are a tool
 error with `details.code = "invalid_arguments"`; an unexpected failure is a tool
