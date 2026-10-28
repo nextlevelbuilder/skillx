@@ -51,7 +51,7 @@ skillx/
 │   └── marketing-mindset/             # Third-party skill (Axel Freeman)
 ├── scripts/
 │   ├── seed-data.json                 # 30 real skills from skills.sh
-│   └── seed-skills.mjs                # Seed script runner
+│   ├── seed-skills.mjs                # Seed script runner
 │   └── pack-chatgpt-plugin.sh         # Builds the reproducible plugin ZIP (pnpm pack:chatgpt-plugin)
 ├── docs/                              # Documentation
 ├── plans/                             # Planning & reports

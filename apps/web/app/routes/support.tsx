@@ -61,7 +61,10 @@ export default function Support() {
         <p>
           Report vulnerabilities in SkillX itself privately through GitHub&apos;s private vulnerability
           reporting: <ExternalLink href={SECURITY_ADVISORY_URL}>open a security advisory</ExternalLink> (the
-          Security tab of nextlevelbuilder/skillx). Do not open a public issue for a vulnerability.
+          Security tab of nextlevelbuilder/skillx). Do not put vulnerability details in a public issue. If
+          that form is unavailable, open an issue titled{" "}
+          <code className="font-mono text-xs">security: private contact requested</code> naming only the
+          affected area, and a maintainer will reply with a private channel.
         </p>
       </LegalSection>
 
