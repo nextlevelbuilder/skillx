@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "skillx": {
+      "type": "http",
+      "url": "https://skillx.sh/api/mcp"
+    }
+  }
+}

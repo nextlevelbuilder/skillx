@@ -20,7 +20,7 @@ Codebase summary: `./docs/codebase-summary.md`
 - **Database**: Cloudflare D1 (SQLite) + Drizzle ORM
 - **Search**: FTS5 + Vectorize (768-dim, bge-base-en-v1.5) + RRF fusion
 - **Auth**: Better Auth + GitHub OAuth (route: `api/auth/*`)
-- **Cache**: Cloudflare KV (5min TTL search, 5min leaderboard)
+- **Cache**: Cloudflare KV, 5min TTL (home stats, leaderboard, llms.txt bodies); search results are not cached
 - **Storage**: R2 (assets), Workers AI (embeddings)
 - **CSS**: Tailwind v4 + `@theme` tokens (dark-only, mint accent `#00E5A0`)
 - **CLI**: Commander.js + chalk + ora + conf (package name: `skillx-sh`, bin name: `skillx`)
@@ -51,6 +51,8 @@ apps/web/app/
 │   └── cache/           # KV caching utilities
 ├── root.tsx             # App shell
 └── app.css              # Tailwind + theme tokens
+
+plugins/skillx/          # Standalone Claude plugin (skill + MCP + evals), docs/claude-plugin.md
 
 packages/cli/src/        # `skillx` npm package
 ├── commands/            # search, use, publish, report, config
@@ -133,7 +135,7 @@ Search algorithm: `./docs/search-algorithm.md`
 
 **Auth**: `getSession(request, env)` for session, `requireAuth(request, env)` for redirect
 
-**Search**: Query → Embed (Workers AI) → Vectorize + FTS5 parallel → RRF fusion → 8-signal Boost scoring (vector 50%, FTS5 21.5%, rating 3%, installs 2%, votes 0.7%, recency 1%, reviews 0.15%, favorites 0.15%) → Filter → Cache (KV)
+**Search**: Query → Embed (Workers AI) → Vectorize + FTS5 parallel → RRF fusion → 8-signal Boost scoring (vector 50%, FTS5 21.5%, rating 3%, installs 2%, votes 0.7%, recency 1%, reviews 0.15%, favorites 0.15%) → Filter (uncached; every request recomputes)
 
 **Leaderboard**: 7-signal composite scoring (rating 30%, installs 20%, votes 10%, rating_count 15%, recency 15%, reviews 5%, verified 5%). Sort tabs (best/rating/installs/trending/newest), category + risk_label filter, preview modal. Client-side interaction overlay (votes + favorites) on KV-cached data.
 
@@ -160,6 +162,7 @@ Search algorithm: `./docs/search-algorithm.md`
 - **Scoped API keys** — `api_keys.scopes` NULL = legacy key; scoped keys work only where their scope is checked: `releases:publish:@handle` on release publish/promote, `library:read` on release reads and kit reads, `kits:write:@handle` on that handle's kits (`lib/auth/scoped-viewer.ts`). They are stored under `hashScopedApiKey` (domain-separated), so legacy routes (`authenticateApiKey`, by plain key hash) never accept them. Apply migration 0012 to remote D1 before deploying (`docs/deployment-guide.md`).
 - **Releases are byte-exact** — the release publish API (`app/lib/releases/`) never sanitizes; the scan only picks `published` vs `quarantined`. R2 writes are create-only, the D1 row is written last. Only `@agentkit/*` kit releases (metadata `provenance.provider = "kit"`) are signed as `skillx.release/v2`; everything else stays v1, and a registry signature never yields `signed-kit` trust. Kit release slugs omit `ak-` (`@agentkit/ak-*` is 400; AgentKit maps `ak-<x>` to `@agentkit/<x>`), and clients need skillx-sh 0.7.0+ to verify v2. See `docs/api-reference.md#publishing-releases`.
 - **Same-origin on cookie mutations** — `SameSite=Lax` alone lets a sibling subdomain ride the session cookie, so a mutation a session can authenticate must refuse a foreign origin with `crossOriginRefusal` (`app/lib/auth/same-origin.ts`) before it writes. Session-only routes (rate, review, favorite, vote, user API keys) check first; routes that also take a Bearer key check only on the session path (register after `authenticateRequest`; every `resolveLimitedActor` caller — release state, promote, review, collections, personal kits —, 403 `cross_origin`). Add the check to any new cookie-authenticated mutation.
+- **Claude plugin** — `plugins/skillx/` is the only folder submitted to the Claude directory; keep everything it loads inside it. Run any CLI as `skillx` or an exact `npx --yes skillx-sh@<version>` pin, never `npx skillx` (a different npm package). Its skill must not trigger on unrelated tasks or load/install a catalog skill without the user's explicit yes. Before changing it, run `claude plugin validate plugins/skillx --profile directory --strict` and its eval suite (`docs/claude-plugin.md`).
 - **Content security scanning** — all SKILL.md content scanned for prompt injection, invisible chars, ANSI escapes, shell injection. `risk_label` column stores result ("safe"/"caution"/"danger"/"unknown"). Sanitization strips zero-width Unicode + ANSI escapes before storage.
 
 ## Deployment

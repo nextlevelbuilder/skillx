@@ -38,13 +38,17 @@ skillx/
 │   └── brand/logo.svg                 # Source for the plugin icons
 ├── .claude-plugin/
 │   └── marketplace.json               # Claude Code plugin marketplace catalog
+├── plugins/skillx/                    # Standalone SkillX plugin (v2.0.0), see docs/claude-plugin.md
+│   ├── .claude-plugin/plugin.json     # Plugin manifest (+ icon.png)
+│   ├── .mcp.json                      # Read-only https://skillx.sh/api/mcp
+│   ├── skills/skillx/SKILL.md         # Search → evaluate → consent → use
+│   └── evals/                         # claude plugin eval cases (relevant vs unrelated)
 ├── .claude/skills/
-│   ├── skill-creator/                 # Skill creation tool (v3.0.0)
+│   ├── skill-creator/                 # Skill creation tool (v3.0.0, Apache-2.0)
 │   │   └── .claude-plugin/
 │   │       └── plugin.json            # skill-creator plugin manifest
-│   └── skillx/                        # SkillX marketplace CLI skill (v1.0.0)
-│       └── .claude-plugin/
-│           └── plugin.json            # skillx plugin manifest
+│   ├── hol-guard/                     # Third-party skill (Hashgraph Online)
+│   └── marketing-mindset/             # Third-party skill (Axel Freeman)
 ├── scripts/
 │   ├── seed-data.json                 # 30 real skills from skills.sh
 │   └── seed-skills.mjs                # Seed script runner
@@ -139,14 +143,12 @@ skillx/
 | `boost-scoring.ts` | 82 | Adjust scores: 8-signal formula (vector 50%, FTS5 21.5%, rating 3%, installs 2%, votes 0.7%, recency 1%, reviews 0.15%, favorites 0.15%) |
 
 **Flow:**
-1. Query (text) → Hash & cache check (KV)
-2. If cached, return cached results (5min TTL)
-3. Otherwise: embed via Workers AI (bge-base-en-v1.5)
-4. Parallel: Vectorize cosine search + FTS5 search
-5. RRF: merge rank lists (v_rank, fts_rank)
-6. Boost: multiply by rating/installs/recency scores
-7. Filter by category, is_paid
-8. Cache results, return top N
+1. Query (text) → embed via Workers AI (bge-base-en-v1.5); no result cache
+2. Parallel: Vectorize cosine search + FTS5 search
+3. RRF: merge rank lists (v_rank, fts_rank)
+4. Boost: multiply by rating/installs/recency scores
+5. Filter by category, is_paid
+6. Return top N
 
 ### Auth System (apps/web/app/lib/auth)
 
@@ -240,8 +242,6 @@ POST /api/search { query, category?, is_paid? }
     ↓
 [Authenticate via session or API key]
     ↓
-[Check KV cache (5min TTL)]
-    ↓ Cache miss
 [Embed query via Workers AI (bge-base-en-v1.5)]
     ↓
 ┌─────────────────────────────────────┐
@@ -257,8 +257,6 @@ POST /api/search { query, category?, is_paid? }
 [Boost Scoring: rating × 0.3 + installs × 0.2 + freshness × 0.1]
     ↓
 [Filter: category, is_paid]
-    ↓
-[Cache result (KV, 5min)]
     ↓
 Response: { results: [{ id, name, rating, ... }], count }
 ```

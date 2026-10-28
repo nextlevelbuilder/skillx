@@ -636,7 +636,7 @@ test: add RRF fusion tests
 
 ### Optimization Patterns
 
-1. **Cache search results** — KV cache with 5min TTL
+1. **Cache read-mostly pages** — `getCached` (KV, 5min TTL) for home, leaderboard and llms.txt; search is not cached
 2. **Batch DB queries** — Use IN clauses for multiple IDs
 3. **Index frequently queried columns** — (already in schema)
 4. **Lazy load components** — React.lazy() for heavy components
