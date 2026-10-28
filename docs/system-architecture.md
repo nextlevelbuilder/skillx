@@ -119,41 +119,41 @@
 User Query (text)
     ↓
     (no result cache: every request runs the full pipeline)
-        ↓
-        Embed query via Workers AI
-        (bge-base-en-v1.5, 768 dimensions)
-        ↓
-        ┌────────────────────────────────────┐
-        │ Parallel Search (no await)         │
-        ├────────────────────────────────────┤
-        │ 1. Vectorize cosine search         │
-        │    - Query embedding vs skill data │
-        │    - Returns top 100 by similarity │
-        │                                    │
-        │ 2. FTS5 keyword search (D1)        │
-        │    - Match skill name/description  │
-        │    - Returns BM25-ranked results   │
-        └────────────────────────────────────┘
-        ↓
-        RRF Fusion: Merge rank lists
-        (reciprocal rank fusion formula)
-        ↓
-        Boost Scoring (8 signals):
-        - avg_rating × 0.3
-        - install_count × 0.2
-        - net_votes × 0.07
-        - freshness × 0.1
-        - has_reviews × 0.015
-        - is_favorited × 0.015
-        (vector: 0.5, FTS5: 0.215)
-        ↓
-        Filter:
-        - category (if specified)
-        - is_paid (if specified)
-        ↓
-        Sort by final score, limit 100
-        ↓
-        Response JSON
+    ↓
+    Embed query via Workers AI
+    (bge-base-en-v1.5, 768 dimensions)
+    ↓
+    ┌────────────────────────────────────┐
+    │ Parallel Search (no await)         │
+    ├────────────────────────────────────┤
+    │ 1. Vectorize cosine search         │
+    │    - Query embedding vs skill data │
+    │    - Returns top 100 by similarity │
+    │                                    │
+    │ 2. FTS5 keyword search (D1)        │
+    │    - Match skill name/description  │
+    │    - Returns BM25-ranked results   │
+    └────────────────────────────────────┘
+    ↓
+    RRF Fusion: Merge rank lists
+    (reciprocal rank fusion formula)
+    ↓
+    Boost Scoring (8 signals):
+    - avg_rating × 0.3
+    - install_count × 0.2
+    - net_votes × 0.07
+    - freshness × 0.1
+    - has_reviews × 0.015
+    - is_favorited × 0.015
+    (vector: 0.5, FTS5: 0.215)
+    ↓
+    Filter:
+    - category (if specified)
+    - is_paid (if specified)
+    ↓
+    Sort by final score, limit 100
+    ↓
+    Response JSON
 ```
 
 ### 2. Vectorization Pipeline
