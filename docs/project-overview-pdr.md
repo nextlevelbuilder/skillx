@@ -140,7 +140,6 @@ SkillX.sh combines:
 - Support 10K concurrent users (global via Cloudflare)
 - Vectorize index: 10K+ skills indexed
 - D1 database: 100K skills, 1M ratings, 500K reviews
-- KV cache: 100K search queries cached (1hr TTL)
 - CLI: package <5MB
 
 ### NFR3: Availability

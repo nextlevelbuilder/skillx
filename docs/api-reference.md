@@ -1968,7 +1968,7 @@ All error responses follow a consistent shape:
 
 ## Rate Limits
 
-No explicit rate limiting at the API layer, except the release read API (300 requests per minute per caller) and the release state API (30 per minute per caller), both `429` with `Retry-After`; see [Reading releases](#reading-releases-pinned-whole-tree-read-api)). Cloudflare Workers handles DDoS protection. Search results cached in KV (5min TTL) for performance.
+No explicit rate limiting at the API layer, except the release read API (300 requests per minute per caller) and the release state API (30 per minute per caller), both `429` with `Retry-After`; see [Reading releases](#reading-releases-pinned-whole-tree-read-api)). Cloudflare Workers handles DDoS protection. Search results are not cached; every request runs the full search pipeline.
 
 ## Source Files
 

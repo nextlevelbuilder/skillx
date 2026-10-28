@@ -218,5 +218,5 @@ Local development always uses FTS5-only since Vectorize bindings require `--remo
 | `apps/web/app/lib/vectorize/embed-text.ts` | Workers AI embedding generation |
 | `apps/web/app/lib/vectorize/chunk-text.ts` | Text chunking with overlap |
 | `apps/web/app/lib/vectorize/index-skill.ts` | Skill indexing into Vectorize |
-| `apps/web/app/lib/cache/kv-cache.ts` | KV caching utility (5min TTL) |
+| `apps/web/app/lib/cache/kv-cache.ts` | KV read-through cache (`getCached`) for home stats, leaderboard and llms.txt bodies; search results are not cached |
 | `apps/web/app/routes/api.search.ts` | Search API route handler |

@@ -1,12 +1,12 @@
 # SkillX CLI Reference
 
-**Package:** `skillx-sh` | **Binary:** `skillx` | **Version:** 0.3.0 | **Node:** >=20
+**Package:** `skillx-sh` | **Binary:** `skillx` | **Version:** 0.7.1 | **Node:** >=22
 
 ---
 
 ## Configuration
 
-**Config file:** `~/.config/skillx/config.json` (managed by `conf`)
+**Config file:** managed by `conf`: `~/.config/skillx-nodejs/config.json` on Linux, `~/Library/Preferences/skillx-nodejs/config.json` on macOS; `skillx config show` prints the values
 
 **Priority:** env var > config file > default
 
@@ -441,7 +441,7 @@ skillx config show
 # Output:
 # Base URL: https://skillx.sh
 # API Key: sk_prod_****..._xxxx
-#   (loaded from ~/.config/skillx/config.json)
+#   (loaded from the conf config file, e.g. ~/.config/skillx-nodejs/config.json)
 ```
 
 ---
