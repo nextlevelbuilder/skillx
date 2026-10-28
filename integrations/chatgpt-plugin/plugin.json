@@ -9,6 +9,7 @@
   },
   "homepage": "https://skillx.sh/docs/chatgpt",
   "repository": "https://github.com/nextlevelbuilder/skillx",
+  "license": "MIT",
   "keywords": ["skills", "agent-skills", "mcp", "claude-code", "codex", "discovery"],
   "extensions": {
     "com.openai": {

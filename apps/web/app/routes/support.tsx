@@ -16,6 +16,12 @@ const SECTIONS: LegalSection[] = [
     ],
   },
   {
+    heading: "Report a security vulnerability",
+    paragraphs: [
+      "Do not put exploit details in a public issue. Follow the security policy at https://github.com/nextlevelbuilder/skillx/blob/main/SECURITY.md to open a private report.",
+    ],
+  },
+  {
     heading: "Report a harmful skill",
     paragraphs: [
       "If a listed skill looks malicious, steals credentials, hides instructions or infringes your rights, open an issue naming the skill page URL and what you found. Do not run the skill to prove it. Reported packages can be quarantined while they are reviewed.",

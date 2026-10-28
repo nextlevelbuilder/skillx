@@ -137,6 +137,8 @@ first organization to submit a repository folder holds it.
    "Runs a pinned npx or uvx package".
 3. Optionally submit `https://skillx.sh/api/mcp` as an MCP connector from the
    same organization and pair it with the plugin listing.
+   The same URL is the ChatGPT plugin's MCP server ([ChatGPT plugin](./chatgpt-plugin.md)),
+   so it must not move.
 4. Record the submission link, review status and, after launch, the plugin's
    **Usage** tab figures (installs, skill runs, error rates) on the tracking issue.
 

@@ -27,6 +27,7 @@ both from version 1.0.0:
 integrations/chatgpt-plugin/
 ├── plugin.json                 # Agent Plugins manifest + extensions["com.openai"]
 ├── mcp.json                    # the one MCP server (streamable-http, auth none)
+├── LICENSE                     # MIT, same as plugins/skillx
 ├── assets/                     # logo, logo-dark, composer-icon (square SVG)
 └── skills/skillx-discovery/
     ├── SKILL.md                # ground rules, workflow, result card, install policy

@@ -40,6 +40,10 @@ skillx/
 │   ├── .mcp.json                      # Read-only https://skillx.sh/api/mcp
 │   ├── skills/skillx/SKILL.md         # Search → evaluate → consent → use
 │   └── evals/                         # claude plugin eval cases (relevant vs unrelated)
+├── integrations/chatgpt-plugin/       # ChatGPT Plugin Directory package, see docs/chatgpt-plugin.md
+│   ├── plugin.json, mcp.json          # Agent Plugins manifest + review test cases; MCP https://skillx.sh/api/mcp
+│   └── skills/skillx-discovery/       # Read-only discovery Skill + result-states reference
+├── scripts/chatgpt-plugin/            # validate-package.mjs, pack-package.mjs (pnpm plugin:chatgpt:check|pack)
 ├── .claude/skills/
 │   ├── skill-creator/                 # Skill creation tool (v3.0.0, Apache-2.0)
 │   │   └── .claude-plugin/
