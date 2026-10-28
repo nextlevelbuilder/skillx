@@ -1,6 +1,6 @@
 /**
  * Shared text policy for the agent surfaces (`llms-full.txt`, `/skills/<slug>.md`,
- * MCP `get_package`).
+ * MCP `get_package` and `search_packages`).
  *
  * Two rules live here so every surface applies them the same way:
  * - a `danger` listing never has its SKILL.md body embedded. `unknown` (rows that

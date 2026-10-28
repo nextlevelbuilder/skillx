@@ -46,11 +46,23 @@ export async function searchPackages(rawArgs: unknown, ctx: ToolContext) {
   // The filter report and note travel with the result: a filter that hides
   // undecidable listings silently would make the catalog look smaller.
   return {
-    results: outcome.results,
+    results: outcome.results.map(omitDangerBody),
     count: outcome.results.length,
     ...(outcome.compatibilityFilter ? { compatibilityFilter: outcome.compatibilityFilter } : {}),
     ...(outcome.note ? { note: outcome.note } : {}),
   };
+}
+
+/**
+ * A search hit follows the same rule as `get_package`: a `danger` listing keeps
+ * its metadata and ranking but never carries its SKILL.md body into the agent.
+ */
+export function omitDangerBody<T extends { riskLabel?: string | null; content?: string }>(
+  hit: T,
+): T | (Omit<T, "content"> & { contentOmitted: string }) {
+  if (!isDangerListing(hit.riskLabel)) return hit;
+  const { content: _content, ...rest } = hit;
+  return { ...rest, contentOmitted: DANGER_BODY_NOTICE };
 }
 
 /** A `danger` listing keeps its metadata but never returns its SKILL.md body. */
