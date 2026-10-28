@@ -62,6 +62,7 @@ Smart skill lookup and display with multiple identifier formats.
 |------|-------------|---------|
 | `-r, --raw` | Output raw content only (for piping to AI agents) | `false` |
 | `-s, --search` | Force search mode regardless of identifier format | `false` |
+| `--exact` | Resolve the identifier only as a catalog slug; never search or register | `false` |
 | `--include-refs` | Include references in output | `false` |
 | `--include-scripts` | Include scripts in output | `false` |
 | `--json` | Envelope with the resolution (`kind`: `skill` or `repo` scan) and its `notes` | `false` |
@@ -76,6 +77,16 @@ and exits `3` in both modes; the human message goes to stderr.
 4. Single word → slug lookup; fallback to search on 404
 5. Multi-word or `--search` → search, auto-pick top result
 
+**Exact lookup (`--exact`):** the identifier is taken verbatim as a catalog slug and fetched from
+`/api/skills/<slug>`. Nothing above applies: no search, no GitHub register or scan. A miss fails with
+`not_found` (exit `3`). Use it when a specific slug was approved, so a miss cannot load a different
+skill. An identifier with a slash or whitespace, or `--exact` together with `--search`, fails with
+`usage_error` (exit `2`).
+
+```bash
+skillx use duy-skill-creator --exact --raw
+```
+
 **Risk Warnings:**
 - **Safe** — no warning (default)
 - **Caution** — yellow banner with advisory message
@@ -83,7 +94,7 @@ and exits `3` in both modes; the human message goes to stderr.
 
 **Raw Output Format:**
 ```
---- BEGIN EXTERNAL SKILL CONTENT (untrusted, risk: <label>) ---
+--- BEGIN EXTERNAL SKILL CONTENT (untrusted, slug: <slug>, risk: <label>) ---
 <skill content>
 --- REFERENCES --- (if --include-refs)
 [type] title - url/filename
@@ -91,6 +102,8 @@ and exits `3` in both modes; the human message goes to stderr.
 name: command (url)
 --- END EXTERNAL SKILL CONTENT ---
 ```
+
+`slug` is the catalog slug that was actually resolved; compare it with the slug you asked for.
 
 **Examples:**
 ```bash
@@ -709,7 +722,7 @@ skillx search "code review" --use
 
 Raw output uses boundary markers for safe parsing:
 ```
---- BEGIN EXTERNAL SKILL CONTENT (untrusted, risk: safe) ---
+--- BEGIN EXTERNAL SKILL CONTENT (untrusted, slug: my-skill, risk: safe) ---
 ...content...
 --- END EXTERNAL SKILL CONTENT ---
 ```

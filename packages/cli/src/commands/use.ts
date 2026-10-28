@@ -10,6 +10,7 @@ export { buildSkillEndpoint, parseIdentifier, parseRepoPath, type SourceTarget }
 interface UseOptions {
   raw?: boolean;
   search?: boolean;
+  exact?: boolean;
   includeRefs?: boolean;
   includeScripts?: boolean;
   json?: boolean;
@@ -24,6 +25,20 @@ function requireMatch(resolved: ResolvedSkill): Match {
     details: { notes: resolved.notes },
     hint: 'Try different search terms or browse all skills at https://skillx.sh',
   });
+}
+
+/**
+ * `--exact` takes a catalog slug verbatim. Slugs never hold a slash or whitespace,
+ * so such an identifier is a usage mistake, not a lookup that could miss.
+ */
+function validateExact(identifier: string, options: UseOptions): void {
+  if (!options.exact) return;
+  if (options.search) throw new CliError('usage_error', '--exact cannot be combined with --search.');
+  if (identifier.length === 0 || /[\s/]/.test(identifier)) {
+    throw new CliError('usage_error', `--exact takes a catalog slug, not "${identifier}".`, {
+      hint: 'Pass the slug as listed in the catalog, e.g. `skillx use author-skill --exact`.',
+    });
+  }
 }
 
 /** Human rendering of a match. */
@@ -75,6 +90,7 @@ export const useCommand = new Command('use')
   .argument('<identifier>', 'author/skill, org/repo/skill, slug, or search keywords')
   .option('-r, --raw', 'Output raw content only (for piping)')
   .option('-s, --search', 'Force search mode')
+  .option('--exact', 'Resolve the identifier only as a catalog slug; never search or register (exit 3 on a miss)')
   .option('--include-refs', 'Include references in output')
   .option('--include-scripts', 'Include scripts in output')
   .option('--json', 'emit a machine-readable envelope instead of text')
@@ -95,7 +111,10 @@ export const useCommand = new Command('use')
         errors: { notFoundMessage: `Skill not found: ${identifier}` },
       },
       async (progress) => {
-        const match = requireMatch(await resolveSkill(identifier, { forceSearch: options.search, progress }));
+        validateExact(identifier, options);
+        const match = requireMatch(
+          await resolveSkill(identifier, { forceSearch: options.search, exact: options.exact, progress }),
+        );
         resolved = match;
         // Human display tracks the install itself; the envelope path counts the same use.
         if (json && match.kind === 'skill') trackInstall(match.detail.skill.slug);

@@ -6,6 +6,7 @@
  * - x/y/z... (repo path) → identity lookup on repo + full path, fallback register from that path
  * - x/y (two-part) → DB lookup slug "x-y", fallback scan repo y for skills
  * - single word → DB lookup, fallback search
+ * - `exact` → the identifier verbatim as a catalog slug; a miss is a 404, never a fallback
  *
  * The result is plain data, so `use --json` and the human renderer report the
  * same resolution. `notes` records the detours taken (a fallback search, the
@@ -105,10 +106,12 @@ type Progress = (text: string) => void;
 
 export async function resolveSkill(
   identifier: string,
-  options: { forceSearch?: boolean; progress?: Progress } = {},
+  options: { forceSearch?: boolean; exact?: boolean; progress?: Progress } = {},
 ): Promise<ResolvedSkill> {
   const progress = options.progress ?? (() => {});
   const notes: string[] = [];
+  // No fallback: the 404 ApiError propagates, so an approved slug never resolves to another skill.
+  if (options.exact) return bySlug(identifier, identifier, notes, progress, {});
   if (options.forceSearch) return searchTop(identifier, notes, progress);
 
   const parsed = parseIdentifier(identifier);

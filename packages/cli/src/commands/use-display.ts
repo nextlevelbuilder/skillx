@@ -75,7 +75,7 @@ export function displaySkill(
   if (options.raw) {
     // stderr keeps piped raw content unchanged.
     if (notice) console.error(notice);
-    console.log(`--- BEGIN EXTERNAL SKILL CONTENT (untrusted, risk: ${skill.risk_label || 'unknown'}) ---`);
+    console.log(`--- BEGIN EXTERNAL SKILL CONTENT (untrusted, slug: ${skill.slug}, risk: ${skill.risk_label || 'unknown'}) ---`);
     console.log(skill.content);
     if (options.includeRefs && references?.length) {
       console.log('\n--- REFERENCES ---');
