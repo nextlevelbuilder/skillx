@@ -3,6 +3,7 @@ import chalk from 'chalk';
 import { runCommand } from '../lib/run-command.js';
 import { CliError } from '../lib/output.js';
 import { resolveSkill, type ResolvedSkill } from '../lib/skill-resolver.js';
+import { isCatalogSlug } from '../lib/slug-charset.js';
 import { discoveryOnlyNotice, displaySkill, trackInstall, type DisplayOptions } from './use-display.js';
 
 export { buildSkillEndpoint, parseIdentifier, parseRepoPath, type SourceTarget } from '../lib/skill-resolver.js';
@@ -28,13 +29,13 @@ function requireMatch(resolved: ResolvedSkill): Match {
 }
 
 /**
- * `--exact` takes a catalog slug verbatim. Slugs never hold a slash or whitespace,
- * so such an identifier is a usage mistake, not a lookup that could miss.
+ * `--exact` takes a catalog slug verbatim. An identifier outside the slug charset
+ * (uppercase, a slash, whitespace, `.` or `..`) is a usage mistake, not a lookup that could miss.
  */
 function validateExact(identifier: string, options: UseOptions): void {
   if (!options.exact) return;
   if (options.search) throw new CliError('usage_error', '--exact cannot be combined with --search.');
-  if (identifier.length === 0 || /[\s/]/.test(identifier)) {
+  if (!isCatalogSlug(identifier)) {
     throw new CliError('usage_error', `--exact takes a catalog slug, not "${identifier}".`, {
       hint: 'Pass the slug as listed in the catalog, e.g. `skillx use author-skill --exact`.',
     });

@@ -79,9 +79,12 @@ and exits `3` in both modes; the human message goes to stderr.
 
 **Exact lookup (`--exact`):** the identifier is taken verbatim as a catalog slug and fetched from
 `/api/skills/<slug>`. Nothing above applies: no search, no GitHub register or scan. A miss fails with
-`not_found` (exit `3`). Use it when a specific slug was approved, so a miss cannot load a different
-skill. An identifier with a slash or whitespace, or `--exact` together with `--search`, fails with
-`usage_error` (exit `2`).
+`not_found` (exit `3`). The server also answers an old slug (an alias) with its renamed skill; under
+`--exact` that answer is refused with `not_found` too, message `<slug> is an alias of <canonical>;
+rerun with the canonical slug` and `details: { requested, canonical }`, before any output or install
+count. Use it when a specific slug was approved: taken verbatim, a miss cannot load a different skill.
+An identifier outside the slug charset `^[a-z0-9][a-z0-9._-]*$` (uppercase, a slash, whitespace, `.`,
+`..`, empty), or `--exact` together with `--search`, fails with `usage_error` (exit `2`).
 
 ```bash
 skillx use duy-skill-creator --exact --raw
@@ -104,6 +107,7 @@ name: command (url)
 ```
 
 `slug` is the catalog slug that was actually resolved; compare it with the slug you asked for.
+Any character outside the slug charset is printed as `?`, so a server value cannot forge the marker.
 
 **Examples:**
 ```bash
