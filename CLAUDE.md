@@ -20,7 +20,7 @@ Codebase summary: `./docs/codebase-summary.md`
 - **Database**: Cloudflare D1 (SQLite) + Drizzle ORM
 - **Search**: FTS5 + Vectorize (768-dim, bge-base-en-v1.5) + RRF fusion
 - **Auth**: Better Auth + GitHub OAuth (route: `api/auth/*`)
-- **Cache**: Cloudflare KV (5min TTL search, 5min leaderboard)
+- **Cache**: Cloudflare KV, 5min TTL (home stats, leaderboard, llms.txt bodies); search results are not cached
 - **Storage**: R2 (assets), Workers AI (embeddings)
 - **CSS**: Tailwind v4 + `@theme` tokens (dark-only, mint accent `#00E5A0`)
 - **CLI**: Commander.js + chalk + ora + conf (package name: `skillx-sh`, bin name: `skillx`)
@@ -131,7 +131,7 @@ Search algorithm: `./docs/search-algorithm.md`
 
 **Auth**: `getSession(request, env)` for session, `requireAuth(request, env)` for redirect
 
-**Search**: Query → Embed (Workers AI) → Vectorize + FTS5 parallel → RRF fusion → 8-signal Boost scoring (vector 50%, FTS5 21.5%, rating 3%, installs 2%, votes 0.7%, recency 1%, reviews 0.15%, favorites 0.15%) → Filter → Cache (KV)
+**Search**: Query → Embed (Workers AI) → Vectorize + FTS5 parallel → RRF fusion → 8-signal Boost scoring (vector 50%, FTS5 21.5%, rating 3%, installs 2%, votes 0.7%, recency 1%, reviews 0.15%, favorites 0.15%) → Filter (uncached; every request recomputes)
 
 **Leaderboard**: 7-signal composite scoring (rating 30%, installs 20%, votes 10%, rating_count 15%, recency 15%, reviews 5%, verified 5%). Sort tabs (best/rating/installs/trending/newest), category + risk_label filter, preview modal. Client-side interaction overlay (votes + favorites) on KV-cached data.
 
