@@ -6,6 +6,7 @@ const TABS = [
   { to: "/docs/api", label: "API Reference" },
   { to: "/docs/publishers", label: "Publisher Guide" },
   { to: "/docs/harness", label: "Harness Integration" },
+  { to: "/docs/chatgpt", label: "ChatGPT Plugin" },
 ] as const;
 
 export function DocsSubNav() {

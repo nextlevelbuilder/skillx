@@ -1921,15 +1921,18 @@ entry but its body is replaced by a warning. An embedded body is fenced with mor
 backticks than its longest backtick run, so it cannot close its own block.
 Name, author, category and description are flattened to one line with a leading `#` or `>`
 and backticks escaped, so listing metadata cannot open a heading, quote or fence. The same
-`danger` policy applies to `GET /skills/<slug>.md` and to the MCP `get_package` tool (no
-`content`, `contentIncluded: false`, plus `contentOmitted`). Only `danger` is omitted: `unknown`
+`danger` policy applies to `GET /skills/<slug>.md`, to the MCP `get_package` tool (no
+`content`, `contentIncluded: false`, plus `contentOmitted`) and to each `search_packages` hit
+(no `content`, plus `contentOmitted`). Only `danger` is omitted: `unknown`
 (rows created before the scanner ran), `caution` and `safe` keep their bodies, with the label
 shown beside them.
 
 ### `POST /api/mcp`
 
 Remote MCP server (JSON-RPC 2.0, streamable HTTP; `GET` answers 405). Methods:
-`initialize`, `tools/list`, `tools/call`; notifications get `202` with no body. Every tool except
+`initialize`, `ping` (empty result), `tools/list`, `tools/call`; notifications get `202` with
+no body. Every tool carries `annotations` `{ readOnlyHint: true, destructiveHint: false,
+idempotentHint: true, openWorldHint: false }`. Every tool except
 `get_kit` runs as the anonymous viewer: the request's session or API key is never read.
 `get_kit` alone reads an unscoped API key or a session to recognise the owner; a scoped,
 unknown or revoked key is a tool error with `details.code = "invalid_api_key"`.
@@ -1948,6 +1951,10 @@ error with `details.code = "internal_error"` (the cause is only logged).
 Guards: request bodies above 64 KiB get `413`; each client IP is counted on
 `RELEASE_READ_LIMITER` under an `mcp:` key and a refusal is `429` with
 `Retry-After` (a missing binding lets the request through).
+
+**ChatGPT plugin.** The SkillX plugin for the ChatGPT Plugin Directory points at this exact
+URL with no auth and uses the four anonymous tools (not `get_kit`); the URL and protocol
+`2025-06-18` must stay served for it. See [ChatGPT plugin](./chatgpt-plugin.md).
 
 **WebMCP.** Where the browser exposes `navigator.modelContext`, pages register read tools
 for in-page agents (`app/lib/webmcp/`): `search_skills`, `get_skill`,

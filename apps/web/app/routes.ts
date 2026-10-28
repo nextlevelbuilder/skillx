@@ -14,6 +14,7 @@ export default [
   route("docs/api", "routes/docs-api.tsx"),
   route("docs/publishers", "routes/docs-publishers.tsx"),
   route("docs/harness", "routes/docs-harness.tsx"),
+  route("docs/chatgpt", "routes/docs-chatgpt.tsx"),
   route("privacy", "routes/privacy.tsx"),
   route("terms", "routes/terms.tsx"),
   route("support", "routes/support.tsx"),

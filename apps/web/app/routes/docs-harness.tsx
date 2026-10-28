@@ -84,7 +84,8 @@ export default function DocsHarness() {
           <p className="mb-4 text-sm text-sx-fg-muted">
             <span className="font-mono text-xs text-sx-fg">POST https://skillx.sh/api/mcp</span>{" "}
             speaks JSON-RPC 2.0 over the streamable-HTTP transport. The server is read-only, so it
-            implements `initialize`, `tools/list`, and `tools/call`, and answers anything else with
+            implements `initialize`, `ping`, `tools/list`, and `tools/call` (every tool annotated
+            read-only), and answers anything else with
             `method not found` rather than a stub. It does not open a server-sent event stream.
           </p>
           <pre className={CODE_BLOCK}>
