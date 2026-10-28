@@ -822,7 +822,7 @@ takes the next number and the backup steps in the
 
 ## Claude Code Plugin Marketplace Distribution
 
-SkillX provides two Claude Code plugins via marketplace:
+SkillX provides four Claude Code plugins via marketplace; only `skillx` is SkillX's own Claude directory plugin (see [claude-plugin.md](./claude-plugin.md)):
 
 **Marketplace Catalog:** `.claude-plugin/marketplace.json`
 - Registered as `skillx-marketplace` owned by SkillX.sh
@@ -835,10 +835,12 @@ SkillX provides two Claude Code plugins via marketplace:
    - Purpose: Create/update Claude skills optimized for Skillmark benchmarks
    - Install: `/plugin install skill-creator@skillx-marketplace`
 
-2. **skillx** (v1.0.0)
-   - Source: `.claude/skills/skillx/`
-   - Purpose: Search, install, use skills from SkillX.sh marketplace
+2. **skillx** (v2.0.0)
+   - Source: `plugins/skillx/` (skill + remote MCP `https://skillx.sh/api/mcp`)
+   - Purpose: Find, vet and, with the user's approval, load or install skills from SkillX.sh
    - Install: `/plugin install skillx@skillx-marketplace`
+
+3. **hol-guard** and 4. **marketing-mindset**: third-party skills listed under their own authors and licenses
 
 **Discovery Flow:**
 ```
@@ -846,7 +848,7 @@ SkillX provides two Claude Code plugins via marketplace:
   ↓
 Loads .claude-plugin/marketplace.json
   ↓
-User sees skillx-marketplace with 2 plugins
+User sees skillx-marketplace with 4 plugins
   ↓
 /plugin install skill-creator@skillx-marketplace
 ```

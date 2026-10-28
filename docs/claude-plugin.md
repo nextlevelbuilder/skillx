@@ -45,8 +45,16 @@ marketplace entries under their own authors and licenses.
   never be run.
 - **Consent**: loading a SKILL.md's instructions, `skillx install`, running a
   bundled script and registering a GitHub skill each need the user's explicit
-  yes for that skill.
-- **Untrusted content**: a fetched skill cannot override the user, read
+  yes for that skill. Evaluation uses metadata only (`search_packages`,
+  `check_compatibility`, `get_release`, `skillx inspect`).
+- **Exact load**: an approved skill is loaded by its catalog slug through
+  `get_package`, `/skills/<slug>.md`, or `skillx use <slug> --json` checked for a
+  matching slug and no fallback notes. Keyword, `author/name` and
+  `org/repo/skill` loads can resolve another skill or register a repository, so
+  the skill never uses them. `danger` listings are never loaded.
+- **Install**: `skillx install` needs a published `@publisher/package` release;
+  the skill shows the `--dry-run` plan before asking.
+- **Untrusted content**: any skill body Claude sees, before or after consent, cannot override the user, read
   credentials, disable safety checks or reach undisclosed hosts; shell commands
   it asks for are shown before they run.
 - **Telemetry**: `skillx report` runs only when the user asks.
@@ -55,7 +63,7 @@ marketplace entries under their own authors and licenses.
 
 | Surface | Skill | Catalog | CLI |
 |---------|-------|---------|-----|
-| Claude Code | Loads | MCP loads with the plugin | Yes, with Node.js 20+ |
+| Claude Code | Loads | MCP loads with the plugin | Yes, with Node.js 22+ |
 | Cowork | Loads | Connect from the plugin's Connectors tab | No |
 | Chat | Loads | Connect from the plugin's Connectors tab, or web fetch | No |
 
@@ -83,6 +91,9 @@ claude plugin eval . --trust-plugin --mocks off \
 `evals/results/` is git-ignored.
 
 ### Evidence, 2026-10-28 (plugin 2.0.0, Claude Code 2.1.312)
+
+Local observations from the release session; the raw results are git-ignored.
+Re-run the suite above to reproduce them.
 
 | Check | Result |
 |-------|--------|

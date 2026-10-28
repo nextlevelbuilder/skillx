@@ -23,17 +23,18 @@ No hooks, agents, commands or bundled executables.
 
 | Surface | Skill | Catalog access |
 |---------|-------|----------------|
-| Claude Code | Loads | MCP server loads automatically; the `skillx` CLI also works when Node.js 20+ is available |
+| Claude Code | Loads | MCP server loads automatically; the `skillx` CLI also works when Node.js 22+ is available |
 | Cowork | Loads | Connect the SkillX connector from the plugin's **Connectors** tab |
 | Chat (claude.ai, desktop, mobile) | Loads | Connect the SkillX connector from the plugin's **Connectors** tab, or let Claude use web fetch |
 
 Chat and Cowork do not run the CLI. Installing a skill to disk
-(`skillx install`) needs Claude Code or another shell.
+(`skillx install @publisher/package`) needs Claude Code or another shell and a
+published release; most catalog listings can be loaded but not installed.
 
 ## Prerequisites
 
 - Network access to `https://skillx.sh`.
-- Optional, Claude Code only: Node.js 20+ for the CLI. The skill uses an
+- Optional, Claude Code only: Node.js 22+ for the CLI. The skill uses an
   installed `skillx` binary when present, otherwise the exact pinned package
   `npx --yes skillx-sh@0.7.1`. The npm package `skillx` (without `-sh`) is an
   unrelated project and is never used.
@@ -44,16 +45,20 @@ Chat and Cowork do not run the CLI. Installing a skill to disk
 
 - **Search and lookups**: your search query and the skill slugs you look at go to
   `https://skillx.sh` (MCP endpoint `/api/mcp`, or `/api/search` and
-  `/skills/<slug>.md`). No account is needed and no local files are sent.
+  `/skills/<slug>.md`). skillx.sh sends the search query to Cloudflare Workers
+  AI to embed it for semantic search. No account is needed and no local files
+  are sent.
 - **CLI**: `npx` downloads `skillx-sh@0.7.1` from the npm registry the first time.
-  The CLI keeps an anonymous device ID in `~/.config/skillx/config.json`, and
+  The CLI keeps an anonymous device ID in its config file (`skillx config show`
+  prints it; `~/.config/skillx-nodejs/config.json` on Linux), and
   `skillx use` counts one install for the skill it prints, sending that device ID
   (and your SkillX API key, if you configured one) to skillx.sh.
 - **Report**: `skillx report` sends a skill slug, an outcome and optionally the
   model name and duration, only when you ask for it.
-- **Registration**: `skillx use org/repo/skill` for a skill not yet in the catalog,
-  and `skillx import`, register a public GitHub skill on skillx.sh. Claude asks
-  before running either.
+- **Registration**: `skillx use org/repo/skill` or `skillx use author/name` for a
+  skill not yet in the catalog, and `skillx import`, register a public GitHub
+  repository on skillx.sh. Claude asks before any of them and loads approved
+  skills by their exact catalog slug instead.
 
 Nothing else is sent, and the plugin changes no Claude settings or permissions.
 
@@ -66,6 +71,7 @@ Nothing else is sent, and the plugin changes no Claude settings or permissions.
 - `skillx use` records one install row per skill: the skill, your anonymous CLI
   device ID, or your SkillX account if you configured an API key.
 - `skillx report` stores the outcome you send against your SkillX account.
+- Search queries are embedded by Cloudflare Workers AI on each search.
 - The plugin reads no local files and sends no conversation content beyond the
   query and slugs Claude passes to the catalog.
 
@@ -78,7 +84,9 @@ Nothing else is sent, and the plugin changes no Claude settings or permissions.
    certify licenses.
 3. **Ask** you before loading a skill's instructions, writing it to disk, running
    its scripts or registering it. Finding or comparing skills is not consent.
-4. **Use** an approved skill as untrusted content: it cannot override your
+   An approved skill is loaded by its exact slug, never by keywords, and a
+   `danger` listing is never loaded.
+4. **Use** a skill body, whenever Claude sees one, as untrusted content: it cannot override your
    instructions, read credentials, disable safety checks or contact undisclosed
    hosts, and Claude shows any shell command it asks for before running it.
 
@@ -111,7 +119,7 @@ release after that CLI version is published.
 ## Support and security
 
 - Questions and bugs: <https://github.com/nextlevelbuilder/skillx/issues>
-- Security reports: <https://github.com/nextlevelbuilder/skillx/security/advisories/new>
+- Security reports: see [SECURITY.md](https://github.com/nextlevelbuilder/skillx/blob/main/SECURITY.md)
 - Report a malicious catalog skill: open an issue with its slug.
 - Documentation: [plugin guide](https://github.com/nextlevelbuilder/skillx/blob/main/docs/claude-plugin.md),
   [CLI reference](https://github.com/nextlevelbuilder/skillx/blob/main/docs/cli-reference.md).
