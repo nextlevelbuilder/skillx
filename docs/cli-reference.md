@@ -240,11 +240,14 @@ A ref is a branch or tag name, or a full commit id (40 hex digits, or 64 for a
 SHA-256 repository; case does not matter). A short commit id reads as a branch
 name, since git cannot fetch one. A branch or tag is read with a shallow
 `clone --branch`; a commit is fetched on its own (`git init`, then
-`git fetch --depth 1 <url> <commit>`), which the server must allow for a
-commit reachable from a branch or tag: GitHub and most hosts do, and a host
-that does not answers `not_found` or `network_error` (name a branch or tag
-instead). The commit read must be the one named, or the add is an
-`integrity_error`.
+`git fetch --depth 1 <url> <commit>`), which the server must allow (GitHub and
+most hosts do; a host that does not answers `not_found` or `network_error`, so
+name a branch or tag instead). A host can serve any commit of its object
+store, and on GitHub that includes commits pushed only to a fork, so the commit
+is read only when a branch or tag of the named repository contains it: the
+default branch is checked first, then every branch and tag, fetching commits
+only (no files). A commit no branch or tag has, or a commit read that is not
+the one named, is an `integrity_error`.
 
 **Options:**
 | Flag | Description | Default |
@@ -302,13 +305,17 @@ ownership proof (and drops it from the lock).
 **Runtimes and scope.** With several runtimes, the source is read once and
 every runtime is planned before any is written: a refusal or conflict in one
 installs nothing anywhere. A failure while applying a later runtime leaves the
-earlier ones installed (and pinned) and is reported; run the same command
-again. `--project` (also accepted by `install`, `update`, `uninstall`, `list`
+earlier ones installed (and pinned) and is reported with them
+(`details.installed`, `details.lockPath`); run the same command again. `--project` (also accepted by `install`, `update`, `uninstall`, `list`
 and `sync`) installs into the current directory, so run it from the project
 root; that project keeps its own receipts, owners and install lock under
-`$SKILLX_HOME/projects/<digest of the path>`, apart from the user-scope
-install of the same runtime, and nothing but the skills is written into the
-project. Pass `--project` again to list, update or uninstall them.
+`$SKILLX_HOME/projects/<digest of the real path>`, apart from the user-scope
+install of the same runtime; the project gets the skills and the runtime's
+`.skillx-staging` directory beside them (`.claude/.skillx-staging`,
+`.agents/.skillx-staging`). A `.claude`, `.agents`, skills or staging
+directory of the project that is a symlink or junction is a `conflict`, since
+writes through it would leave the project. Pass `--project` again to list,
+update or uninstall them.
 
 #### Lock, update and sync
 
@@ -324,11 +331,16 @@ is a `usage_error` before anything is cloned, as with `install`.
 - `skillx update` updates added skills with the registry sources, or only the
   ones named (`skillx update add:pdf`; name them apart from registry sources).
   Each is re-read from its recorded source (a branch or tag is followed, a
-  commit stays where it is, a local directory is read again) and the skill of
-  the same name there replaces it; local edits are a `conflict` unless
-  `--force`. A skill no longer in its source is `not_found`. A lock that
-  already pins the skill gets its new commit and digest; `update` never starts
-  a lock.
+  commit stays where it is, a local directory is read again) and the skill in
+  the directory it was installed from replaces it (when it moved, the only
+  skill of its name; two of that name elsewhere is a `conflict`); local edits
+  are a `conflict` unless `--force`. A skill no longer in its source is
+  `not_found`. A source that fails does not stop the others: they are
+  installed and locked, then the command fails with every failed source in
+  `details.failures` (and the owners updated in `details.updated`). A lock
+  that already pins the skill gets its new commit and digest; `update` never
+  starts a lock. Adding a skill from a local directory drops a lock entry
+  of the same name, since that skill no longer comes from the pinned source.
 - `skillx sync --locked` restores added skills with the packages: each locked
   commit is fetched, and the skill's directory there must hash to the locked
   tree digest, else `integrity_error` and nothing is installed.
@@ -638,7 +650,7 @@ the release read API; nothing is written until every file is verified.
 
 `~` is `USERPROFILE` on Windows and `HOME` elsewhere. Installer state lives in
 `$SKILLX_HOME` (default `~/.skillx`); a `--project` install keeps its own under
-`$SKILLX_HOME/projects/<first 16 hex of the SHA-256 of the project path>`, so
+`$SKILLX_HOME/projects/<first 16 hex of the SHA-256 of the project's real path>`, so
 its ref-counts never mix with the user-scope install. Trusted keys are always
 the user's.
 
@@ -646,10 +658,10 @@ the user's.
 
 ```bash
 skillx install <refs...> [--runtime id] [--project] [--dry-run] [--force] [--lock file | --no-lock] [--json]
-skillx update [refs...]  [--runtime id] [--force] [--lock file | --no-lock] [--json]
-skillx uninstall <refs...> [--runtime id] [--lock file | --no-lock] [--json]
-skillx list [--runtime id] [--json]
-skillx sync --locked [--lock file | --from kit:@h/k#rev] [--runtime id] [--dry-run] [--force] [--json]
+skillx update [refs...]  [--runtime id] [--project] [--force] [--lock file | --no-lock] [--json]
+skillx uninstall <refs...> [--runtime id] [--project] [--lock file | --no-lock] [--json]
+skillx list [--runtime id] [--project] [--json]
+skillx sync --locked [--lock file | --from kit:@h/k#rev] [--runtime id] [--project] [--dry-run] [--force] [--json]
 skillx mcp [--registry url]
 ```
 

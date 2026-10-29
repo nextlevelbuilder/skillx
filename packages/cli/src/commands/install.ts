@@ -2,7 +2,7 @@ import { Command } from 'commander';
 import chalk from 'chalk';
 import { INSTALL_LOCK_FILENAME } from '@skillx/contracts';
 import { dropAddedFromLockFile, writeAddedLock } from '../lib/add/add-lock.js';
-import { readLockedAdded, syncWithAdded, updateAdded, withAddedPlan } from '../lib/add/add-refresh.js';
+import { readLockedAdded, syncWithAdded, updateAdded, updateFailure, withAddedPlan } from '../lib/add/add-refresh.js';
 import { installRefs, isAddOwner, listInstalled, ownersOfRefs, planRefs, uninstallRef, updateInstalled } from '../lib/install/install-operations.js';
 import type { ApplyOutcome } from '../lib/install/install-operations.js';
 import { usageError } from '../lib/install/install-errors.js';
@@ -96,12 +96,15 @@ export const updateCommand = withCommon(new Command('update'))
           if (existing !== null && lockScope(existing) === lockScope(o.lock)) lockPath = writeLockFile(path!, mergeLock(existing, o.lock));
         }
         // After the registry lock is written, so a source that cannot be read leaves it in step.
-        const added = addOnly || refs.length === 0 ? await updateAdded(ctx, addOnly ? ownersOfRefs(refs) : []) : { outcomes: [], entries: [] };
+        const added = addOnly || refs.length === 0 ? await updateAdded(ctx, addOnly ? ownersOfRefs(refs) : []) : { outcomes: [], entries: [], failures: [] };
         // Only a packages lock that already pins added skills is refreshed; update never starts one.
         const existing = path === null ? null : existingLock(path);
         const pinned = new Set((existing?.added ?? []).map((a) => a.alias));
         const entries = added.entries.filter((e) => pinned.has(e.alias));
         if (entries.length > 0) lockPath = writeAddedLock(path!, entries) ?? lockPath;
+        // The sources that were read are installed and locked; the failed ones are reported, not hidden.
+        const failure = updateFailure(added, lockPath);
+        if (failure !== null) throw failure;
         return { outcomes: [...outcomes, ...added.outcomes], lockPath };
       },
       printUpdated,

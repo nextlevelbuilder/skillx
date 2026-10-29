@@ -73,10 +73,10 @@ export const stagingFor = (skillsDir: string) => join(dirname(skillsDir), '.skil
 /**
  * Installer state of a project-scope install: its own receipts, owners,
  * journals and install lock under `<skillxHome>/projects/<digest of the
- * project path>`, so a project's skills never share ref-counts with the
- * user-scope install of the same runtime and nothing is written into the
- * project but the skills themselves.
+ * project's real path>`, so a project's skills never share ref-counts with
+ * the user-scope install of the same runtime. The project gets the skills
+ * and the runtime's `.skillx-staging` directory beside them.
  */
 export function projectHome(env: Env, projectDir: string): string {
-  return join(skillxHome(env), 'projects', createHash('sha256').update(resolve(projectDir)).digest('hex').slice(0, 16));
+  return join(skillxHome(env), 'projects', createHash('sha256').update(projectDir).digest('hex').slice(0, 16));
 }

@@ -27,11 +27,13 @@ export function addedEntryOf(source: AddSource, alias: string, dir: string, comm
  * The source an entry was added from, as `skillx add` takes it, recorded as
  * the owner's ref so `update` can follow it: `github:owner/repo[/path][@ref]`,
  * or the repository URL (another host has no ref syntax: its default branch).
+ * A path holding `@` would read as a ref, so it gives the whole repository.
  */
 export function entrySourceRef(entry: InstallLockAdded, ref = entry.ref): string {
   const gh = GITHUB_REPOSITORY.exec(entry.repository);
   if (gh === null) return entry.repository;
-  return `github:${gh[1]}/${gh[2]}${entry.path ? `/${entry.path}` : ''}${ref ? `@${ref}` : ''}`;
+  const path = entry.path && !entry.path.includes('@') ? `/${entry.path}` : '';
+  return `github:${gh[1]}/${gh[2]}${path}${ref ? `@${ref}` : ''}`;
 }
 
 /** `existing` with `entries` set by alias; an alias moves out of `packages` when it becomes an added skill. */

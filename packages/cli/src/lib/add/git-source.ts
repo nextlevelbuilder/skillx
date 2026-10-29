@@ -47,8 +47,8 @@ const guard = (transport: string) => ['-c', 'core.askPass=', '-c', 'protocol.all
  */
 export function fetchCommitArgs(url: string, dest: string, commit: string, transport = 'https'): string[][] {
   return [
-    ['init', '-q', '--template=', '--', dest],
-    [...guard(transport), ...inClone(dest), 'fetch', '-q', '--depth', '1', '--no-tags', '--no-write-fetch-head', '--', url, `+${commit}:refs/skillx/commit`],
+    ['init', '-q', '--template=', ...(commit.length === 64 ? ['--object-format=sha256'] : []), '--', dest],
+    [...guard(transport), ...inClone(dest), 'fetch', '-q', '--depth', '1', '--no-tags', '--', url, `+${commit}:refs/skillx/commit`],
     [...inClone(dest), 'update-ref', '--no-deref', 'HEAD', commit],
   ];
 }
@@ -81,7 +81,7 @@ function git(args: string[], what: string, input?: string): Buffer {
 
 function classify(stderr: string): 'auth_error' | 'not_found' | 'usage_error' | 'network_error' {
   if (/authentication failed|could not read (username|password)|terminal prompts disabled|returned error: 40[13]/i.test(stderr)) return 'auth_error';
-  if (/repository .*not found|not found|remote branch .* not found|returned error: 404/i.test(stderr)) return 'not_found';
+  if (/repository .*not found|not found|not our ref|remote branch .* not found|returned error: 404/i.test(stderr)) return 'not_found';
   if (/transport .* not allowed|unsupported protocol/i.test(stderr)) return 'usage_error';
   return 'network_error';
 }
@@ -126,6 +126,29 @@ function readBlobs(dir: string, oids: readonly string[]): Uint8Array[] {
   return blobs;
 }
 
+/**
+ * A host may serve any commit of its object store, and on GitHub that holds
+ * commits pushed only to a fork, so a commit id alone does not prove the
+ * named repository has it. It is read only when a branch or tag of that
+ * repository contains it: the default branch first, then every branch and
+ * tag, fetched as commits only (`--filter=tree:0`), so the check costs the
+ * history after `commit`, never files.
+ */
+function assertOnBranchOrTag(repo: string, url: string, label: string, commit: string, transport: string): void {
+  const what = `checking that a branch or tag of ${label} has ${commit}`;
+  const fetch = (refspecs: string[]) => git([...guard(transport), ...inClone(repo), 'fetch', '-q', '--filter=tree:0', '--no-tags', '--', url, ...refspecs], what);
+  const contained = () => git([...inClone(repo), 'for-each-ref', '--count=1', '--format=%(refname)', '--contains', commit, 'refs/skillx/head', 'refs/skillx/heads/', 'refs/skillx/tags/'], what).length > 0;
+  fetch(['+HEAD:refs/skillx/head']);
+  if (!contained()) fetch(['+refs/heads/*:refs/skillx/heads/*', '+refs/tags/*:refs/skillx/tags/*']);
+  if (!contained()) throw new InstallError('integrity_error', `no branch or tag of ${label} has commit ${commit}; a host can serve a commit that only a fork has, so it is not read`, { commit });
+  try {
+    // The filtered fetch made the URL a promisor remote; without it no later read fetches a missing object.
+    git([...inClone(repo), 'config', '--remove-section', `remote.${url}`], 'git config');
+  } catch {
+    // No promisor remote was recorded (the server ignored the filter).
+  }
+}
+
 /** Clones `url` and returns a snapshot of its HEAD; the clone is removed by `dispose`. */
 export function openGitSource(url: string, label: string, ref?: string, transport = 'https'): SourceSnapshot {
   const dir = mkdtempSync(join(tmpdir(), 'skillx-add-'));
@@ -143,7 +166,10 @@ export function openGitSource(url: string, label: string, ref?: string, transpor
     } catch {
       throw new InstallError('not_found', `${label} has no commit to read`);
     }
-    if (ref !== undefined && isCommitRef(ref) && commit !== ref) throw new InstallError('integrity_error', `${label} returned commit ${commit}, not ${ref}`);
+    if (ref !== undefined && isCommitRef(ref)) {
+      if (commit !== ref) throw new InstallError('integrity_error', `${label} returned commit ${commit}, not ${ref}`);
+      assertOnBranchOrTag(repo, url, label, commit, transport);
+    }
     const entries = listTree(repo);
     const byPath = new Map(entries.map((e) => [e.path, e]));
     const under = (d: string) => (p: string) => d === '' || p.startsWith(`${d}/`);

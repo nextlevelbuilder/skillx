@@ -3,10 +3,12 @@ import chalk from 'chalk';
 import { INSTALL_LOCK_FILENAME } from '@skillx/contracts';
 import { applyAdd, planAdd } from '../lib/add/add-install.js';
 import type { AddedSkill } from '../lib/add/add-install.js';
-import { addedEntryOf, writeAddedLock } from '../lib/add/add-lock.js';
+import { addedEntryOf, dropAddedFromLockFile, writeAddedLock } from '../lib/add/add-lock.js';
 import { openSource, originOf } from '../lib/add/add-refresh.js';
 import { parseAddSource, redactCredentials, searchPathOf } from '../lib/add/add-source.js';
+import type { AddSource } from '../lib/add/add-source.js';
 import { discoverSkills, prepareSkill } from '../lib/add/skill-discovery.js';
+import type { FoundSkill } from '../lib/add/skill-discovery.js';
 import { conflictError } from '../lib/install/install-errors.js';
 import type { ApplyOutcome } from '../lib/install/install-operations.js';
 import { assertLockScope } from '../lib/install/lock-file.js';
@@ -53,8 +55,8 @@ export async function runAdd(input: string, options: AddOptions): Promise<AddRes
   // Resolve every runtime and the lock scope before any clone, so a bad option fails fast.
   const ctxs = options.list ? [] : runtimesOf(options).map((runtime) => contextFrom({ ...options, runtime }));
   if (ctxs.length > 0) assertCanPrompt(options);
-  const lockPath = ctxs.length === 0 || options.lock === false || source.kind === 'local' ? null : (options.lock ?? INSTALL_LOCK_FILENAME);
-  if (lockPath !== null) assertLockScope(lockPath, 'packages');
+  const lockPath = ctxs.length === 0 || options.lock === false ? null : (options.lock ?? INSTALL_LOCK_FILENAME);
+  if (lockPath !== null && source.kind !== 'local') assertLockScope(lockPath, 'packages');
   if (!options.json && source.kind !== 'local') console.error(chalk.dim(`cloning ${source.label} ...`));
   const snapshot = openSource(source);
   try {
@@ -79,15 +81,11 @@ export async function runAdd(input: string, options: AddOptions): Promise<AddRes
       expect = plans.map((p) => p.planDigest);
     }
     const outcomes: ApplyOutcome[] = [];
-    let written: string | null = null;
+    let failed: unknown;
     try {
       for (const [i, ctx] of ctxs.entries()) outcomes.push(await applyAdd(ctx, added, expect[i]));
-    } finally {
-      // Whatever was installed is pinned, also when a later target failed.
-      if (lockPath !== null && outcomes.length > 0) {
-        const entries = chosen.flatMap((s, i) => addedEntryOf(source, s.name, s.dir, snapshot.commit, added[i]!.tree.digest) ?? []);
-        written = writeAddedLock(lockPath, entries);
-      }
+    } catch (error) {
+      failed = error;
     }
     const targets: AddTarget[] = outcomes.map((o, i) => ({
       runtime: ctxs[i]!.runtime,
@@ -97,6 +95,15 @@ export async function runAdd(input: string, options: AddOptions): Promise<AddRes
       applied: o.applied,
       recovered: o.recovered,
     }));
+    if (failed !== undefined && outcomes.length === 0) throw failed;
+    // Whatever was installed is pinned, also when a later target failed; that failure stays the one reported.
+    let written: string | null = null;
+    try {
+      written = lockAdded(lockPath, source, chosen, added, snapshot.commit);
+    } catch (error) {
+      if (failed === undefined) throw error;
+    }
+    if (failed !== undefined) throw partlyInstalled(failed, targets, written);
     return {
       status: 'installed',
       ...base,
@@ -108,6 +115,25 @@ export async function runAdd(input: string, options: AddOptions): Promise<AddRes
   } finally {
     snapshot.dispose();
   }
+}
+
+/**
+ * Pins the skills read from git in the packages lock at `lockPath`. A local
+ * copy has no portable source: it drops what the lock pinned under its names.
+ */
+function lockAdded(lockPath: string | null, source: AddSource, chosen: readonly FoundSkill[], added: readonly AddedSkill[], commit?: string): string | null {
+  if (lockPath === null) return null;
+  if (source.kind === 'local') return added.reduce<string | null>((written, a) => dropAddedFromLockFile(lockPath, a.alias) ?? written, null);
+  return writeAddedLock(lockPath, chosen.flatMap((s, i) => addedEntryOf(source, s.name, s.dir, commit, added[i]!.tree.digest) ?? []));
+}
+
+/** A later target's failure, with the targets installed before it and the lock written for them. */
+function partlyInstalled(error: unknown, targets: AddTarget[], lockPath: string | null): unknown {
+  if (!(error instanceof CliError)) return error;
+  const { details, hint } = error.extra;
+  const installed = targets.map((t) => ({ runtime: t.runtime, skillsDir: t.skillsDir }));
+  const merged = typeof details === 'object' && details !== null && !Array.isArray(details) ? { ...details, installed, lockPath } : { cause: details, installed, lockPath };
+  return new CliError(error.code, `${error.message} (installed into ${installed.map((t) => t.runtime).join(', ')} before it failed)`, { details: merged, ...(hint ? { hint } : {}) });
 }
 
 /** The same failure with every URL credential masked in its message, hint and details. */

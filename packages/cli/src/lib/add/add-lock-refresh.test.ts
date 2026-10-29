@@ -151,7 +151,8 @@ describe('update and sync --locked of added skills', () => {
 
     rmSync(join(src, 'skills', 'demo'), { recursive: true });
     write('skills/other/SKILL.md', skillMd('other'));
-    expect((await failure(() => updateAdded(ctx(), ['add:demo']))).code).toBe('not_found');
+    const gone = await updateAdded(ctx(), ['add:demo']);
+    expect(gone.failures.map((f) => (f.error as CliError).code)).toEqual(['not_found']);
     expect((await failure(() => updateAdded(ctx(), ['add:nope']))).code).toBe('not_found');
   });
 

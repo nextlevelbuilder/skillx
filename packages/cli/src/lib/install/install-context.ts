@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { linkSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { join, relative, resolve, sep } from 'node:path';
 import { DEFAULT_RUNTIME, getAdapter, projectHome, skillxHome, stagingFor } from './adapters.js';
 import type { Env, HarnessAdapter } from './adapters.js';
 import type { TxHooks } from './apply-transaction.js';
-import { InstallError } from './install-errors.js';
+import { InstallError, conflictError } from './install-errors.js';
 import type { Registry } from './registry-client.js';
 import { loadTrustedKeys } from './trusted-keys.js';
 
@@ -16,6 +16,8 @@ export interface InstallContext {
   runtime: string;
   /** `user`: the runtime's own skills directory; `project`: the runtime's directory in `projectDir`. */
   scope: 'user' | 'project';
+  /** The real path of the project, in project scope. */
+  projectDir?: string;
   skillsDir: string;
   stagingDir: string;
   registry: Registry;
@@ -41,14 +43,16 @@ export function createInstallContext(options: ContextOptions): InstallContext {
   const env = options.env ?? process.env;
   const userHome = skillxHome(env);
   const adapter = getAdapter(options.runtime ?? DEFAULT_RUNTIME);
-  const project = options.projectDir;
-  const skillsDir = project === undefined ? adapter.skillsDir(env) : adapter.projectSkillsDir(resolve(project));
-  return {
+  // The real path: the same project reached through a link shares one state, and links below it are checked from there.
+  const project = options.projectDir === undefined ? undefined : realpathSync(resolve(options.projectDir));
+  const skillsDir = project === undefined ? adapter.skillsDir(env) : adapter.projectSkillsDir(project);
+  const ctx: InstallContext = {
     env,
     home: project === undefined ? userHome : projectHome(env, project),
     adapter,
     runtime: adapter.id,
     scope: project === undefined ? 'user' : 'project',
+    ...(project === undefined ? {} : { projectDir: project }),
     skillsDir,
     stagingDir: stagingFor(skillsDir),
     registry: options.registry,
@@ -58,6 +62,34 @@ export function createInstallContext(options: ContextOptions): InstallContext {
     ...(options.hooks ? { hooks: options.hooks } : {}),
     now: options.now ?? (() => new Date()),
   };
+  checkProjectDirs(ctx);
+  return ctx;
+}
+
+/**
+ * A project is not the user's to trust: a `.claude`, `.claude/skills` or
+ * staging directory that is a symlink or junction would send writes and
+ * deletes outside it. In project scope every existing directory from the
+ * project down to the skills and staging directories must be a real one;
+ * checked when the context is made and again under the install lock.
+ */
+export function checkProjectDirs(ctx: InstallContext): void {
+  if (ctx.projectDir === undefined) return;
+  for (const target of [ctx.skillsDir, ctx.stagingDir]) {
+    let dir = ctx.projectDir;
+    for (const segment of relative(ctx.projectDir, target).split(sep)) {
+      dir = join(dir, segment);
+      let stat;
+      try {
+        stat = lstatSync(dir);
+      } catch {
+        break; // missing: created as a real directory on write
+      }
+      if (!stat.isDirectory() || stat.isSymbolicLink()) {
+        throw conflictError(`${dir} is a link or a file, not a directory; skillx writes project skills only into real directories of the project`, { path: dir });
+      }
+    }
+  }
 }
 
 function alive(pid: number): boolean {
@@ -122,6 +154,7 @@ export async function withInstallLock<T>(ctx: InstallContext, run: () => Promise
     rmSync(mine, { force: true });
   }
   try {
+    checkProjectDirs(ctx);
     return await run();
   } finally {
     rmSync(path, { force: true });
