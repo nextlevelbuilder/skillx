@@ -9,7 +9,7 @@ import { openLocalSource } from '../lib/add/local-source.js';
 import { discoverSkills, prepareSkill } from '../lib/add/skill-discovery.js';
 import type { SourceSnapshot } from '../lib/add/skill-discovery.js';
 import { CliError } from '../lib/output.js';
-import { confirmInstall, selectSkills } from './add-prompts.js';
+import { assertCanPrompt, confirmInstall, selectSkills } from './add-prompts.js';
 import { printAdd, printSkipped } from './add-display.js';
 import type { AddResult } from './add-display.js';
 import { contextFrom, printPlan, runInstaller } from './install-runner.js';
@@ -47,6 +47,7 @@ export async function runAdd(input: string, options: AddOptions): Promise<AddRes
   const source = parseAddSource(input);
   // Resolve the runtime before any clone, so a bad --runtime fails fast.
   const ctx = options.list ? null : contextFrom(options);
+  if (ctx !== null) assertCanPrompt(options);
   if (!options.json && source.kind !== 'local') console.error(chalk.dim(`cloning ${source.label} ...`));
   const snapshot = openSource(source);
   try {

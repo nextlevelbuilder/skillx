@@ -16,15 +16,25 @@ import { isDiscoverable } from './skill-discovery.js';
  * URL, every credential prompt off (`core.askPass=` plus an empty
  * `GIT_ASKPASS`, `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`), and only
  * the https transport allowed, so `ext::`, `file://` and `ssh` are refused by
- * git itself too, also on a redirect. Every message is redacted.
+ * git itself too, also on a redirect. Variables that point git at another
+ * repository (`GIT_DIR`, `GIT_WORK_TREE`, ...) are never inherited, and every
+ * read names the clone's `--git-dir`. Every message is redacted.
  */
 
 const CLONE_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT = 1024 * 1024 * 1024;
 
+/** Variables that redirect git to another repository, index or object store. */
+const REPO_ENV = new Set(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE', 'GIT_CEILING_DIRECTORIES']);
+
 export function gitEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  return { ...base, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_ASKPASS: '', SSH_ASKPASS: '', GIT_LFS_SKIP_SMUDGE: '1' };
+  // Compared in upper case: Windows environment names are case-insensitive.
+  const env = Object.fromEntries(Object.entries(base).filter(([key]) => !REPO_ENV.has(key.toUpperCase())));
+  return { ...env, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_ASKPASS: '', SSH_ASKPASS: '', GIT_LFS_SKIP_SMUDGE: '1' };
 }
+
+/** Pins a read to the clone itself, never a repository found from the directory or environment. */
+const inClone = (repo: string) => ['-C', repo, `--git-dir=${join(repo, '.git')}`];
 
 /** The clone command line. `transport` is `https` outside tests. */
 export function cloneArgs(url: string, dest: string, ref?: string, transport = 'https'): string[] {
@@ -63,7 +73,7 @@ function classify(stderr: string): 'auth_error' | 'not_found' | 'usage_error' | 
 
 /** `ls-tree -r -l -z` records: every blob and submodule of the commit, with its mode and size. */
 function listTree(dir: string): Array<ListedEntry & { oid: string }> {
-  const out = git(['-C', dir, 'ls-tree', '-r', '-l', '-z', '--full-tree', 'HEAD'], 'git ls-tree');
+  const out = git([...inClone(dir), 'ls-tree', '-r', '-l', '-z', '--full-tree', 'HEAD'], 'git ls-tree');
   const decoder = new TextDecoder('utf-8', { fatal: true });
   const entries: Array<ListedEntry & { oid: string }> = [];
   for (const record of out.toString('latin1').split('\0')) {
@@ -87,7 +97,7 @@ function listTree(dir: string): Array<ListedEntry & { oid: string }> {
 /** Splits `git cat-file --batch` output into blob contents, in request order. */
 function readBlobs(dir: string, oids: readonly string[]): Uint8Array[] {
   if (oids.length === 0) return [];
-  const out = git(['-C', dir, 'cat-file', '--batch'], 'git cat-file', `${oids.join('\n')}\n`);
+  const out = git([...inClone(dir), 'cat-file', '--batch'], 'git cat-file', `${oids.join('\n')}\n`);
   const blobs: Uint8Array[] = [];
   let at = 0;
   for (const oid of oids) {
@@ -110,7 +120,7 @@ export function openGitSource(url: string, label: string, ref?: string, transpor
     const repo = join(dir, 'repo');
     let commit: string;
     try {
-      commit = git(['-C', repo, 'rev-parse', '--verify', 'HEAD^{commit}'], 'git rev-parse').toString('utf8').trim();
+      commit = git([...inClone(repo), 'rev-parse', '--verify', 'HEAD^{commit}'], 'git rev-parse').toString('utf8').trim();
     } catch {
       throw new InstallError('not_found', `${label} has no commit to read`);
     }

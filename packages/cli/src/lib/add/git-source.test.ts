@@ -79,6 +79,39 @@ describe('git sources', () => {
     }
   });
 
+  it('drops inherited variables that point git at another repository', () => {
+    const env = gitEnv({ GIT_DIR: '/x/.git', git_work_tree: '/x', GIT_INDEX_FILE: 'i', GIT_COMMON_DIR: 'c', PATH: '/bin' });
+    expect(env).not.toHaveProperty('GIT_DIR');
+    expect(env).not.toHaveProperty('git_work_tree');
+    expect(env).not.toHaveProperty('GIT_INDEX_FILE');
+    expect(env).not.toHaveProperty('GIT_COMMON_DIR');
+    expect(env.PATH).toBe('/bin');
+  });
+
+  it('reads the clone even when GIT_DIR names another repository', () => {
+    const other = join(root, 'other');
+    mkdirSync(join(other, 'skills', 'intruder'), { recursive: true });
+    writeFileSync(join(other, 'skills', 'intruder', 'SKILL.md'), '---\nname: intruder\ndescription: Wrong repo\n---\n');
+    git(other, ['init', '-q', '-b', 'main']);
+    git(other, ['add', '-A']);
+    git(other, ['commit', '-q', '-m', 'other']);
+    const expected = git(join(root, 'repo'), ['rev-parse', 'HEAD']);
+    const saved = process.env.GIT_DIR;
+    process.env.GIT_DIR = join(other, '.git');
+    try {
+      const source = openGitSource(repoUrl, 'test-repo', 'main', 'file');
+      try {
+        expect(source.commit).toBe(expected);
+        expect(discoverSkills(source, '').skills.map((s) => s.name)).toEqual(['demo', 'leaky']);
+      } finally {
+        source.dispose();
+      }
+    } finally {
+      if (saved === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = saved;
+    }
+  });
+
   it('lets git itself refuse every transport but https', () => {
     const refused = failure(() => openGitSource(repoUrl, 'test-repo'));
     expect(refused.code).toBe('usage_error');

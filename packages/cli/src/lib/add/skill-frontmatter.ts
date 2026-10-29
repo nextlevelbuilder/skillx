@@ -36,7 +36,13 @@ export function readFrontmatter(bytes: Uint8Array): Frontmatter {
   const doc = parseDocument(lines.slice(1, end).join('\n'), { version: '1.2', schema: 'core', uniqueKeys: true });
   if (doc.errors.length > 0 || doc.warnings.length > 0) return fail('SKILL.md front matter is not plain YAML');
   if (hasTags(doc.contents)) return fail('SKILL.md front matter uses YAML tags');
-  const data: unknown = doc.toJS({ maxAliasCount: 10 });
+  let data: unknown;
+  try {
+    // Throws when aliases expand past the cap (a "billion laughs" block).
+    data = doc.toJS({ maxAliasCount: 10 });
+  } catch {
+    return fail('SKILL.md front matter uses too many aliases');
+  }
   if (data === null || typeof data !== 'object' || Array.isArray(data)) return fail('SKILL.md front matter is not a mapping');
   const { name, description } = data as Record<string, unknown>;
   if (typeof name !== 'string' || name.trim() === '') return fail('SKILL.md front matter needs a non-empty name');

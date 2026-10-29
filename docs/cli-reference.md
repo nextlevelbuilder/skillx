@@ -240,7 +240,7 @@ segments is refused. `@publisher/package`, `kit:` and `collection:` belong to
 |------|-------------|---------|
 | `-s, --skill <names...>` | Skills to install, by front matter name or directory name (`*` for all) | ask; the only skill; all with `-y` |
 | `-l, --list` | List the skills in the source; install nothing | `false` |
-| `-y, --yes` | Do not ask (no selection prompt, no confirmation) | `false` |
+| `-y, --yes` | Do not ask (no selection prompt, no confirmation); required to install in human mode when stdin is not a terminal | `false` |
 | `--force` | Replace a skill added before, or install over a directory nothing owns (edited files are backed up, unknown files kept) | `false` |
 | `--runtime <id>` | `claude-code` or `codex` | `claude-code` |
 | `--json` | Envelope with `status` (`listed`, `installed` or `cancelled`); never asks, so several skills need `--skill` | `false` |
@@ -294,9 +294,11 @@ that another source (a registry package, kit or collection) installed at
 other content is a `conflict` even with `--force`; the same content just adds
 `add:<name>` as a second owner.
 
-**Exit codes.** `0` installed, listed or cancelled at a prompt; `2`
-`usage_error` (bad source, refused transport or path, reserved or invalid name,
-several skills under `--json` without `--skill`); `3` `not_found` (no skill,
+**Exit codes.** `0` installed, listed, or cancelled by an empty answer at a
+prompt; `2` `usage_error` (bad source, refused transport or path, reserved or
+invalid name, several skills under `--json` without `--skill`, or stdin not a
+terminal without `--yes` or `--json`: pass `--yes`, with `--skill` to choose,
+since human mode cannot ask); `3` `not_found` (no skill,
 no such `--skill`, path, repository or branch); `4` `incompatible` (a link,
 special file or limit in a chosen skill); `5` `auth_error` (git asked for
 credentials); `6` `network_error` (clone failed or timed out after 120 s);

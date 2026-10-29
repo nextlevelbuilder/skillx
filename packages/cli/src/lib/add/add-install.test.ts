@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { runAdd } from '../../commands/add.js';
+import { assertCanPrompt } from '../../commands/add-prompts.js';
 import type { AddResult } from '../../commands/add-display.js';
 import { createInstallContext } from '../install/install-context.js';
 import type { InstallContext } from '../install/install-context.js';
@@ -122,6 +123,23 @@ describe('skillx add from a local path', () => {
     write('b/SKILL.md', skillMd('b'));
     expect((await refusal(() => runAdd(src, { json: true }))).code).toBe('usage_error');
     expect((await refusal(() => add(['nope']))).code).toBe('not_found');
+  });
+
+  it('refuses to prompt without a terminal unless --yes or --json says not to ask', () => {
+    const refused = (() => {
+      try {
+        assertCanPrompt({}, false);
+      } catch (error) {
+        return error as CliError;
+      }
+      throw new Error('expected a refusal');
+    })();
+    expect(refused).toBeInstanceOf(CliError);
+    expect(refused.code).toBe('usage_error');
+    expect(refused.message).toContain('--yes');
+    expect(() => assertCanPrompt({ yes: true }, false)).not.toThrow();
+    expect(() => assertCanPrompt({ json: true }, false)).not.toThrow();
+    expect(() => assertCanPrompt({}, true)).not.toThrow();
   });
 
   it('lists without installing anything', async () => {
