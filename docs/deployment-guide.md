@@ -549,6 +549,26 @@ again. Rollback: set the flag to `"0"` and redeploy (bearer tokens are ignored,
 link routes answer 404, unlink still works); to remove the table, run the
 header SQL of `0021_agentkit_links.sql`.
 
+**Migration 0022 and the creator dashboard.** `0022_creator_dashboard` adds
+the nullable `packages.deleted_at` and `personal_kits.deleted_at` (NULL: not
+deleted, so every existing row reads as before) and the new append-only
+`package_audit` table with `idx_package_audit_subject` and two triggers that
+abort any `UPDATE` or `DELETE` on it. It is additive, but the order matters:
+the new code reads `deleted_at` on every release, library and kit query, so
+apply it with `pnpm run db:migrate:remote` after a backup and before
+deploying the code. Code before 0022 runs fine on the migrated schema. No flag
+changes: `/dashboard` needs a session, its package section and the
+`/api/v1/packages/.../visibility|delete|restore` endpoints follow
+`SKILLX_RELEASES_API`, and its kit section and the kit `delete|restore`
+endpoints also follow `SKILLX_PERSONAL_KITS_API`. Publishers need
+skillx-sh with `unlisted` support to publish `--visibility unlisted`; older
+CLIs refuse the value locally, and an owner can switch a package to unlisted
+in the dashboard instead. Rollback: deploy the previous code, then run the
+header SQL of `0022_creator_dashboard.sql`. Code before 0022 ignores
+`deleted_at`, so a rollback un-deletes content: first run the two `UPDATE ...
+SET visibility = 'private' WHERE deleted_at IS NOT NULL` statements in that
+header. It treats `unlisted` as private, which fails closed.
+
 The CLI installer (`skillx install`, `sync --locked`, `mcp`) needs no server
 change beyond the release read API, but it verifies manifest signatures
 against keys the user trusts (see [CLI reference](./cli-reference.md#trusted-signing-keys)).

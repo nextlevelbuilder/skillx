@@ -706,13 +706,32 @@ exceeds what the owner's session reads.
   revocable on its own; unscoped keys keep their legacy behavior.
 
 **Visibility is chosen at publish and is not a signed field.** Release
-metadata takes `visibility` (`public` or `private`; anything else is `400`).
-An existing package keeps its visibility: omitting the field keeps it, naming
-the other one is `409 release.visibility_mismatch` and writes nothing. A new
-package published without `visibility` is `private` (`skillx publish` prints a
-note on stderr); a new `@agentkit` kit release defaults to `public`, as before.
-Visibility is registry policy and not part of the signed manifest. Changing it
-later is out of scope here.
+metadata takes `visibility` (`public`, `unlisted` or `private`; anything else
+is `400`). An existing package keeps its visibility: omitting the field keeps
+it, naming another one is `409 release.visibility_mismatch` and writes
+nothing. A new package published without `visibility` is `private`
+(`skillx publish` prints a note on stderr); a new `@agentkit` kit release
+defaults to `public`, as before. Visibility is registry policy and not part of
+the signed manifest. Only `private` is protected: `unlisted` reads like
+`public` by name or digest but is never listed (discovery reads the skill
+catalog, not registry packages) and is never shared-cached.
+
+**Changing visibility, deleting and restoring** happen only through the owner
+management API (`lib/creator/`, used by the `/dashboard` page; see
+[api-reference.md](./api-reference.md#managing-packages-and-kits-owner)).
+A visibility change is a compare-and-set on `from`; widening (out of
+`private`, or to `public`) needs an interactive web session and explicit
+approval, never an API key, while narrowing is allowed with an unscoped key
+and applies to the next read only (copies already downloaded are not
+recalled). A package or kit the admin deleted can only be restored by the
+admin. Delete is a soft tombstone
+(`packages.deleted_at`, `personal_kits.deleted_at`): every read query of the
+release gate (`release-access.ts`), the library, the kit store, publish,
+transitions, promotion and review filter it, so a deleted package is `404`
+to everyone, signed download URLs included. Restore clears it within 30 days;
+after that it is `410` and the name stays reserved. Each change and its row
+in the append-only `package_audit` table commit in one guarded batch.
+Publishing stays CLI-only, and un-yanking stays an admin transition.
 
 **Responses.** Release reads of a private package and `/library` answers are
 `Cache-Control: private, no-store` with `Vary: Authorization, Cookie`; kit API

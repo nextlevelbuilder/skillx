@@ -35,7 +35,7 @@ export interface UploadOptions {
    * packages are public unless a test says otherwise; `null` omits the field
    * so the registry default applies.
    */
-  visibility?: "public" | "private" | null;
+  visibility?: "public" | "unlisted" | "private" | null;
 }
 
 export async function createHarness() {

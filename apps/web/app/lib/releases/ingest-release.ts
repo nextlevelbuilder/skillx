@@ -3,7 +3,7 @@
  *
  * Order (each step rejects before any later one runs):
  * name and reserved namespaces (for the requested provider) -> scoped key and publisher ownership ->
- * signing key -> metadata -> package owner, kind and visibility -> capped upload -> tar read with limits and tree
+ * signing key -> metadata -> package owner, kind, deletion and visibility -> capped upload -> tar read with limits and tree
  * digest -> version conflict -> subrequest budget -> exec manifest -> scan -> signed manifest -> R2 artifact, blobs
  * and manifest (create-only) -> D1 row (last). Release bytes are stored
  * exactly as uploaded; nothing is sanitized. Kit releases (`@agentkit/*`,
@@ -18,7 +18,7 @@ import { BLOB_WRITE_CONCURRENCY, MAX_RELEASE_UPLOAD_BYTES, assertSubrequestBudge
 import { RELEASE_METADATA_HEADER, parseReleaseMetadata, parseReleaseName, publishVisibility, readUploadBody, requestedProvider } from "./release-request";
 import { scanRelease } from "./release-scan";
 import { readTree, sha256Hex } from "./release-tree-read";
-import { findPackage, findRelease, insertRelease } from "./release-store";
+import { assertPackageLive, findPackage, findRelease, insertRelease } from "./release-store";
 import type { ExistingRelease } from "./release-store";
 import { artifactKey, blobKey, forEachLimited, manifestKey, putCreateOnly } from "./r2-create-only";
 import { assertSameKitProvenance } from "./release-kit";
@@ -92,6 +92,7 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
   if (pkg !== null && pkg.kind !== metadata.kind) {
     throw releaseError(409, "release.kind_conflict", `${name.identity} is a ${pkg.kind} package, not ${metadata.kind}`);
   }
+  assertPackageLive(name.identity, pkg);
   if (pkg !== null) assertVisibility(name.identity, metadata.visibility, pkg.visibility);
   const visibility = publishVisibility(metadata, pkg?.visibility ?? null);
 
@@ -176,6 +177,7 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
   if (outcome === "conflict") {
     // A package created concurrently with another visibility is refused like an existing one, also when ours was the default.
     const current = await findPackage(deps.db, name.identity);
+    assertPackageLive(name.identity, current);
     if (current !== null && current.publisherId === auth.publisherId && current.kind === metadata.kind) {
       assertVisibility(name.identity, visibility, current.visibility);
     }

@@ -163,7 +163,7 @@ describe("built cli", { timeout: 30_000 }, () => {
       expect(received.visibility).toBe("public");
       expect(explicit.stderr).not.toContain("note:");
 
-      const bad = await publish("--visibility", "unlisted").catch((e) => e);
+      const bad = await publish("--visibility", "internal").catch((e) => e);
       expect(bad.code).toBe(2);
       expect(JSON.parse(bad.stdout)).toMatchObject({ ok: false, error: { code: "usage_error", message: expect.stringContaining("--visibility") } });
     } finally {

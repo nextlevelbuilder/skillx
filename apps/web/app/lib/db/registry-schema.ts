@@ -25,9 +25,12 @@ export const packages = sqliteTable(
     name: text("name").notNull(), // fully-qualified '@handle/slug'
     slug: text("slug").notNull(),
     kind: text("kind").notNull(), // skill | hook-pack | bundle
-    visibility: text("visibility").notNull().default("public"), // public | private
+    visibility: text("visibility").notNull().default("public"), // public | unlisted | private
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updated_at: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    // Soft delete (owner or admin). Set: invisible to every read path; restorable for 30 days,
+    // then a permanent tombstone that keeps the name reserved.
+    deleted_at: integer("deleted_at", { mode: "timestamp_ms" }),
   },
   (table) => [
     uniqueIndex("idx_packages_name").on(table.name),
@@ -92,6 +95,26 @@ export const releaseStateAudit = sqliteTable(
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
   },
   (table) => [index("idx_release_state_audit_subject").on(table.subject_kind, table.subject_id, table.created_at)]
+);
+
+// Owner management of packages and personal kits: one row per applied visibility change,
+// delete or restore. Append-only (migration 0022 triggers abort UPDATE and DELETE); no foreign
+// keys, so the history outlives its subject.
+export const packageAudit = sqliteTable(
+  "package_audit",
+  {
+    id: text("id").primaryKey(),
+    subject_kind: text("subject_kind").notNull(), // package | kit
+    subject_id: text("subject_id").notNull(), // packages.id or personal_kits.id
+    subject_name: text("subject_name").notNull(), // '@handle/name' at the time of the change
+    actor_kind: text("actor_kind").notNull(), // admin | user
+    actor_id: text("actor_id").notNull(), // 'admin' (shared ADMIN_SECRET) or the user id
+    action: text("action").notNull(), // visibility | delete | restore
+    from_value: text("from_value"),
+    to_value: text("to_value"),
+    created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
+  },
+  (table) => [index("idx_package_audit_subject").on(table.subject_id, table.created_at)]
 );
 
 // Release verification evidence — binds a verified badge to an exact release digest.

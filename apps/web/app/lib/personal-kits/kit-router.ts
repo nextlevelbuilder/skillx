@@ -13,6 +13,7 @@ import { previewUpdate, rebaseKit } from "./kit-rebase";
 import { quarantineRevision, readProposalReview, reviewProposal } from "./kit-review";
 import { readDiff, readKit, readRevision, readRevisions, storeRevision, storedResponse } from "./kit-revisions";
 import { notFoundResponse } from "~/lib/releases/release-http";
+import { isKitAction, serveKitAction } from "~/lib/creator/owner-actions-http";
 
 type Handler = (caller: KitCaller, kit: string, args: string[]) => Promise<Response>;
 
@@ -110,6 +111,8 @@ const methodNotAllowed = (allow: string) => json({ error: { code: "method_not_al
 /** Serves one request of the kit API. */
 export async function serveKitRequest(request: Request, env: KitEnv, params: Record<string, string | undefined>, now?: () => Date): Promise<Response> {
   const sub = params["*"] ?? "";
+  // Soft delete and restore take the owner management path (owner or admin, no scoped key, audited).
+  if (isKitAction(sub)) return serveKitAction(request, env, params, sub, now);
   const route = ROUTES.find((r) => r.pattern.test(sub));
   const method = request.method === "HEAD" ? "GET" : request.method;
   const handler = method === "GET" ? route?.get : method === "POST" ? route?.post : undefined;

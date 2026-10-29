@@ -24,7 +24,7 @@
  * `RELEASE_WRITE_LIMITER` before the body is read. 404 while
  * `SKILLX_RELEASES_API` is off.
  */
-import { RELEASE_CHANNELS } from "@skillx/contracts";
+import { RELEASE_CHANNELS, isOpenPackageVisibility } from "@skillx/contracts";
 import type { ReleaseChannel } from "@skillx/contracts";
 import { hashScopedApiKey } from "~/lib/auth/api-key-utils";
 import { notFound, parsePackageIdentity, parseReleaseVersion } from "./release-access";
@@ -44,7 +44,7 @@ const isChannel = (value: unknown): value is ReleaseChannel => typeof value === 
 
 /** Re-checked inside the batch: the release is published and its publisher active. */
 const PROMOTABLE_GUARD = `EXISTS (SELECT 1 FROM package_releases gr JOIN packages gp ON gp.id = gr.package_id
-  JOIN publishers gpub ON gpub.id = gp.publisher_id WHERE gr.id = ? AND gr.release_state = 'published' AND gpub.state = 'active')`;
+  JOIN publishers gpub ON gpub.id = gp.publisher_id WHERE gr.id = ? AND gr.release_state = 'published' AND gpub.state = 'active' AND gp.deleted_at IS NULL)`;
 
 interface Subject {
   id: string;
@@ -95,10 +95,11 @@ export async function promoteRelease(
     .prepare(
       `SELECT r.id, r.channel, r.release_state, r.release_digest, p.visibility, pub.owner_user_id, pub.state AS publisher_state
          FROM package_releases r JOIN packages p ON p.id = r.package_id JOIN publishers pub ON pub.id = p.publisher_id
-        WHERE p.name = ? AND r.version = ?`,
+        WHERE p.name = ? AND r.version = ? AND p.deleted_at IS NULL`,
     )
     .bind(identity, version)
     .first<Subject>();
+  // A deleted package's releases do not exist here, for every actor.
   if (subject === null) throw notFound();
   const from = input.from ?? (isChannel(subject.channel) ? subject.channel : "stable");
   const { to, actor } = input;
@@ -110,7 +111,7 @@ export async function promoteRelease(
 
   if (actor.kind === "user" && subject.owner_user_id !== actor.id) {
     // A private package stays indistinguishable from an unknown one.
-    await refuse("denied", subject.visibility === "public" ? releaseError(403, "transition.not_owner", `only the owner of ${identity} or an admin may promote it`) : notFound());
+    await refuse("denied", isOpenPackageVisibility(subject.visibility) ? releaseError(403, "transition.not_owner", `only the owner of ${identity} or an admin may promote it`) : notFound());
   }
   if (from === to) await refuse("invalid", releaseError(422, "promote.same_channel", `the release is already in ${to}`));
   if (actor.kind === "publisher_key" && RANK[to] < RANK[from]) {

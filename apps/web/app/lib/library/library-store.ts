@@ -10,11 +10,13 @@
  *
  * The latest release of a skill follows the read gate: published only, not in
  * a tree quarantined anywhere, and readable by the caller. Every release of a
- * public package is readable; for a private package the owner reads all of
+ * public or unlisted package is readable; for a private package the owner reads all of
  * them and an entitled caller reads those the entitlement covers (a
  * release-scoped entitlement never shows other releases). Among the readable
  * releases the newest is chosen by the CLI install rule (highest semver, stable
  * before prerelease), so a library `installRef` is what a bare install resolves.
+ *
+ * Deleted packages and kits (`deleted_at` set) are never listed.
  *
  * Order is `(name, kind)`: stable while assets are added or removed, because a
  * cursor names a position in that order rather than an offset.
@@ -71,7 +73,8 @@ const SKILLS = `
            SELECT p2.id FROM publishers o JOIN packages p2 ON p2.publisher_id = o.id
             WHERE o.owner_user_id = me.uid AND o.owner_user_id <> ''
            UNION
-           SELECT e.package_id FROM entitlements e WHERE e.subject_id = me.uid AND e.revoked_at IS NULL)`;
+           SELECT e.package_id FROM entitlements e WHERE e.subject_id = me.uid AND e.revoked_at IS NULL)
+     AND p.deleted_at IS NULL`;
 
 const KITS = `
   SELECT k.name AS name, 'kit' AS kind, 'owner' AS relation, k.visibility AS visibility,
@@ -81,7 +84,7 @@ const KITS = `
     FROM me, personal_kits k
     JOIN publishers pub ON pub.id = k.publisher_id
     LEFT JOIN personal_kit_revisions v ON v.id = k.effective_revision_id
-   WHERE k.owner_user_id = me.uid`;
+   WHERE k.owner_user_id = me.uid AND k.deleted_at IS NULL`;
 
 /**
  * The releases of the listed packages the caller can read and install. `+x.release_state`
@@ -99,7 +102,7 @@ const READABLE_RELEASES = `
      AND +x.release_state = 'published'
      AND x.release_digest IS NOT NULL AND x.signed_manifest_key IS NOT NULL
      AND NOT EXISTS (SELECT 1 FROM package_releases q WHERE q.release_digest = x.release_digest AND q.release_state = 'quarantined')
-     AND (p.visibility = 'public' OR ${OWNED}
+     AND (p.visibility IN ('public', 'unlisted') OR ${OWNED}
           OR EXISTS (SELECT 1 FROM entitlements e
                       WHERE e.subject_id = me.uid AND e.package_id = p.id AND e.revoked_at IS NULL
                         AND (e.release_id IS NULL OR e.release_id = x.id)))`;

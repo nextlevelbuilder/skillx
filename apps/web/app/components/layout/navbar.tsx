@@ -51,6 +51,12 @@ export function Navbar() {
               Docs
             </Link>
             <Link
+              to="/dashboard"
+              className="hidden text-sm text-sx-fg-muted transition-colors hover:text-sx-fg md:block"
+            >
+              Dashboard
+            </Link>
+            <Link
               to="/settings"
               className="hidden text-sm text-sx-fg-muted transition-colors hover:text-sx-fg md:block"
             >
@@ -98,6 +104,13 @@ export function Navbar() {
                 className="rounded-lg px-3 py-2 text-sm text-sx-fg-muted transition-colors hover:bg-sx-bg-hover hover:text-sx-fg"
               >
                 Profile
+              </Link>
+              <Link
+                to="/dashboard"
+                onClick={() => setMobileMenuOpen(false)}
+                className="rounded-lg px-3 py-2 text-sm text-sx-fg-muted transition-colors hover:bg-sx-bg-hover hover:text-sx-fg"
+              >
+                Dashboard
               </Link>
               <Link
                 to="/settings"

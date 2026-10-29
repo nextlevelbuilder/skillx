@@ -8,10 +8,11 @@ describe('requestedVisibility', () => {
     expect(requestedVisibility(undefined)).toBeUndefined();
   });
 
-  it('accepts exactly public and private', () => {
+  it('accepts exactly public, unlisted and private', () => {
     expect(requestedVisibility('public')).toBe('public');
+    expect(requestedVisibility('unlisted')).toBe('unlisted');
     expect(requestedVisibility('private')).toBe('private');
-    for (const bad of ['unlisted', 'Public', '']) expect(() => requestedVisibility(bad)).toThrow(/--visibility must be one of: public, private/);
+    for (const bad of ['internal', 'Public', '']) expect(() => requestedVisibility(bad)).toThrow(/--visibility must be one of: public, unlisted, private/);
   });
 });
 
