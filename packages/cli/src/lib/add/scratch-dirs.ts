@@ -19,10 +19,15 @@ function removeAll(): void {
   live.clear();
 }
 
-function onSignal(signal: Signal): void {
+export const isCleanupSignal = (signal: string): signal is Signal => Object.hasOwn(SIGNALS, signal);
+
+/** Removes every open directory and exits with the shell's code for `signal` (128 + its number). */
+export function exitOnSignal(signal: Signal): never {
   removeAll();
   process.exit(SIGNALS[signal]);
 }
+
+const onSignal = (signal: Signal) => exitOnSignal(signal);
 
 function hook(on: boolean): void {
   for (const signal of Object.keys(SIGNALS) as Signal[]) {

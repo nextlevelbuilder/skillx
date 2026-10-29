@@ -8,14 +8,17 @@ import { isDiscoverable } from './skill-discovery.js';
 
 /**
  * A git source, cloned into a private temporary directory and read from git
- * objects only. The clone is shallow, single-branch, has no checkout and,
- * where the server supports it, no blobs (`--filter=blob:none`): the listing
- * comes from tree objects, and only the blobs discovery or a chosen skill
- * needs are fetched, in one batch each. No file of the repository is written
- * to disk, no checkout filter, LFS smudge or hook runs, and a symlink stays a
- * `120000` tree entry that the tree rules refuse. Sizes are read from object
- * headers before any content, so content is read in bounded batches. How git
- * is run, and how URL credentials are kept off disk, is in `git-run.ts`.
+ * objects only. The clone is shallow, single-branch, has no checkout and asks
+ * for no blobs (`--filter=blob:none`; a server without partial clone sends
+ * them all): the listing comes from tree objects, and only the blobs
+ * discovery or a chosen skill needs are fetched, in one batch each (a no-op
+ * for blobs already there). A fetched blob is downloaded whole, since git
+ * offers no way to learn a size first, so download time is bounded by the
+ * per-call timeout; memory is bounded by reading sizes from the local object
+ * headers before any content, and content in batches. No file of the
+ * repository is written to disk, no checkout filter, LFS smudge or hook runs,
+ * and a symlink stays a `120000` tree entry that the tree rules refuse. How
+ * git is run, and how URL credentials are kept off disk, is in `git-run.ts`.
  */
 
 const MAX_LISTING = 256 * 1024 * 1024;
@@ -75,7 +78,7 @@ export function openGitSource(url: string, label: string, ref?: string, transpor
   const remote = remoteOf(url);
   const scratch = scratchDir('skillx-add-');
   const repo = join(scratch.dir, 'repo');
-  // Local object reads never fetch behind our back: missing blobs are fetched explicitly, in one batch.
+  // Missing blobs are fetched explicitly, in one batch; git 2.44+ also refuses to fetch them lazily here.
   const local = (args: string[], what: string, maxBuffer: number, input?: string) =>
     git([...guardArgs(transport), '-C', repo, ...args], what, { input, maxBuffer, config: remote.config, env: { GIT_NO_LAZY_FETCH: '1' } });
   try {
@@ -88,18 +91,12 @@ export function openGitSource(url: string, label: string, ref?: string, transpor
     }
     const entries = parseTree(local(['ls-tree', '-r', '-z', '--full-tree', 'HEAD'], 'git ls-tree', MAX_LISTING));
     const byPath = new Map(entries.map((e) => [e.path, e]));
-    let partial: boolean;
-    try {
-      partial = local(['config', '--get', 'remote.origin.promisor'], 'git config', 4096).toString('utf8').trim() === 'true';
-    } catch {
-      partial = false;
-    }
     const fetched = new Set<string>();
     const sizes = new Map<string, number>();
 
     const fetchBlobs = (oids: readonly string[]) => {
       const want = [...new Set(oids)].filter((oid) => !fetched.has(oid) && !sizes.has(oid));
-      if (!partial || want.length === 0) return;
+      if (want.length === 0) return;
       git(
         [...guardArgs(transport), '-C', repo, '-c', 'fetch.negotiationAlgorithm=noop', 'fetch', '-q', '--no-tags', '--no-write-fetch-head', '--recurse-submodules=no', '--filter=blob:none', '--stdin', 'origin'],
         `fetching files of ${label}`,

@@ -233,8 +233,8 @@ Only `https` is accepted. `http`, `ssh`, `git@host:` (scp style), `file://`,
 anything starting with `-` are refused as `usage_error`; git is also run with
 every other protocol disabled. A path or ref with `..`, `.`, empty, `\` or `:`
 segments is refused. A URL that holds an `@` but does not parse, or whose path
-holds one (`https://user:pa/ss@host/...`), is refused without being echoed:
-percent-encode `/`, `?`, `#` and `@` in a user name or password.
+holds one (`https://user:pa/ss@host/...`), is refused without being echoed,
+as is any refused source holding an `@`: percent-encode `/`, `?`, `#` and `@` in a user name or password.
 `@publisher/package`, `kit:` and `collection:` belong to `skillx install`;
 `@agentkit/*` is reserved. A ref is a branch or tag name; commit SHAs are not
 accepted.
@@ -273,23 +273,26 @@ be installed are listed under `skipped` with the reason.
   limits (4,096 files, 32 MiB per file, 256 MiB in all) refuses the skill as
   `incompatible`. Links are never followed or copied, neither while searching
   nor while reading.
-- **Git.** The clone is shallow, single-branch, without a checkout and, where
-  the server supports partial clone, without blobs (`--filter=blob:none`): the
-  listing comes from tree objects and only the files discovery and the chosen
-  skills need are fetched, so a skill in a large monorepo does not download
-  the rest. Files are read from git objects in bounded batches after their
-  sizes, so no repository file is written, and no hook, filter or LFS download
-  runs. The temporary directory is removed afterwards, also on Ctrl+C, SIGTERM
-  or SIGHUP (exit `130`, `143`, `129`). git runs without a shell, with `--`
-  before the URL and all credential prompts off (`core.askPass=`,
-  `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`), so a private repository
-  works only with credentials git already has (a credential helper, or a token
-  in the URL).
+- **Git.** The clone is shallow, single-branch, without a checkout and asks
+  for no blobs (`--filter=blob:none`; a server without partial clone sends
+  them all): the listing comes from tree objects and only the files discovery
+  and the chosen skills need are fetched, so a skill in a large monorepo does
+  not download the rest. A fetched file arrives whole (git cannot report a
+  size first), so download time is bounded by the 120 s limit per git call;
+  sizes are then read before content and content is read in bounded batches.
+  No repository file is written, and no hook, filter or LFS download runs.
+  The temporary directory is removed afterwards, also on Ctrl+C, SIGTERM or
+  SIGHUP, including while git is running (exit `130`, `143`, `129`). git runs
+  without a shell, with `--` before the URL and all credential prompts off
+  (`core.askPass=`, `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`), so a
+  private repository works only with credentials git already has (a
+  credential helper, or a token in the URL).
 - **Credentials.** A token in the URL is used to clone and nothing else. It is
   removed from the URL git sees and passed as an `Authorization` header through
-  `GIT_CONFIG_*` environment entries scoped to that origin, so it never appears
-  in git's argument list, the clone's `.git/config` or a credential helper, and
-  a redirect to another host does not receive it (git 2.31 or newer). It is
+  `GIT_CONFIG_*` environment entries (git 2.31 or newer), so it never appears
+  in git's argument list, the clone's `.git/config` or a credential helper.
+  git would send that header on to wherever a redirect leads, so redirects are
+  not followed while a token is in use: use the repository's final URL. It is
   removed from the recorded source and masked (`https://***@host`) in every
   message and envelope.
 

@@ -135,7 +135,7 @@ describe('git sources', () => {
       expect(skills.map((s) => s.name)).toEqual(['demo']);
       expect(skipped).toEqual([{ dir: 'skills/huge', reason: 'SKILL.md is larger than 1048576 bytes' }]);
       expect(prepareSkill(source, skills[0]!).files.map((f) => f.path)).toEqual(['SKILL.md', 'notes.md']);
-      // The over-size SKILL.md is sized, never read; the blob outside every skill is never fetched.
+      // The over-size SKILL.md is sized from its object header and never read; the blob outside every skill is never fetched.
       expect(present('HEAD:skills/demo/notes.md')).toBe(true);
       expect(present('HEAD:assets/big.bin')).toBe(false);
     } finally {
@@ -149,14 +149,17 @@ describe('git sources', () => {
     expect([...found]).toEqual(['feature/x']);
   });
 
-  it('keeps URL credentials out of the clone URL and git config, as a header scoped to the origin', () => {
+  it('keeps URL credentials out of the clone URL and git config, as a header with redirects off', () => {
     const remote = remoteOf('https://user:pa%2Fss@git.example.com:8443/team/x.git');
     expect(remote.url).toBe('https://git.example.com:8443/team/x.git');
-    expect(remote.config).toEqual([['http.https://git.example.com:8443/.extraHeader', `Authorization: Basic ${Buffer.from('user:pa/ss').toString('base64')}`]]);
+    expect(remote.config).toEqual([
+      ['http.https://git.example.com:8443/.extraHeader', `Authorization: Basic ${Buffer.from('user:pa/ss').toString('base64')}`],
+      ['http.followRedirects', 'false'],
+    ]);
     expect(remoteOf('https://host/x.git')).toEqual({ url: 'https://host/x.git', config: [] });
     // Entries already in the environment are kept; ours are appended after them.
     expect(gitEnv({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'a.b', GIT_CONFIG_VALUE_0: 'c' }, remote.config)).toMatchObject({
-      GIT_CONFIG_COUNT: '2', GIT_CONFIG_KEY_0: 'a.b', GIT_CONFIG_KEY_1: 'http.https://git.example.com:8443/.extraHeader',
+      GIT_CONFIG_COUNT: '3', GIT_CONFIG_KEY_0: 'a.b', GIT_CONFIG_KEY_1: 'http.https://git.example.com:8443/.extraHeader',
     });
     expect(cloneArgs(remote.url, '/tmp/dest').join(' ')).not.toContain('pa');
   });

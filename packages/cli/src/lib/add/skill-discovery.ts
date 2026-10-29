@@ -15,7 +15,8 @@ import { readFrontmatter } from './skill-frontmatter.js';
  * `MAX_DEPTH` below it counts, outside noise directories and `node_modules`,
  * and a skill's own subdirectories are its content, not more skills. Sizes
  * come before bytes: more than `MAX_SKILL_FILES` candidates refuse the search
- * path, and a `SKILL.md` over `MAX_SKILL_MD_SIZE` is skipped unread.
+ * path, and a `SKILL.md` over `MAX_SKILL_MD_SIZE` is skipped without its
+ * content being read into memory.
  *
  * `prepareSkill` builds the tree with the registry's `agentkit.skill-tree/v1`
  * rules: a symlink, junction, hardlink, submodule or other special entry,
@@ -64,7 +65,7 @@ export interface SkippedSkill {
 export const MAX_DEPTH = 6;
 /** Discovery refuses a search path holding more `SKILL.md` files than this, before reading any of them. */
 export const MAX_SKILL_FILES = 1000;
-/** A larger `SKILL.md` is skipped unread. */
+/** A larger `SKILL.md` is skipped without its content being read. */
 export const MAX_SKILL_MD_SIZE = 1024 * 1024;
 const READ_CHUNK = 64;
 const SKIPPED_DIRS = new Set(['node_modules']);

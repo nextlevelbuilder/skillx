@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { InstallError } from '../install/install-errors.js';
 import { redactCredentials } from './add-source.js';
+import { exitOnSignal, isCleanupSignal } from './scratch-dirs.js';
 
 /**
  * Runs git for `skillx add`: argument arrays (no shell), every credential
@@ -12,9 +13,14 @@ import { redactCredentials } from './add-source.js';
  *
  * A URL's credentials never reach git's argument list or `.git/config`:
  * `remoteOf` strips them and hands them over as an `Authorization` header in
- * `GIT_CONFIG_*` environment entries, scoped by `http.<origin>/.extraHeader`
- * so a redirect to another host does not receive it, and no credential helper
- * is asked to store it.
+ * `GIT_CONFIG_*` environment entries (`http.<origin>/.extraHeader`), so no
+ * credential helper is asked to store them either. git matches that key once,
+ * against the URL it was given, and then sends the header to wherever a
+ * redirect leads, so redirects are turned off whenever a header is passed.
+ *
+ * git runs synchronously, so Ctrl+C reaches git (same process group) before
+ * Node can handle it: a git call killed by SIGINT, SIGTERM or SIGHUP exits
+ * the CLI as that signal would, after removing every temporary clone.
  */
 
 export const GIT_TIMEOUT_MS = 120_000;
@@ -62,7 +68,13 @@ export function remoteOf(url: string): Remote {
   const basic = Buffer.from(`${decode(parsed.username)}:${decode(parsed.password)}`, 'utf8').toString('base64');
   parsed.username = '';
   parsed.password = '';
-  return { url: parsed.href, config: [[`http.${parsed.origin}/.extraHeader`, `Authorization: Basic ${basic}`]] };
+  return {
+    url: parsed.href,
+    config: [
+      [`http.${parsed.origin}/.extraHeader`, `Authorization: Basic ${basic}`],
+      ['http.followRedirects', 'false'],
+    ],
+  };
 }
 
 export interface GitRun {
@@ -83,6 +95,7 @@ export function git(args: string[], what: string, run: GitRun): Buffer {
     if (code === 'ENOBUFS') throw new InstallError('incompatible', `${what} printed more than ${run.maxBuffer} bytes; point at a smaller repository or path`, { code: 'tree.limit_exceeded' });
     throw new InstallError('unexpected_error', `${what} failed: ${redactCredentials(r.error.message)}`);
   }
+  if (r.signal !== null && isCleanupSignal(r.signal)) exitOnSignal(r.signal);
   if (r.status !== 0) {
     const stderr = redactCredentials(r.stderr.toString('utf8')).trim();
     const line = stderr.split('\n').filter((l) => !/^\s*$/.test(l)).pop() ?? `exit ${r.status}`;

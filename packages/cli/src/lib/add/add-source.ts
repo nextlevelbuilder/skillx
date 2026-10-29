@@ -58,7 +58,8 @@ export function redactCredentials(text: string): string {
 
 const UNSHOWN_URL =
   'refusing the source: not a valid git URL (not shown, as it may hold credentials; percent-encode `/`, `?`, `#` and `@` in a user name or password)';
-const refuse = (input: string, why: string) => usageError(`refusing source '${redactCredentials(input)}': ${why}`);
+/** A refusal echoes the input only when it holds no `@`, since where a credential in it ends cannot be known for sure. */
+const refuse = (input: string, why: string) => usageError(input.includes('@') ? `refusing the source: ${why}` : `refusing source '${input}': ${why}`);
 
 function checkRepo(repo: string, input: string): void {
   if (repo === '.' || repo === '..') throw refuse(input, 'the repository name is not a name');
@@ -173,7 +174,7 @@ export function parseAddSource(input: string, cwd: string = process.cwd()): AddS
   if (raw.includes('://') || raw.includes('::') || /^[^/:]+@[^/:]+:/.test(raw)) return fromUrl(raw);
   const m = SHORTHAND.exec(raw);
   if (m) return github(raw, m[1]!, m[2]!, '', undefined, m[3]);
-  throw usageError(`'${redactCredentials(raw)}' is not a source: ${USAGE}`);
+  throw usageError(`${raw.includes('@') ? 'the source' : `'${raw}'`} is not a source: ${USAGE}`);
 }
 
 /** Where discovery starts inside the source: the `github:` path, else the root. */
