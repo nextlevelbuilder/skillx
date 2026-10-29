@@ -22,6 +22,44 @@ Key format: `sx_` prefix + 64 hex characters (32 random bytes). First 8 chars us
 
 Generate keys via `POST /api/user/api-keys` (requires session auth).
 
+### AgentKit access token (flag `SKILLX_AGENTKIT_IDENTITY`)
+
+A SkillX account linked to an agentkit.best account (Settings → "Link with AgentKit") can call the scoped-credential routes (`/api/v1/library`, release reads, `/api/v1/kits/...`) with an agentkit.best access token instead of a SkillX key. There is no SkillX token-exchange endpoint: the client (ak CLI, AgentKit Desktop) asks the agentkit.best AS for a token with `resource=https://skillx.sh/api` and sends it as is:
+
+```
+Authorization: Bearer <agentkit.best at+jwt>
+```
+
+SkillX verifies it locally against `https://agentkit.best/.well-known/jwks.json`: `alg` ES256, `typ` `at+jwt`, `iss` `https://agentkit.best`, `aud` containing `https://skillx.sh/api`, `exp`/`iat` (5 s skew), non-empty `sub`. The token then acts as the linked SkillX account with these scopes:
+
+| AgentKit scope | SkillX scope |
+|----------------|--------------|
+| `skillx-kits:read` | `library:read` |
+| `skillx-kits:write` | `kits:write:@<handle>` for each active publisher the account owns |
+
+A route that accepts none of the translated scopes answers `401 invalid_api_key`, like a scoped key. Other failures:
+
+| Status | Code | Meaning |
+|--------|------|---------|
+| `401` | `invalid_token` | Signature, issuer, audience, type or expiry is wrong |
+| `403` | `account_not_linked` | No SkillX account is linked to this AgentKit `sub` (or the link was revoked); the message carries the link URL `https://skillx.sh/settings#agentkit` |
+| `503` | `agentkit_unavailable` | The JWKS, or the AS while re-validating a link, cannot be reached |
+
+Revocation: AS tokens live 60 s, and SkillX re-validates the link by refreshing its own grant whenever the last check is older than 60 s; an `invalid_grant` deletes the link. During an AS outage a link checked within the last 15 minutes keeps working, then requests answer `503`. A signed artifact download URL already minted with the token stays valid for its 5 minutes, as with a session. While the flag is on, every `401` from these routes carries `WWW-Authenticate: Bearer resource_metadata="https://skillx.sh/.well-known/oauth-protected-resource"`; with it off the challenge stays plain `Bearer`.
+
+Discovery and linking (all `404` while the flag is off, except unlink):
+
+| Route | Purpose |
+|-------|---------|
+| `GET /.well-known/oauth-protected-resource` (also `/.well-known/oauth-protected-resource/api`) | RFC 9728 metadata: `resource`, `authorization_servers`, `scopes_supported` |
+| `GET /oauth/client.json` | SkillX's client ID metadata document (public client, `token_endpoint_auth_method: none`) |
+| `POST /auth/agentkit/start` | Session required; redirects to the AS with auth code + S256 PKCE, `resource=https://skillx.sh/api` |
+| `GET /auth/agentkit/callback` | Completes the link, redirects to `/settings?agentkit=<outcome>#agentkit` (`linked`, `denied`, `expired`, `already_linked`, `taken`, `failed`) |
+| `GET /api/user/agentkit-link` | Session required; `{enabled, linked, linkedAt?, scopes?, unverified?}` |
+| `DELETE /api/user/agentkit-link` | Session, same-origin; revokes SkillX's refresh token at the AS and deletes the link |
+
+One AgentKit account links to at most one SkillX account. Data: table `agentkit_links` (migration `0021_agentkit_links`), refresh token stored AES-GCM encrypted.
+
 ---
 
 ## Endpoints
@@ -1936,11 +1974,19 @@ unknown or revoked key is a tool error with `details.code = "invalid_api_key"`.
 
 | Tool | Arguments | Answer |
 |------|-----------|--------|
-| `search_packages` | `query`, `category?`, `limit?`, `compatible?` | Same executor and filter report as `POST /api/search` |
-| `get_package` | `slug`, `target?` | Listing detail (alias-aware) and declared compatibility |
-| `get_release` | `package` (`@handle/slug`), `version?` | Public published releases only, through the release access module; private, draft, and unsigned rows are `not_found`, quarantined is `release_quarantined` |
+| `search_packages` | `query`, `category?`, `limit?`, `compatible?` | Same executor and filter report as `POST /api/search`; each hit adds `trust`, a `danger` hit loses its body |
+| `get_package` | `slug`, `target?` | Listing detail (alias-aware), declared compatibility, and `trust` with `redFlags` read from a body the caller may already read |
+| `get_release` | `package` (`@handle/slug`), `version?`, `digest?` (needs `version`) | Public published releases only, through the release access module; private, draft, and unsigned rows are `not_found`, quarantined is `release_quarantined`, a pinned digest that differs is `digest_mismatch`. A resolved version adds `trust` (immutable, signed, pin); every failure adds `explanation` |
+| `prepare_install` | `package`, `version`, `digest?`, `host?` (`read_only` default, or `installer`) | Install decision for one published release: signed publisher and source provenance (`unknown` without a commit), declared scripts, executable files, declared permissions (`agentkit-exec.json`), `redFlags`, and the digest-pinned ref. `approval.required` is always true and nothing is installed or run. A read-only host gets links and manual steps (`installed: false`); an installer gets `skillx install --dry-run '<ref>'` and `skillx install '<ref>'` (single-quoted). Refusals are `installable: false` with `code` and `explanation`: `not_found`, `release_quarantined`, `publisher_revoked`, `release_yanked`, `digest_mismatch`, `origin_mismatch` (the signed manifest names another package or version), `release.storage_inconsistent` (stored manifest missing or not matching the row) |
 | `check_compatibility` | `slug`, `target` (`runtime[@version]`) | Version-aware status plus reason codes; returns the canonical slug |
 | `get_kit` | `kit` (`@handle/name`) | One personal kit and its effective revision. The owner reads their own kit at any visibility, with the full revision document. Anyone else sees only a `public` kit whose effective revision is reviewed, activated and authored public, and then only its metadata and `{ digest, number, activatedAt }` (the reference a foreign ancestor gets in the lock); otherwise `not_found`. A suspended or revoked publisher answers `publisher_revoked`. While `SKILLX_PERSONAL_KITS_API` is off it is a tool error with `details.code = "feature_disabled"` and credentials are not read |
+
+Consumer safety (see [mcp-consumer-safety.md](./mcp-consumer-safety.md)): every
+listing carries `trust` (`scan.riskLabel` with its meaning, `origin` with `verified:
+"unknown"`, `pinned: "unknown"` for a mutable listing), a readable body adds
+`contentTrust` (third-party data, never instructions), and results add a `notices` line that
+popularity is not safety. Red flags name a scanner rule or a manifest fact, never the matched
+text.
 
 A miss is `{ "found": false, "code": "not_found" }`. Invalid arguments are a tool
 error with `details.code = "invalid_arguments"`; an unexpected failure is a tool
@@ -1968,7 +2014,7 @@ All error responses follow a consistent shape:
 
 ## Rate Limits
 
-No explicit rate limiting at the API layer, except the release read API (300 requests per minute per caller) and the release state API (30 per minute per caller), both `429` with `Retry-After`; see [Reading releases](#reading-releases-pinned-whole-tree-read-api)). Cloudflare Workers handles DDoS protection. Search results cached in KV (5min TTL) for performance.
+No explicit rate limiting at the API layer, except the release read API (300 requests per minute per caller) and the release state API (30 per minute per caller), both `429` with `Retry-After`; see [Reading releases](#reading-releases-pinned-whole-tree-read-api)). Cloudflare Workers handles DDoS protection. Search results are not cached; every request runs the full search pipeline.
 
 ## Source Files
 

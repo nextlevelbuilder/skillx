@@ -535,6 +535,20 @@ code, then run the header SQL of `0020_collection_moderation.sql`. Code before
 0020 ignores `moderation_state`, so a rollback un-hides content: first run
 `UPDATE collections SET visibility = 'private' WHERE moderation_state = 'hidden'`.
 
+**Migration 0021 and AgentKit identity.** `0021_agentkit_links` creates the
+new table `agentkit_links` (one row per linked account) and touches no existing
+data. Apply it with `pnpm run db:migrate:remote` after a backup, before
+setting `SKILLX_AGENTKIT_IDENTITY` to `"1"` in `apps/web/wrangler.jsonc`.
+Production keeps the flag `"0"` until the agentkit.best authorization server
+serves `/.well-known/jwks.json`, `/oauth/token` and `/oauth/revoke` and accepts
+the client ID `https://skillx.sh/oauth/client.json`. `AGENTKIT_ISSUER`
+(default `https://agentkit.best`) points at another AS for staging. The link
+refresh token is encrypted with a key derived from `BETTER_AUTH_SECRET`;
+rotating that secret makes stored links unreadable, so each user must link
+again. Rollback: set the flag to `"0"` and redeploy (bearer tokens are ignored,
+link routes answer 404, unlink still works); to remove the table, run the
+header SQL of `0021_agentkit_links.sql`.
+
 The CLI installer (`skillx install`, `sync --locked`, `mcp`) needs no server
 change beyond the release read API, but it verifies manifest signatures
 against keys the user trusts (see [CLI reference](./cli-reference.md#trusted-signing-keys)).

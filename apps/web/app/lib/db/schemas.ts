@@ -12,3 +12,4 @@ export * from "./registry-publishing-schema";
 export * from "./entitlements-schema";
 export * from "./collections-schema";
 export * from "./personal-kits-schema";
+export * from "./agentkit-link-schema";

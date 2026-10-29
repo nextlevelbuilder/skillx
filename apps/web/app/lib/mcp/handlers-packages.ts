@@ -22,6 +22,7 @@ import {
 } from "~/lib/compatibility/catalog-compatibility";
 import { DANGER_BODY_NOTICE, isDangerListing } from "~/lib/markdown/listing-text";
 import { ToolInputError, asRecord } from "./protocol";
+import { POPULARITY_NOTICE, UNTRUSTED_CONTENT_NOTICE, listingTrust } from "./trust";
 import { optionalLimit, optionalString, requiredString } from "./args";
 import type { ToolContext } from "./handlers";
 
@@ -43,11 +44,20 @@ export async function searchPackages(rawArgs: unknown, ctx: ToolContext) {
     ...(compatible.filter ? { compatible: compatible.filter } : {}),
   });
 
+  // Every hit carries its security state, and a danger listing loses its body
+  // here exactly as it does in `get_package`.
+  const results = outcome.results.map((hit) => {
+    const trust = listingTrust({ author: hit.author, source_url: hit.sourceUrl, risk_label: hit.riskLabel });
+    const shown = applyDangerPolicy({ ...hit, contentIncluded: typeof hit.content === "string" }, hit.riskLabel);
+    return { ...shown, trust, ...(shown.contentIncluded ? { contentTrust: UNTRUSTED_CONTENT_NOTICE } : {}) };
+  });
+
   // The filter report and note travel with the result: a filter that hides
   // undecidable listings silently would make the catalog look smaller.
   return {
-    results: outcome.results,
-    count: outcome.results.length,
+    results,
+    count: results.length,
+    notices: [POPULARITY_NOTICE],
     ...(outcome.compatibilityFilter ? { compatibilityFilter: outcome.compatibilityFilter } : {}),
     ...(outcome.note ? { note: outcome.note } : {}),
   };
@@ -83,16 +93,19 @@ export async function getPackage(rawArgs: unknown, ctx: ToolContext) {
     { slug: row.slug, is_paid: row.is_paid, content: row.content },
     { userId: ctx.userId ?? null },
   );
+  // Red flags are read only from a body this caller may already read, so a
+  // protected listing never reveals anything about its payload through them.
+  const readable = (gated as { content?: string }).content;
+  const pkg = applyDangerPolicy(
+    { ...gated, protected: isProtectedListing(row), contentIncluded: typeof readable === "string" },
+    row.risk_label,
+  );
   return {
     found: true,
-    package: applyDangerPolicy(
-      {
-        ...gated,
-        protected: isProtectedListing(row),
-        contentIncluded: typeof (gated as { content?: string }).content === "string",
-      },
-      row.risk_label,
-    ),
+    package: pkg,
+    trust: listingTrust(row, readable),
+    ...(pkg.contentIncluded ? { contentTrust: UNTRUSTED_CONTENT_NOTICE } : {}),
+    notices: [POPULARITY_NOTICE],
     compatibility: {
       declared: summarizeRowRuntimes(row),
       ...(target ? { target: resolveRowCompatibility(row, target) } : {}),

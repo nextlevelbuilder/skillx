@@ -32,6 +32,8 @@ function printApplied(outcome: ApplyOutcome, lockPath: string | null): void {
   printPlan(outcome);
   for (const a of outcome.applied) {
     for (const c of a.changed) if (c.backupDir) console.log(chalk.yellow(`  ${c.alias}: local changes saved to ${c.backupDir}`));
+    // Stderr, like plan warnings: an executable file is reported, never run.
+    for (const c of a.changed) if (c.executable) console.error(chalk.yellow(`  ! ${c.alias}: ${c.executable.length} executable file(s) written (${c.executable.slice(0, 5).join(', ')}); skillx never runs them, review before use`));
     for (const r of a.removed) if (r.keptModified.length + r.keptUnknown.length > 0) console.log(chalk.yellow(`  ${r.alias}: kept ${[...r.keptModified, ...r.keptUnknown].join(', ')}`));
   }
   if (lockPath) console.log(chalk.dim(`\nlock written to ${lockPath}`));

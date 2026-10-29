@@ -9,6 +9,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { callTool } from "~/lib/mcp/tools";
 import { MAX_MCP_RELEASES } from "~/lib/mcp/handlers-releases";
+import { explainFailure } from "~/lib/mcp/trust";
 import { createHarness, file, tarOf } from "./release-harness";
 
 type Harness = Awaited<ReturnType<typeof createHarness>>;
@@ -69,7 +70,7 @@ describe("get_release", () => {
     const listing = await getRelease({ package: "@alpha/demo" }, { userId: "user-a" });
 
     expect(unknown.body).toMatchObject({ found: false, code: "not_found" });
-    expect(owner.body).toEqual({ found: false, code: "not_found", package: "@alpha/demo", version: "1.0.0" });
+    expect(owner.body).toEqual({ found: false, code: "not_found", explanation: explainFailure("not_found"), package: "@alpha/demo", version: "1.0.0" });
     expect(listing.body).toMatchObject({ found: false, code: "not_found" });
   });
 
@@ -93,7 +94,7 @@ describe("get_release", () => {
     const pinned = await getRelease({ package: "@alpha/demo", version: "1.1.0" });
     const listing = await getRelease({ package: "@alpha/demo" });
 
-    expect(pinned.body).toEqual({ found: false, code: "release_quarantined", package: "@alpha/demo", version: "1.1.0" });
+    expect(pinned.body).toEqual({ found: false, code: "release_quarantined", explanation: explainFailure("release_quarantined"), package: "@alpha/demo", version: "1.1.0" });
     expect(listing.body.releases.map((r: { version: string }) => r.version)).toEqual(["1.0.0"]);
     expect(JSON.stringify(pinned.body)).not.toContain(secret);
   });

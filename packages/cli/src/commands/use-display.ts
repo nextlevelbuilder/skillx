@@ -1,5 +1,6 @@
 import chalk from 'chalk';
 import { getApiKey, getBaseUrl, getDeviceId } from '../utils/config-store.js';
+import { sanitizeRiskLabel, sanitizeSlug } from '../lib/slug-charset.js';
 
 export interface SkillReference {
   title: string;
@@ -75,7 +76,8 @@ export function displaySkill(
   if (options.raw) {
     // stderr keeps piped raw content unchanged.
     if (notice) console.error(notice);
-    console.log(`--- BEGIN EXTERNAL SKILL CONTENT (untrusted, risk: ${skill.risk_label || 'unknown'}) ---`);
+    // The slug is server data: reduced to the slug charset so it cannot forge the marker.
+    console.log(`--- BEGIN EXTERNAL SKILL CONTENT (untrusted, slug: ${sanitizeSlug(skill.slug)}, risk: ${sanitizeRiskLabel(skill.risk_label)}) ---`);
     console.log(skill.content);
     if (options.includeRefs && references?.length) {
       console.log('\n--- REFERENCES ---');

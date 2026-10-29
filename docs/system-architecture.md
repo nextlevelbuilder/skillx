@@ -42,7 +42,7 @@
 |---------|---------|---------|
 | `DB` | D1 Database | Primary data store (SQLite) |
 | `VECTORIZE` | Vectorize Index | Vector search (768-dim) |
-| `KV` | KV Namespace | Query result caching (5min TTL) |
+| `KV` | KV Namespace | Home, leaderboard and llms.txt caching (5min TTL); recompute checkpoint |
 | `R2` | R2 Bucket | Asset storage (SKILL.md files) |
 | `AI` | Workers AI | Text embedding (bge-base-en-v1.5) |
 
@@ -118,50 +118,42 @@
 ```
 User Query (text)
     ↓
-Hash query string
+    (no result cache: every request runs the full pipeline)
     ↓
-Check KV cache: cache:{hash}
+    Embed query via Workers AI
+    (bge-base-en-v1.5, 768 dimensions)
     ↓
-    ├─ Hit (5min TTL) → Return cached results
-    │
-    └─ Miss:
-        ↓
-        Embed query via Workers AI
-        (bge-base-en-v1.5, 768 dimensions)
-        ↓
-        ┌────────────────────────────────────┐
-        │ Parallel Search (no await)         │
-        ├────────────────────────────────────┤
-        │ 1. Vectorize cosine search         │
-        │    - Query embedding vs skill data │
-        │    - Returns top 100 by similarity │
-        │                                    │
-        │ 2. FTS5 keyword search (D1)        │
-        │    - Match skill name/description  │
-        │    - Returns BM25-ranked results   │
-        └────────────────────────────────────┘
-        ↓
-        RRF Fusion: Merge rank lists
-        (reciprocal rank fusion formula)
-        ↓
-        Boost Scoring (8 signals):
-        - avg_rating × 0.3
-        - install_count × 0.2
-        - net_votes × 0.07
-        - freshness × 0.1
-        - has_reviews × 0.015
-        - is_favorited × 0.015
-        (vector: 0.5, FTS5: 0.215)
-        ↓
-        Filter:
-        - category (if specified)
-        - is_paid (if specified)
-        ↓
-        Sort by final score, limit 100
-        ↓
-        Cache result (KV, 5min TTL)
-        ↓
-        Response JSON
+    ┌────────────────────────────────────┐
+    │ Parallel Search (no await)         │
+    ├────────────────────────────────────┤
+    │ 1. Vectorize cosine search         │
+    │    - Query embedding vs skill data │
+    │    - Returns top 100 by similarity │
+    │                                    │
+    │ 2. FTS5 keyword search (D1)        │
+    │    - Match skill name/description  │
+    │    - Returns BM25-ranked results   │
+    └────────────────────────────────────┘
+    ↓
+    RRF Fusion: Merge rank lists
+    (reciprocal rank fusion formula)
+    ↓
+    Boost Scoring (8 signals):
+    - avg_rating × 0.3
+    - install_count × 0.2
+    - net_votes × 0.07
+    - freshness × 0.1
+    - has_reviews × 0.015
+    - is_favorited × 0.015
+    (vector: 0.5, FTS5: 0.215)
+    ↓
+    Filter:
+    - category (if specified)
+    - is_paid (if specified)
+    ↓
+    Sort by final score, limit 100
+    ↓
+    Response JSON
 ```
 
 ### 2. Vectorization Pipeline
@@ -303,16 +295,20 @@ Response:
 
 ### KV Cache Layers
 
-| Key Pattern | TTL | Size | Purpose |
-|-------------|-----|------|---------|
-| `cache:{query_hash}` | 5 min | <25KB | Search results |
-| `user:{userId}` | 1 hour | <10KB | User profile (favorites) |
-| `skill:{skillId}:detail` | 30 min | <20KB | Skill detail page |
-| `leaderboard:top100` | 10 min | <25KB | Leaderboard rankings |
+All entries go through the read-through helper `getCached` (`apps/web/app/lib/cache/kv-cache.ts`). Search (`/api/search`, the search palette, MCP `search_packages`) does not read or write KV.
 
-**Cache Invalidation:**
-- On rating/review/favorite write → invalidate skill cache + leaderboard
-- On skill content change → invalidate vectorize index
+| Key Pattern | TTL | Purpose |
+|-------------|-----|---------|
+| `stats:global`, `categories:distinct` | 5 min | Home page stats and category list |
+| `leaderboard:home:best:0:{size}` | 5 min | Home page leaderboard |
+| `leaderboard:v2:{sort}:0:{size}` | 5 min | Leaderboard page |
+| `leaderboard:v3:{sort}:{category}:{offset}:{limit}` | 5 min | `/api/leaderboard` |
+| `leaderboard:thresholds` | 5 min | Leaderboard scoring percentiles |
+| `llms-txt:v5:{origin}:{limit}`, `llms-full-txt:v5:{origin}:{limit}` | 5 min | `/llms.txt` and `/llms-full.txt` bodies |
+
+The leaderboard recompute job (`apps/web/app/lib/leaderboard/recompute-state.ts`) also keeps its checkpoint in KV with a 24 hour TTL; that is state, not a cache.
+
+**Cache Invalidation:** none. Entries expire by TTL only, so a write shows up within 5 minutes.
 
 ## API Endpoints
 
@@ -665,6 +661,83 @@ D1: personal_kits (generation CAS), personal_kit_revisions (immutable), personal
   owner's review (exact digest, declared permissions, consent) makes it
   activatable. Operators can quarantine any revision.
 
+## Private Library: Owner Access, Capability Scopes, Visibility
+
+Decision record for the private library (a user's private skills and personal
+kits, synced across their machines). Everything below describes what shipped;
+contracts are in the [API reference](./api-reference.md#private-library), the
+[personal kits API](./personal-kits-api.md) and the [CLI reference](./cli-reference.md).
+The local proof is `apps/web/tests/e2e/private-library-roundtrip.test.ts`
+(in-process routes over the D1/R2 test fakes, not a deployed SkillX).
+
+**Owner access is a gate, not an entitlement.** The owner of a publisher
+(`publishers.owner_user_id`, read at request time) reads its private releases
+through the same single gate every read path uses (`release-access.ts`: release
+reads, signed download URLs, kit base loading, status). Publishing writes no
+entitlement row, because `entitlements` records commerce grants and a row
+created at publish would also have to follow a change of owner. Precedence is
+unchanged: unknown or unreadable `404`, quarantined `403`, publisher not active
+`403` (so a suspended publisher's owner is blocked too), yanked `410` when
+resolved by version (a digest lookup still serves it with its state). A caller
+who may not read a private asset gets the same `404` as for an unknown one.
+
+**Capability matrix.** Scoped keys gain two scopes next to
+`releases:publish:@<handle>`; a scoped key always acts as its owner and never
+exceeds what the owner's session reads.
+
+| Scope | Release read API, downloads | `GET /api/v1/library` | Kit reads | Kit writes |
+|-------|-----------------------------|-----------------------|-----------|------------|
+| `releases:publish:@h` | no | no | no | no |
+| `library:read` | yes | yes | yes | no |
+| `kits:write:@h` | no | no | kits `@h/...` | kits `@h/...` (revisions, rebase, conflicts, activate private, rollback, the read-only `POST`s) |
+
+- A scoped key holding no scope the route family accepts answers
+  `401 invalid_api_key`, like a revoked key, and never falls back to the
+  session or anonymous. Only a kit key for the wrong handle answers
+  `403 auth.scope_missing`, before any lookup. Release state changes, review,
+  collections, MCP and the legacy endpoints reject every scoped key.
+- Review and public activation need a web session (`403
+  kit.interactive_approval_required` for a key).
+- `kits:write:@h` loads kit bases as the owner, so through them it reads any
+  private release the owner can read. In a lock, a parent kit under a handle
+  for which the key holds neither `library:read` nor that handle's
+  `kits:write` is shown digest-only (`{kit, revisionDigest, foreign: true}`).
+- One key per machine (`releases:publish:@h kits:write:@h library:read`),
+  revocable on its own; unscoped keys keep their legacy behavior.
+
+**Visibility is chosen at publish and is not a signed field.** Release
+metadata takes `visibility` (`public` or `private`; anything else is `400`).
+An existing package keeps its visibility: omitting the field keeps it, naming
+the other one is `409 release.visibility_mismatch` and writes nothing. A new
+package published without `visibility` is `private` (`skillx publish` prints a
+note on stderr); a new `@agentkit` kit release defaults to `public`, as before.
+Visibility is registry policy and not part of the signed manifest. Changing it
+later is out of scope here.
+
+**Responses.** Release reads of a private package and `/library` answers are
+`Cache-Control: private, no-store` with `Vary: Authorization, Cookie`; kit API
+and signed-URL answers are `no-store`. Either way a
+revoked key, an entitlement or a quarantine takes effect on the next request;
+public answers keep their cache lifetimes.
+
+**Library listing.** `GET /api/v1/library` lists the skills the caller owns or
+holds an unrevoked entitlement for, plus the caller's kits, each with a
+`relation` (`owner` or `entitled`). Assets the caller cannot read are absent,
+never a `403`.
+
+**Collections.** A collection view for a non-owner keeps only the members that
+viewer can read; unknown names are dropped like private ones, and a trimmed
+revision has `revisionDigest: null` so a client cannot mistake it for the
+whole.
+
+**CLI.** A stale kit write (`412`, or `409 kit.generation_conflict`) is the
+`conflict` error with exit code `8`; nothing was written.
+
+**No migration.** `packages.visibility`, `api_keys.scopes` and the existing
+owner indexes already carry all of this. A later change that needs a migration
+takes the next number and the backup steps in the
+[deployment guide](./deployment-guide.md).
+
 ## Deployment Architecture
 
 ```
@@ -726,7 +799,7 @@ D1: personal_kits (generation CAS), personal_kit_revisions (immutable), personal
 
 | Operation | Latency | Notes |
 |-----------|---------|-------|
-| Skill search | 200-800ms | Vectorize + FTS5, cached |
+| Skill search | 200-800ms | Vectorize + FTS5, uncached |
 | Leaderboard | 100-500ms | D1 query, sorted by rating |
 | Rate skill | 100-300ms | D1 insert + update |
 | API key lookup | 50-150ms | D1 hash index |
@@ -745,7 +818,7 @@ D1: personal_kits (generation CAS), personal_kit_revisions (immutable), personal
 
 ## Claude Code Plugin Marketplace Distribution
 
-SkillX provides two Claude Code plugins via marketplace:
+SkillX provides four Claude Code plugins via marketplace; only `skillx` is SkillX's own Claude directory plugin (see [claude-plugin.md](./claude-plugin.md)):
 
 **Marketplace Catalog:** `.claude-plugin/marketplace.json`
 - Registered as `skillx-marketplace` owned by SkillX.sh
@@ -758,10 +831,12 @@ SkillX provides two Claude Code plugins via marketplace:
    - Purpose: Create/update Claude skills optimized for Skillmark benchmarks
    - Install: `/plugin install skill-creator@skillx-marketplace`
 
-2. **skillx** (v1.0.0)
-   - Source: `.claude/skills/skillx/`
-   - Purpose: Search, install, use skills from SkillX.sh marketplace
+2. **skillx** (v2.0.0)
+   - Source: `plugins/skillx/` (skill + remote MCP `https://skillx.sh/api/mcp`)
+   - Purpose: Find, vet and, with the user's approval, load or install skills from SkillX.sh
    - Install: `/plugin install skillx@skillx-marketplace`
+
+3. **hol-guard** and 4. **marketing-mindset**: third-party skills listed under their own authors and licenses
 
 **Discovery Flow:**
 ```
@@ -769,7 +844,7 @@ SkillX provides two Claude Code plugins via marketplace:
   ↓
 Loads .claude-plugin/marketplace.json
   ↓
-User sees skillx-marketplace with 2 plugins
+User sees skillx-marketplace with 4 plugins
   ↓
 /plugin install skill-creator@skillx-marketplace
 ```

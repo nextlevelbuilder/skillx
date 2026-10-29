@@ -251,6 +251,8 @@ describe("MCP tools", () => {
     { tool: "get_package", args: (name) => ({ slug: name.split("/")[1] }) },
     { tool: "check_compatibility", args: (name) => ({ slug: name.split("/")[1], target: "claude-code" }) },
     { tool: "search_packages", args: (name) => ({ query: name.split("/")[1] }) },
+    { tool: "prepare_install", args: (name) => ({ package: name, version: "1.0.0" }) },
+    { tool: "prepare_install", args: (name) => ({ package: name, version: "1.0.0", host: "installer" }) },
   ];
 
   it.each(calls)("$tool names no private package, whoever asks", async ({ tool, args }) => {
@@ -492,8 +494,8 @@ describe("logs", () => {
       }
     }
     for (const userId of [null, "user-a"]) {
-      for (const tool of ["get_release", "get_package", "search_packages", "get_kit"]) {
-        await callTool(tool, { package: PRIVATE, slug: PRIVATE, query: SLUG, kit: PRIVATE }, { env: env() as unknown as Env, userId });
+      for (const tool of ["get_release", "get_package", "search_packages", "get_kit", "prepare_install"]) {
+        await callTool(tool, { package: PRIVATE, slug: PRIVATE, query: SLUG, kit: PRIVATE, version: "1.0.0" }, { env: env() as unknown as Env, userId });
       }
     }
     expect(logs.filter((line) => line.includes(SLUG) || line.includes(digest))).toEqual([]);

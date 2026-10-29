@@ -13,6 +13,7 @@
  * later quarantine cannot recall copies already held by browsers or proxies;
  * it only stops new fetches from this API. Private answers are never stored.
  */
+import { bearerChallenge } from "~/lib/agentkit/agentkit-config";
 import { RELEASE_KEY_ID_PATTERN, RELEASE_SIGNATURE_ALGORITHM, validateReleaseManifest } from "@skillx/contracts";
 import type { SkillxReleaseManifest } from "@skillx/contracts";
 import { validatePath } from "@skillx/skill-tree";
@@ -80,7 +81,7 @@ export async function serveReleaseRead(
     return await handler({ db: env.DB, bucket: env.R2, userId, keyId, request });
   } catch (error) {
     if (error instanceof ReleaseHttpError) {
-      return errorResponse(error, error.status === 401 ? { "WWW-Authenticate": "Bearer" } : {});
+      return errorResponse(error, error.status === 401 ? { "WWW-Authenticate": bearerChallenge(env) } : {});
     }
     console.error("release read failed:", error instanceof Error ? error.message : String(error));
     return errorResponse(releaseError(500, "release.internal_error", "release read failed"));

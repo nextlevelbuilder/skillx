@@ -65,7 +65,7 @@ describe("POST /api/mcp", () => {
     expect(json.result.instructions).toContain("never read `unknown` as support");
   });
 
-  it("lists the five read-only tools", async () => {
+  it("lists the six read-only tools", async () => {
     const { response, json } = await post('{"jsonrpc":"2.0","id":2,"method":"tools/list"}');
     expect(response.status).toBe(200);
     expect(json.result.tools.map((t: { name: string }) => t.name).sort()).toEqual([
@@ -73,6 +73,7 @@ describe("POST /api/mcp", () => {
       "get_kit",
       "get_package",
       "get_release",
+      "prepare_install",
       "search_packages",
     ]);
   });
@@ -156,7 +157,7 @@ describe("POST /api/mcp", () => {
     const { response, json } = await post('{"jsonrpc":"2.0","id":0,"method":"tools/list"}');
     expect(response.status).toBe(200);
     expect(json.id).toBe(0);
-    expect(json.result.tools).toHaveLength(5);
+    expect(json.result.tools).toHaveLength(6);
   });
 
   it("reports malformed JSON as a parse error with a 400", async () => {

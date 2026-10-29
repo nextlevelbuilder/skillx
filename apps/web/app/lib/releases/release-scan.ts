@@ -233,8 +233,8 @@ function instructionFindings(path: string, text: string, skipSyntax: boolean): s
 /**
  * Every file is searched for secrets over its raw bytes, window by window.
  * Instruction documents and scripts must be NUL-free UTF-8 (anything else
- * would hide content from the scan while agents still read it lossily), with
- * three exceptions: BOM-marked UTF-16 is decoded and scanned as text,
+ * would hide content from the scan while agents still read it lossily). Any
+ * BOM-marked UTF-16 file is decoded and scanned as text regardless of extension,
  * `.bat`/`.cmd`/`.csv` may use a legacy codepage, and recognizable binaries
  * under `scripts/` are not text. Instruction documents also go through the
  * SKILL.md scanner (prompt injection, invisible characters, terminal escapes,
@@ -250,19 +250,22 @@ export function scanRelease(files: ReadonlyArray<{ path: string; bytes: Uint8Arr
   const findings: string[] = [];
   for (const { path, bytes } of files) {
     let secrets: Set<string> | null = null;
-    if (mustBeText(path, bytes)) {
+    const utf16Order = utf16Bom(bytes);
+    if (mustBeText(path, bytes) || utf16Order !== null) {
       const { text, latin1, invalid } = readText(path, bytes);
       if (invalid) {
         findings.push(`danger:non-utf8-text:${path}`);
-      } else if (bytes.length > MAX_SCANNED_TEXT_BYTES && (isInstructionDocument(path, bytes) || utf16Bom(bytes) !== null)) {
+      } else if (bytes.length > MAX_SCANNED_TEXT_BYTES && (isInstructionDocument(path, bytes) || utf16Order !== null)) {
         findings.push(`danger:text-too-large:${path}`);
       } else if (text !== null && isInstructionDocument(path, bytes)) {
         const skipSyntax = isLicenseFile(path, bytes);
         const readings = latin1 === undefined ? [text] : [text, latin1];
         findings.push(...new Set(readings.flatMap((reading) => instructionFindings(path, reading, skipSyntax))));
       }
-      // UTF-16 interleaves NULs, so its secrets only match in the decoded text.
-      if (utf16Bom(bytes) !== null && text !== null) secrets = secretsInText(text);
+      // UTF-16 interleaves NULs, so its secrets only match in the decoded text. The raw
+      // bytes are scanned too: ASCII behind a UTF-16 BOM decodes to valid CJK and would
+      // otherwise hide a plain-byte secret.
+      if (utf16Order !== null && text !== null) secrets = new Set([...secretsInText(text), ...secretsInBytes(bytes)]);
     }
     for (const name of secrets ?? secretsInBytes(bytes)) findings.push(`danger:secret-${name}:${path}`);
   }

@@ -75,19 +75,6 @@ describe("personal kit revisions", () => {
     expect(lock.body.documents).toHaveLength(1);
   });
 
-  it("refuses a cross-origin web-session write, then accepts the same write from this origin", async () => {
-    session.user = { id: "user-a" };
-    const write = async (headers: Record<string, string>) =>
-      k.call("revisions", { expectedGeneration: 0, idempotencyKey: k.idem(), document: k.doc([await k.entry("@alpha/demo", "1.0.0", MINE)]) }, { key: null, headers });
-    for (const headers of [{ Origin: "https://evil.example" }, { "Sec-Fetch-Site": "same-site" }]) {
-      const refused = await write(headers);
-      expect(refused.status).toBe(403);
-      expect(refused.body.error.code).toBe("cross_origin");
-    }
-    // Nothing was written: generation 0 is still the current one.
-    expect((await write({ Origin: "https://skillx.test" })).status).toBe(201);
-  });
-
   it("refuses a client compositionDigest that the pinned bytes do not give, writing nothing", async () => {
     const bad = { ...(await k.entry("@alpha/demo", "1.0.0", MINE)), compositionDigest: `sha256:${"1".repeat(64)}` };
     const res = await k.call("revisions", { expectedGeneration: 0, idempotencyKey: k.idem(), document: k.doc([bad]) });

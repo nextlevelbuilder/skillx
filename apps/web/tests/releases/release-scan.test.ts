@@ -81,6 +81,18 @@ describe("release scan", () => {
     ]);
   });
 
+  it.each(["le", "be"] as const)("finds secrets in BOM-marked UTF-16 %s files regardless of extension", (order) => {
+    expect(scanRelease([{ path: "x.reg", bytes: utf16(AWS, order) }]).findings).toEqual([
+      "danger:secret-aws-access-key-id:x.reg",
+    ]);
+  });
+
+  it("still finds a plain-byte secret behind a UTF-16 BOM", () => {
+    expect(scanRelease([{ path: "x.reg", bytes: bytes([0xff, 0xfe], AWS) }]).findings).toEqual([
+      "danger:secret-aws-access-key-id:x.reg",
+    ]);
+  });
+
   it("quarantines malformed UTF-16 (lone surrogate)", () => {
     const bad = utf16("ab");
     bad.set([0x00, 0xd8], 2); // lone high surrogate
@@ -216,6 +228,12 @@ describe("release scan", () => {
     for (let i = 2; i < big.length; i += 2) big[i] = 0x61;
     big.set(utf16(AWS).subarray(2), 4096);
     expect(scanRelease([{ path: "install.ps1", bytes: big }]).findings).toEqual(["danger:text-too-large:install.ps1"]);
+  });
+
+  it("quarantines oversized BOM-marked UTF-16 files regardless of extension", () => {
+    const big = new Uint8Array(MAX_SCANNED_TEXT_BYTES + 2);
+    big.set([0xff, 0xfe]);
+    expect(scanRelease([{ path: "x.reg", bytes: big }]).findings).toEqual(["danger:text-too-large:x.reg"]);
   });
 
   it("does not invent a token boundary where a scan window opens inside a longer token", () => {

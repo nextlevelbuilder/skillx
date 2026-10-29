@@ -1,5 +1,7 @@
 /**
  * The credential of an API request: an unscoped account key, a scoped key,
+ * an agentkit.best access token of a linked account (while
+ * `SKILLX_AGENTKIT_IDENTITY` is on; see lib/agentkit/bearer-credential.ts),
  * or (without an `Authorization` header) the web session.
  *
  * A present `Authorization` header must carry a valid, unrevoked key as
@@ -15,6 +17,9 @@ import { authenticateRequest } from "./authenticate-request";
 import { hashScopedApiKey } from "./api-key-utils";
 import { parseStoredScopes } from "./api-key-scopes";
 import { getDb } from "~/lib/db";
+import { looksLikeJwt } from "~/lib/agentkit/access-token";
+import { agentKitIdentityEnabled } from "~/lib/agentkit/agentkit-config";
+import { resolveAgentKitBearer } from "~/lib/agentkit/bearer-credential";
 import { releaseError } from "~/lib/releases/release-http";
 import type { ReleaseHttpError } from "~/lib/releases/release-http";
 
@@ -71,6 +76,12 @@ export async function resolveRequestCredential(
   const owner = await authenticateApiKey(getDb(env.DB), key);
   if (owner !== null) return { userId: owner.userId, keyId: owner.keyId, scopes: null };
   const scoped = await authenticateScopedKey(env.DB, key);
+  if (scoped === null && agentKitIdentityEnabled(env) && looksLikeJwt(key)) {
+    // An agentkit.best access token runs as the linked account with translated scopes.
+    const agentKit = await resolveAgentKitBearer(env, key);
+    if (!accepts(agentKit.scopes)) throw invalidApiKey();
+    return { userId: agentKit.userId, keyId: null, scopes: agentKit.scopes };
+  }
   if (scoped === null || !accepts(scoped.scopes)) throw invalidApiKey();
   await recordKeyUse(env.DB, scoped.keyId);
   return scoped;

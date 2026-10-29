@@ -44,7 +44,8 @@ Smart skill lookup — supports multiple identifier formats:
 skillx use author/skill-name              # direct lookup by author and skill name
 skillx use org/repo/skill-name            # lookup or auto-register from GitHub repo subfolder
 skillx use org/repo                       # scan GitHub repo for all skills (discovers SKILL.md files)
-skillx use slug                           # exact slug lookup (fallback to search on 404)
+skillx use slug                           # slug lookup (falls back to search on 404)
+skillx use slug --exact                   # this slug only: no search, no register, aliases refused (exit 3)
 skillx use "keyword query"                # search and auto-pick top result
 skillx use author/skill-name --raw        # output raw content (for piping)
 skillx use something --search             # force search mode
@@ -55,6 +56,9 @@ skillx use something --search             # force search mode
 - `org/repo/skill` (three-part) → DB lookup `org-skill`, fallback register from GitHub subfolder
 - Single word → direct slug lookup, falls back to search if not found
 - Multi-word or `--search` flag → searches and uses the top result
+- `--exact` → the identifier verbatim as a catalog slug (`[a-z0-9][a-z0-9._-]*`, else exit 2). A miss, or a
+  server answer for a different slug (an alias of a renamed skill), is `not_found` (exit 3); it never
+  searches or registers. Use it when a specific slug was approved. Cannot be combined with `--search`.
 
 **Security warnings:** Skills are scanned for suspicious content at registration. The CLI shows colored warnings:
 

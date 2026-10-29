@@ -1,12 +1,12 @@
 # SkillX CLI Reference
 
-**Package:** `skillx-sh` | **Binary:** `skillx` | **Version:** 0.3.0 | **Node:** >=20
+**Package:** `skillx-sh` | **Binary:** `skillx` | **Version:** 0.7.1 | **Node:** >=22
 
 ---
 
 ## Configuration
 
-**Config file:** `~/.config/skillx/config.json` (managed by `conf`)
+**Config file:** managed by `conf`: `~/.config/skillx-nodejs/config.json` on Linux, `~/Library/Preferences/skillx-nodejs/config.json` on macOS; `skillx config show` prints the values
 
 **Priority:** env var > config file > default
 
@@ -62,6 +62,7 @@ Smart skill lookup and display with multiple identifier formats.
 |------|-------------|---------|
 | `-r, --raw` | Output raw content only (for piping to AI agents) | `false` |
 | `-s, --search` | Force search mode regardless of identifier format | `false` |
+| `--exact` | Resolve the identifier only as a catalog slug; never search or register | `false` |
 | `--include-refs` | Include references in output | `false` |
 | `--include-scripts` | Include scripts in output | `false` |
 | `--json` | Envelope with the resolution (`kind`: `skill` or `repo` scan) and its `notes` | `false` |
@@ -76,6 +77,19 @@ and exits `3` in both modes; the human message goes to stderr.
 4. Single word → slug lookup; fallback to search on 404
 5. Multi-word or `--search` → search, auto-pick top result
 
+**Exact lookup (`--exact`):** the identifier is taken verbatim as a catalog slug and fetched from
+`/api/skills/<slug>`. Nothing above applies: no search, no GitHub register or scan. A miss fails with
+`not_found` (exit `3`). The server also answers an old slug (an alias) with its renamed skill; under
+`--exact` that answer is refused with `not_found` too, message `<slug> is an alias of <canonical>;
+rerun with the canonical slug` and `details: { requested, canonical }`, before any output or install
+count. Use it when a specific slug was approved: taken verbatim, a miss cannot load a different skill.
+An identifier outside the slug charset `^[a-z0-9][a-z0-9._-]*$` (uppercase, a slash, whitespace, `.`,
+`..`, empty), or `--exact` together with `--search`, fails with `usage_error` (exit `2`).
+
+```bash
+skillx use duy-skill-creator --exact --raw
+```
+
 **Risk Warnings:**
 - **Safe** — no warning (default)
 - **Caution** — yellow banner with advisory message
@@ -83,7 +97,7 @@ and exits `3` in both modes; the human message goes to stderr.
 
 **Raw Output Format:**
 ```
---- BEGIN EXTERNAL SKILL CONTENT (untrusted, risk: <label>) ---
+--- BEGIN EXTERNAL SKILL CONTENT (untrusted, slug: <slug>, risk: <label>) ---
 <skill content>
 --- REFERENCES --- (if --include-refs)
 [type] title - url/filename
@@ -91,6 +105,9 @@ and exits `3` in both modes; the human message goes to stderr.
 name: command (url)
 --- END EXTERNAL SKILL CONTENT ---
 ```
+
+`slug` is the catalog slug that was actually resolved; compare it with the slug you asked for.
+Any character outside the slug charset is printed as `?`, so a server value cannot forge the marker.
 
 **Examples:**
 ```bash
@@ -400,7 +417,7 @@ code in `error.details.code` next to `error.details.status`:
 | HTTP | `error.code` | Exit | Typical `details.code` |
 |------|--------------|------|------------------------|
 | `401`, `403` | `auth_error` | `5` | `invalid_api_key`, `auth.scope_missing`, `kit.publisher_not_owned`, `kit.interactive_approval_required` |
-| `404` | `not_found` | `3` | `kit.not_found`, `kit.api_disabled` (deployment without personal kits) |
+| `404` | `not_found` | `3` | `not_found` (unknown kit, and a kit of another account), `kit.api_disabled` (deployment without personal kits) |
 | `412` (stale `If-Match`), `409` `kit.generation_conflict` | `conflict` | `8` | `kit.generation_conflict` — nothing was written; run `kit show`, rebase your document and retry |
 | `429` | `rate_limited` | `7` | — |
 | other | `api_error` | `1` | e.g. `kit.approval_required`, `kit.revision_exists`, `kit.locked_incompatible` |
@@ -470,7 +487,7 @@ skillx config show
 # Output:
 # Base URL: https://skillx.sh
 # API Key: sk_prod_****..._xxxx
-#   (loaded from ~/.config/skillx/config.json)
+#   (loaded from the conf config file, e.g. ~/.config/skillx-nodejs/config.json)
 ```
 
 ---
@@ -489,6 +506,7 @@ the release read API; nothing is written until every file is verified.
 | `kit:@handle/kit#rev_<uuid>` | That exact kit revision |
 | `collection:col_<uuid>[#n]` | Revision `n` of a collection (default `latest`) |
 | `@publisher/package[@version] ...` | Explicit packages (newest stable release when no version) |
+| `@publisher/package@version#sha256:<hex>` | That version, only if its release digest is still the pinned one; a different digest is an `integrity_error` and nothing is installed |
 
 ### Runtimes (`--runtime`)
 
@@ -521,6 +539,11 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
   collection. Package installs merge into a packages lock (by alias); a kit or
   collection install replaces its own lock. Installing into a lock of another
   scope is a `usage_error` (pass `--lock other.json` or `--no-lock`).
+  Nothing in a release is ever run: files the release marks executable are
+  written with mode 755 and listed on stderr (`--json`: `executable` on each
+  changed skill) after the install. `--dry-run` previews the files that would
+  be written; the executable files and declared permissions to review before
+  installing come from the MCP `prepare_install` answer (`trust`).
 - **update** re-resolves installed sources (all, or those named) and applies the
   difference, then refreshes the lock file when its scope was updated. With
   nothing installed it prints `Nothing to update.` (`--json`: empty `outcomes`).
@@ -599,7 +622,8 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
 Verification fails closed: with no trusted key every install is an
 `integrity_error`. Keys (raw 32-byte Ed25519, base64) are merged from:
 
-1. keys embedded in the CLI (none yet);
+1. keys embedded in the CLI: the production registry key
+   `skillx-reg-993cd14a011f7b76` (since 0.7.1);
 2. `~/.skillx/trusted-keys.json`: `{"keys": {"<keyId>": "<base64>"}}`;
 3. `SKILLX_TRUSTED_KEYS=<keyId>=<base64>[,...]`.
 
@@ -750,7 +774,7 @@ skillx search "code review" --use
 
 Raw output uses boundary markers for safe parsing:
 ```
---- BEGIN EXTERNAL SKILL CONTENT (untrusted, risk: safe) ---
+--- BEGIN EXTERNAL SKILL CONTENT (untrusted, slug: my-skill, risk: safe) ---
 ...content...
 --- END EXTERNAL SKILL CONTENT ---
 ```

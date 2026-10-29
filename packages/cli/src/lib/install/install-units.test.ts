@@ -50,6 +50,8 @@ describe('refs and versions', () => {
     expect(parseRefs([`collection:${col}#3`])).toEqual({ kind: 'collection', id: col, revision: 3 });
     expect(parseRefs([`collection:${col}`])).toEqual({ kind: 'collection', id: col, revision: 'latest' });
     expect(parseRefs(['@alpha/demo@1.2.0', '@alpha/tools'])).toEqual({ kind: 'packages', packages: [{ name: '@alpha/demo', version: '1.2.0' }, { name: '@alpha/tools' }] });
+    expect(parseRefs([`@alpha/demo@1.2.0#${D('a')}`])).toEqual({ kind: 'packages', packages: [{ name: '@alpha/demo', version: '1.2.0', digest: D('a') }] });
+    expect(() => parseRefs(['@alpha/demo@1.2.0#sha256:abc'])).toThrow(/is not/);
     expect(() => parseRefs(['demo'])).toThrow(/is not/);
     expect(() => parseRefs([`kit:@alpha/my-kit`, '@alpha/demo'])).toThrow(/one kit/);
   });
@@ -80,13 +82,22 @@ describe('collection resolve', () => {
   });
 });
 
+describe('digest pins', () => {
+  const registry = { releases: async () => [{ version: '1.2.0', state: 'published', releaseDigest: D('b') }] } as unknown as Registry;
+
+  it('refuses a release whose digest differs from the pinned one, before fetching anything', async () => {
+    const ref = parseRefs([`@alpha/demo@1.2.0#${D('a')}`]);
+    await expect(resolveSource(registry, ref)).rejects.toMatchObject({ code: 'integrity_error' });
+  });
+});
+
 describe('trusted keys', () => {
   it('merges the file and SKILLX_TRUSTED_KEYS and rejects malformed keys', () => {
     const key = Buffer.alloc(32, 7).toString('base64');
     writeFileSync(join(root, 'trusted-keys.json'), JSON.stringify({ keys: { 'file-key': key } }));
     const keys = loadTrustedKeys(root, { SKILLX_TRUSTED_KEYS: `env-key=${key}` });
-    expect([...keys.keys()].sort()).toEqual(['env-key', 'file-key']);
-    expect(loadTrustedKeys(join(root, 'none'), {}).size).toBe(0);
+    expect([...keys.keys()].sort()).toEqual(['env-key', 'file-key', 'skillx-reg-993cd14a011f7b76']);
+    expect([...loadTrustedKeys(join(root, 'none'), {}).keys()]).toEqual(['skillx-reg-993cd14a011f7b76']);
     expect(() => loadTrustedKeys(root, { SKILLX_TRUSTED_KEYS: 'short=AAAA' })).toThrow(/32-byte/);
   });
 });

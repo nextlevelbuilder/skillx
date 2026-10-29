@@ -54,7 +54,8 @@ export function planOwned(ctx: InstallContext, owned: Pick<OwnedLock, 'owner' | 
 export interface ApplyResult {
   owner: string;
   planDigest: string;
-  changed: Array<{ alias: string; action: string; backupDir: string | null; preserved: string[]; displaced: string[] }>;
+  /** `executable`: files written with mode 755. The installer never runs them; the result names them so nothing is silent. */
+  changed: Array<{ alias: string; action: string; backupDir: string | null; preserved: string[]; displaced: string[]; executable?: string[] }>;
   removed: RemoveResult[];
 }
 
@@ -115,7 +116,8 @@ export async function applyOwned(ctx: InstallContext, owned: OwnedLock, plan: In
       };
       const backup = action.action === 'update' ? action.backup : [];
       const done = applyTreeChange(tx, { alias: action.alias, tree, receipt, previous: existing, preserve: action.preserve, backup });
-      result.changed.push({ alias: action.alias, action: action.action, ...done });
+      const executable = tree.files.filter((f) => f.mode === '100755').map((f) => f.path);
+      result.changed.push({ alias: action.alias, action: action.action, ...done, ...(executable.length > 0 ? { executable } : {}) });
     } else if (action.action === 'unchanged' && action.addOwner && existing) {
       writeReceipt(ctx.home, { ...existing, requiredBy: [...existing.requiredBy, owned.owner].sort() });
     } else if (action.action === 'release' && existing) {

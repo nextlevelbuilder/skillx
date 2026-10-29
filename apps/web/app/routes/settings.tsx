@@ -9,21 +9,25 @@ import { getDb } from "~/lib/db";
 import { listOwnedActivePublishers, listUserApiKeys } from "~/lib/auth/user-api-keys";
 import type { CreateKeyRequest } from "~/lib/auth/api-key-form";
 import { useState } from "react";
+import { AgentKitLinkSection } from "../components/settings/agentkit-link-section";
+import { agentKitLinkStatus } from "~/lib/agentkit/link-status";
+import type { AgentKitLinkStatus } from "~/lib/agentkit/link-status";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare.env as Env;
   const session = await getSession(request, env);
 
   if (!session?.user?.id) {
-    return { isAuthenticated: false, keys: [], publishers: [] };
+    return { isAuthenticated: false, keys: [], publishers: [], agentkit: { enabled: false } as AgentKitLinkStatus };
   }
 
   const db = getDb(env.DB);
-  const [keys, publishers] = await Promise.all([
+  const [keys, publishers, agentkit] = await Promise.all([
     listUserApiKeys(db, session.user.id),
     listOwnedActivePublishers(db, session.user.id),
+    agentKitLinkStatus(env, session.user.id),
   ]);
-  return { isAuthenticated: true, keys, publishers };
+  return { isAuthenticated: true, keys, publishers, agentkit };
 }
 
 interface CreateKeyResponse {
@@ -113,6 +117,8 @@ export default function Settings() {
           onCancel={() => setShowNewKeyModal(false)}
         />
       )}
+
+      <AgentKitLinkSection status={data.agentkit} />
 
       <div className="mb-8">
         <div className="mb-4 flex items-center justify-between">

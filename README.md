@@ -74,8 +74,9 @@ Discover and install skills directly in Claude Code:
 ```
 
 **Plugins:**
-- **skill-creator** (v3.0.0) — Create/update skills optimized for Skillmark benchmarks
-- **skillx** (v1.0.0) — Search and use skills from SkillX.sh marketplace
+- **skillx** (v2.0.0) — SkillX's own discovery plugin: find, compare and vet catalog skills, then load or install one only after you approve it. Standalone folder `plugins/skillx/` for the Claude directory; see [docs/claude-plugin.md](docs/claude-plugin.md)
+- **skill-creator** (v3.0.0, Apache-2.0, adapted from Anthropic's skill-creator) — Create/update skills optimized for Skillmark benchmarks
+- **hol-guard** (Hashgraph Online, Apache-2.0) and **marketing-mindset** (Axel Freeman, MIT) — third-party skills listed in this marketplace under their authors' names and licenses; not part of the SkillX plugin
 
 ## Architecture
 
@@ -97,9 +98,11 @@ skillx/
 ├── packages/cli/          # skillx npm package (~400 LOC)
 ├── .claude-plugin/        # Claude Code plugin marketplace
 │   └── marketplace.json   # Marketplace catalog + plugin manifests
-├── .claude/skills/        # Claude Code skills
+├── plugins/skillx/        # Standalone SkillX plugin (v2.0.0): skill, MCP, evals
+├── .claude/skills/        # Other marketplace skills
 │   ├── skill-creator/     # Skill creation tool (v3.0.0)
-│   └── skillx/            # SkillX marketplace CLI skill (v1.0.0)
+│   ├── hol-guard/         # Third-party (Hashgraph Online)
+│   └── marketing-mindset/ # Third-party (Axel Freeman)
 ├── scripts/               # Seed data (30 real skills)
 └── docs/                  # Documentation
 ```
