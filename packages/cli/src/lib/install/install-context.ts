@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { DEFAULT_RUNTIME, getAdapter, skillxHome, stagingDir } from './adapters.js';
+import { join, resolve } from 'node:path';
+import { DEFAULT_RUNTIME, getAdapter, projectHome, skillxHome, stagingFor } from './adapters.js';
 import type { Env, HarnessAdapter } from './adapters.js';
 import type { TxHooks } from './apply-transaction.js';
 import { InstallError } from './install-errors.js';
@@ -14,6 +14,8 @@ export interface InstallContext {
   home: string;
   adapter: HarnessAdapter;
   runtime: string;
+  /** `user`: the runtime's own skills directory; `project`: the runtime's directory in `projectDir`. */
+  scope: 'user' | 'project';
   skillsDir: string;
   stagingDir: string;
   registry: Registry;
@@ -27,6 +29,8 @@ export interface ContextOptions {
   registry: Registry;
   env?: Env;
   runtime?: string;
+  /** Install into this project's skills directory instead of the user's. */
+  projectDir?: string;
   keys?: ReadonlyMap<string, Uint8Array>;
   force?: boolean;
   hooks?: InstallContext['hooks'];
@@ -35,17 +39,21 @@ export interface ContextOptions {
 
 export function createInstallContext(options: ContextOptions): InstallContext {
   const env = options.env ?? process.env;
-  const home = skillxHome(env);
+  const userHome = skillxHome(env);
   const adapter = getAdapter(options.runtime ?? DEFAULT_RUNTIME);
+  const project = options.projectDir;
+  const skillsDir = project === undefined ? adapter.skillsDir(env) : adapter.projectSkillsDir(resolve(project));
   return {
     env,
-    home,
+    home: project === undefined ? userHome : projectHome(env, project),
     adapter,
     runtime: adapter.id,
-    skillsDir: adapter.skillsDir(env),
-    stagingDir: stagingDir(adapter, env),
+    scope: project === undefined ? 'user' : 'project',
+    skillsDir,
+    stagingDir: stagingFor(skillsDir),
     registry: options.registry,
-    keys: options.keys ?? loadTrustedKeys(home, env),
+    // Trusted keys are the user's, whatever the scope.
+    keys: options.keys ?? loadTrustedKeys(userHome, env),
     force: options.force ?? false,
     ...(options.hooks ? { hooks: options.hooks } : {}),
     now: options.now ?? (() => new Date()),

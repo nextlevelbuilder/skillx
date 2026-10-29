@@ -121,16 +121,16 @@ export async function uninstallRef(ctx: InstallContext, refs: readonly string[],
 }
 
 /**
- * Re-resolves the named installed sources (all when none is named) and applies
- * the changes. Skills from `skillx add` have no registry source to re-resolve:
- * updating all leaves them alone, and naming one is a usage error that points
- * at `skillx add <source> --force`.
+ * Re-resolves the named installed registry sources (all when none is named)
+ * and applies the changes. Skills from `skillx add` are re-read from their
+ * own source by `updateAdded` (`lib/add/add-refresh.ts`): updating all leaves
+ * them to it, and naming one here is a usage error.
  */
 export async function updateInstalled(ctx: InstallContext, refs: readonly string[]): Promise<ApplyOutcome[]> {
   const records = readOwners(ctx.home, ctx.runtime).owners;
   const named = refs.length > 0 ? ownersOfRefs(refs) : [];
   if (named.some(isAddOwner)) {
-    throw new InstallError('usage_error', `${named.join(', ')} came from skillx add; refresh with skillx add <source> --force`, { sources: named.map((o) => records[o]?.ref ?? null) });
+    throw new InstallError('usage_error', `${named.join(', ')} came from skillx add and are re-read from their source, not the registry`, { sources: named.map((o) => records[o]?.ref ?? null) });
   }
   const wanted = refs.length > 0 ? named : Object.keys(records).filter((o) => !isAddOwner(o)).sort();
   const outcomes: ApplyOutcome[] = [];
@@ -146,6 +146,7 @@ export function listInstalled(ctx: InstallContext) {
   const owners = readOwners(ctx.home, ctx.runtime).owners;
   return {
     runtime: ctx.runtime,
+    scope: ctx.scope,
     skillsDir: ctx.skillsDir,
     skills: listReceipts(ctx.home, ctx.runtime).map((r) => ({
       alias: r.alias,

@@ -1,4 +1,5 @@
 import { isAbsolute, resolve } from 'node:path';
+import { GIT_COMMIT_PATTERN, GIT_REF_NAME_PATTERN } from '@skillx/contracts';
 import { usageError } from '../install/install-errors.js';
 
 /**
@@ -6,7 +7,7 @@ import { usageError } from '../install/install-errors.js';
  * the disk:
  *
  * - `github:owner/repo[/path][@ref]`: a GitHub repository, optionally a
- *   directory in it and a branch or tag;
+ *   directory in it and a branch, a tag or a full commit id;
  * - `owner/repo[/skill]`: GitHub shorthand, optionally one skill by name;
  * - `https://github.com/owner/repo[/tree/<ref>[/<path>]]` maps to `github:`;
  * - any other `https://` git URL; every other transport (`http`, `ssh`,
@@ -28,8 +29,6 @@ const REPO = '[A-Za-z0-9._-]{1,100}';
 const SHORTHAND = new RegExp(`^(${OWNER})/(${REPO})(?:/([A-Za-z0-9._-]{1,128}))?$`);
 const GITHUB_REF = new RegExp(`^(${OWNER})/(${REPO})(/[^@]*)?(?:@(.+))?$`);
 const GITHUB_URL = new RegExp(`^/(${OWNER})/(${REPO}?)(?:\\.git)?(?:/tree/([^/]+)((?:/[^/]+)*))?/?$`);
-/** A branch or tag name git accepts and that cannot read as an option or a revision expression. */
-const REF = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.lock$)(?!.*\/$)[A-Za-z0-9._/-]{1,200}$/;
 const USAGE = 'owner/repo[/skill], github:owner/repo[/path][@ref], an https git URL or a local directory';
 
 /**
@@ -56,8 +55,13 @@ export function checkRepoPath(path: string, input: string): string {
   return trimmed;
 }
 
+/** True when `ref` is a full commit id (40 or 64 hex digits), which is fetched instead of cloned as a branch. */
+export const isCommitRef = (ref: string) => GIT_COMMIT_PATTERN.test(ref);
+
+/** A branch or tag name, or a full commit id (lowercased). A short commit id reads as a branch name: git cannot fetch one. */
 function checkRef(ref: string, input: string): string {
-  if (!REF.test(ref)) throw refuse(input, `'${ref}' is not a branch or tag name`);
+  if (/^[0-9a-fA-F]{40}$|^[0-9a-fA-F]{64}$/.test(ref)) return ref.toLowerCase();
+  if (!GIT_REF_NAME_PATTERN.test(ref)) throw refuse(input, `'${ref}' is not a branch, tag or full commit id`);
   return ref;
 }
 

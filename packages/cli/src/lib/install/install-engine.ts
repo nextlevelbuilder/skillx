@@ -39,8 +39,10 @@ export interface OwnedLock {
 /** Splits a lock into owners: kits and collections own all their packages; explicit packages own themselves. */
 export function ownedLocks(lock: InstallLock, overlays: Map<string, SkillOverlay[]>, refFor: (pkg: string) => string, sourceRef: string): OwnedLock[] {
   if (lock.source.kind !== 'packages') return [{ owner: lockOwnerKey(lock.source, lock.packages), ref: sourceRef, lock, overlays }];
+  // An owner record holds its own package only; added skills are owners of their own.
+  const { added: _added, ...packages } = lock;
   return lock.packages.map((p) => {
-    const single = { ...lock, packages: [p] };
+    const single = { ...packages, packages: [p] };
     return { owner: lockOwnerKey(lock.source, single.packages), ref: refFor(p.package), lock: single, overlays: new Map() };
   });
 }

@@ -166,7 +166,7 @@ describe('skillx add from a local path', () => {
     write('one/SKILL.md', skillMd('same'));
     write('two/SKILL.md', skillMd('same'));
     const snapshot = openLocalSource(src);
-    const added = discoverSkills(snapshot, '').skills.map((s) => ({ alias: s.name, origin: s.dir, tree: prepareSkill(snapshot, s) }));
-    expect((await refusal(() => applyAdd(ctx(), { ref: src, version: 'local' }, added))).code).toBe('usage_error');
+    const added = discoverSkills(snapshot, '').skills.map((s) => ({ alias: s.name, origin: s.dir, ref: src, version: 'local', tree: prepareSkill(snapshot, s) }));
+    expect((await refusal(() => applyAdd(ctx(), added))).code).toBe('usage_error');
   });
 });

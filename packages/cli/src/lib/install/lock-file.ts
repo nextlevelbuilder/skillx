@@ -51,12 +51,17 @@ export function assertLockScope(path: string, scope: string): void {
   }
 }
 
-/** `existing` updated with `next`: packages locks merge by alias, other scopes are replaced. */
+/**
+ * `existing` updated with `next`: packages locks merge by alias (an added
+ * skill of that alias gives way to the package), other scopes are replaced.
+ */
 export function mergeLock(existing: InstallLock | null, next: InstallLock): InstallLock {
   if (existing === null || next.source.kind !== 'packages') return next;
   const byAlias = new Map(existing.packages.map((p) => [p.alias, p]));
   for (const p of next.packages) byAlias.set(p.alias, p);
-  return { ...next, packages: sortLockPackages([...byAlias.values()]) };
+  const added = (existing.added ?? []).filter((a) => !byAlias.has(a.alias));
+  const { added: _drop, ...rest } = next;
+  return { ...rest, packages: sortLockPackages([...byAlias.values()]), ...(added.length > 0 ? { added } : {}) };
 }
 
 /** Drops `packageName` from a packages lock file; other scopes are left as they are. */

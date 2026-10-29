@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CliError } from '../output.js';
-import { parseAddSource, redactCredentials } from './add-source.js';
+import { isCommitRef, parseAddSource, redactCredentials } from './add-source.js';
 import { redactError } from '../../commands/add.js';
 
 const refusal = (input: string) => {
@@ -19,6 +19,15 @@ describe('parseAddSource', () => {
     expect(parseAddSource('github:acme/skills')).toMatchObject({ kind: 'github', owner: 'acme', repo: 'skills', path: '', cloneUrl: 'https://github.com/acme/skills.git', label: 'github:acme/skills' });
     expect(parseAddSource('github:acme/skills/tools/lint@v1.2')).toMatchObject({ path: 'tools/lint', ref: 'v1.2', label: 'github:acme/skills/tools/lint@v1.2' });
     expect(parseAddSource('github:acme/skills@release/2026')).toMatchObject({ path: '', ref: 'release/2026' });
+  });
+
+  it('takes a full commit id as a ref, lowercased, in github: and /tree/ URLs', () => {
+    const sha = 'AB'.repeat(20);
+    expect(parseAddSource(`github:acme/skills/pdf@${sha}`)).toMatchObject({ ref: sha.toLowerCase(), label: `github:acme/skills/pdf@${sha.toLowerCase()}` });
+    expect(parseAddSource(`https://github.com/acme/skills/tree/${'c'.repeat(64)}/skills/pdf`)).toMatchObject({ ref: 'c'.repeat(64), path: 'skills/pdf' });
+    expect(isCommitRef('c'.repeat(40))).toBe(true);
+    expect(isCommitRef('abc1234')).toBe(false);
+    expect(() => parseAddSource('github:acme/skills@HEAD~1')).toThrow(/not a branch, tag or full commit id/);
   });
 
   it('reads the owner/repo[/skill] shorthand as a GitHub source with a skill name', () => {

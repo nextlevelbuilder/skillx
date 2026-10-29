@@ -16,6 +16,10 @@ import { isNonEmptyString, isPlainObject, issue, validationFail, validationOk } 
 import type { ValidationIssue, ValidationResult } from "./validation";
 import { RELEASE_DIGEST_PATTERN } from "./verification-evidence";
 import { sha256Digest } from "./release-signature";
+import { checkAddedList, checkAliasOrder } from "./install-lock-added";
+import type { InstallLockAdded } from "./install-lock-added";
+
+export * from "./install-lock-added";
 
 export const INSTALL_LOCK_SCHEMA = "skillx.lock/v1";
 export const INSTALL_RESOLVER_VERSION = "skillx.install-resolver/1";
@@ -33,7 +37,6 @@ const KIT_PATTERN = /^@[a-z0-9][a-z0-9-]{0,38}\/[a-z0-9][a-z0-9._-]{0,63}$/;
 const ID_PATTERN = /^[a-z]+_[0-9a-f-]{36}$/;
 const RUNTIME_PATTERN = /^[a-z0-9][a-z0-9-]{0,31}$/;
 export const INSTALL_LOCK_LIMITS = { maxPackages: 256 } as const;
-
 export type InstallLockSource =
   | { kind: "kit"; kit: string; revisionId: string; revisionNumber: number; revisionDigest: string }
   | { kind: "collection"; collectionId: string; revisionNumber: number; revisionDigest: string }
@@ -57,6 +60,8 @@ export interface InstallLock {
   /** Runtime constraints declared by the source (kit `runtimes`); empty means unconstrained. */
   runtimes: Record<string, string>;
   packages: InstallLockPackage[];
+  /** Skills from `skillx add`, sorted by alias; only in a `packages` lock, and omitted when there is none. */
+  added?: InstallLockAdded[];
 }
 
 /**
@@ -128,7 +133,7 @@ function checkPackage(pkg: unknown, at: string, issues: ValidationIssue[]): void
 export function validateInstallLock(input: unknown): ValidationResult {
   if (!isPlainObject(input)) return validationFail([issue("", "type", "lock must be an object")]);
   const issues: ValidationIssue[] = [];
-  checkKeys(input, ["schema", "resolver", "source", "runtimes", "packages"], "", issues);
+  checkKeys(input, ["schema", "resolver", "source", "runtimes", "packages", "added"], "", issues);
   if (input.schema !== INSTALL_LOCK_SCHEMA) issues.push(issue("schema", "unsupported_value", `must equal '${INSTALL_LOCK_SCHEMA}'`));
   if (input.resolver !== INSTALL_RESOLVER_VERSION) issues.push(issue("resolver", "unsupported_value", `must equal '${INSTALL_RESOLVER_VERSION}'`));
   checkSource(input.source, issues);
@@ -140,11 +145,9 @@ export function validateInstallLock(input: unknown): ValidationResult {
   } else {
     if (input.packages.length > INSTALL_LOCK_LIMITS.maxPackages) issues.push(issue("packages", "limit", `at most ${INSTALL_LOCK_LIMITS.maxPackages} packages`));
     input.packages.forEach((pkg, i) => checkPackage(pkg, `packages[${i}]`, issues));
-    const aliases = input.packages.map((p) => (isPlainObject(p) ? String(p.alias) : ""));
-    aliases.forEach((alias, i) => {
-      if (i > 0 && aliases[i - 1]! >= alias) issues.push(issue(`packages[${i}].alias`, "order", "packages must be sorted by alias without duplicates"));
-    });
+    checkAliasOrder(input.packages, "packages", issues);
   }
+  if (input.added !== undefined) checkAddedList(input, issues, isInstallAlias);
   for (const leak of findSyncLeaks(input)) issues.push(issue(leak.path, `sync.${leak.rule}`, "a lock must not carry secrets or absolute local paths"));
   return issues.length === 0 ? validationOk() : validationFail(issues);
 }

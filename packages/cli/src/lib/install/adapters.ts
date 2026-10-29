@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { usageError } from './install-errors.js';
@@ -19,6 +20,8 @@ export interface HarnessAdapter {
   displayName: string;
   /** Directory holding one sub-directory per installed skill. */
   skillsDir(env?: Env): string;
+  /** The runtime's project skills directory under `projectDir`. */
+  projectSkillsDir(projectDir: string): string;
 }
 
 /** HOME on POSIX and USERPROFILE on Windows, as `os.homedir()` reads them, but from `env`. */
@@ -36,12 +39,15 @@ export const claudeCodeAdapter: HarnessAdapter = {
   id: 'claude-code',
   displayName: 'Claude Code',
   skillsDir: (env = process.env) => join(env.CLAUDE_CONFIG_DIR ? resolve(env.CLAUDE_CONFIG_DIR) : join(homeDir(env), '.claude'), 'skills'),
+  projectSkillsDir: (projectDir) => join(projectDir, '.claude', 'skills'),
 };
 
 export const codexAdapter: HarnessAdapter = {
   id: 'codex',
   displayName: 'Codex',
   skillsDir: (env = process.env) => join(env.CODEX_HOME ? resolve(env.CODEX_HOME) : join(homeDir(env), '.codex'), 'skills'),
+  // Codex reads repository skills from `.agents/skills`.
+  projectSkillsDir: (projectDir) => join(projectDir, '.agents', 'skills'),
 };
 
 export const ADAPTERS: readonly HarnessAdapter[] = [claudeCodeAdapter, codexAdapter];
@@ -59,5 +65,18 @@ export function getAdapter(id: string): HarnessAdapter {
  * half-written skill from it.
  */
 export function stagingDir(adapter: HarnessAdapter, env: Env = process.env): string {
-  return join(dirname(adapter.skillsDir(env)), '.skillx-staging');
+  return stagingFor(adapter.skillsDir(env));
+}
+
+export const stagingFor = (skillsDir: string) => join(dirname(skillsDir), '.skillx-staging');
+
+/**
+ * Installer state of a project-scope install: its own receipts, owners,
+ * journals and install lock under `<skillxHome>/projects/<digest of the
+ * project path>`, so a project's skills never share ref-counts with the
+ * user-scope install of the same runtime and nothing is written into the
+ * project but the skills themselves.
+ */
+export function projectHome(env: Env, projectDir: string): string {
+  return join(skillxHome(env), 'projects', createHash('sha256').update(resolve(projectDir)).digest('hex').slice(0, 16));
 }

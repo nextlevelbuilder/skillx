@@ -20,34 +20,39 @@ import { readReceipt } from '../install/install-state.js';
  *
  * On top of the installer's rules (an unowned directory needs `--force`, a
  * skill another source needs at another digest is never replaced), `add`
- * never replaces a skill it added before without `--force`. Nothing goes to
- * `skillx.lock.json`: a git or local tree has no signed release to pin.
+ * never replaces a skill it added before without `--force`; `update` and
+ * `sync --locked` pass `replace`, since replacing is what they are for
+ * (local edits stay conflicts unless `--force`). A skill read from git is
+ * pinned in `skillx.lock.json` as an `added` entry (`add-lock.ts`); a local
+ * directory has no portable source to pin.
  */
 
 export interface AddedSkill {
   alias: string;
   /** Where the skill came from, e.g. `github:owner/repo/skills/demo`; no credentials. */
   origin: string;
-  tree: VerifiedTree;
-}
-
-export interface AddSourceInfo {
-  /** The source as the user can give it again; no credentials. */
+  /** The source as the user can give it again, recorded as the owner's ref; no credentials. */
   ref: string;
   /** The commit read, or `local`. */
   version: string;
+  tree: VerifiedTree;
+}
+
+export interface AddPlanOptions {
+  /** Replace a skill added before (update, sync) instead of refusing without `--force`. */
+  replace?: boolean;
 }
 
 export const addOwnerOf = (alias: string) => `${ADD_OWNER_PREFIX}${alias}`;
 
-function owned(source: AddSourceInfo, skill: AddedSkill): OwnedLock {
-  const pkg: InstallLockPackage = { alias: skill.alias, package: skill.origin, version: source.version, releaseDigest: skill.tree.digest, compositionDigest: skill.tree.digest, overlayDigests: [] };
+function owned(skill: AddedSkill): OwnedLock {
+  const pkg: InstallLockPackage = { alias: skill.alias, package: skill.origin, version: skill.version, releaseDigest: skill.tree.digest, compositionDigest: skill.tree.digest, overlayDigests: [] };
   const lock: InstallLock = { schema: INSTALL_LOCK_SCHEMA, resolver: INSTALL_RESOLVER_VERSION, source: { kind: 'packages' }, runtimes: {}, packages: [pkg] };
-  return { owner: addOwnerOf(skill.alias), ref: source.ref, lock, overlays: new Map(), trees: new Map([[skill.alias, skill.tree]]) };
+  return { owner: addOwnerOf(skill.alias), ref: skill.ref, lock, overlays: new Map(), trees: new Map([[skill.alias, skill.tree]]) };
 }
 
-/** Plans the skills; refuses duplicates and, without `--force`, replacing a skill added before. */
-export async function planAdd(ctx: InstallContext, source: AddSourceInfo, skills: readonly AddedSkill[]): Promise<SourcePlan> {
+/** Plans the skills; refuses duplicates and, without `--force` or `replace`, replacing a skill added before. */
+export async function planAdd(ctx: InstallContext, skills: readonly AddedSkill[], options: AddPlanOptions = {}): Promise<SourcePlan> {
   if (skills.length === 0) throw usageError('no skill selected');
   const seen = new Set<string>();
   for (const s of skills) {
@@ -55,10 +60,10 @@ export async function planAdd(ctx: InstallContext, source: AddSourceInfo, skills
     seen.add(s.alias);
   }
   const items: PlannedItem[] = skills.map((s) => {
-    const o = owned(source, s);
+    const o = owned(s);
     return { ...o, plan: planOwned(ctx, o) };
   });
-  if (!ctx.force) {
+  if (!ctx.force && !options.replace) {
     const replaced = items.flatMap((i) => i.plan.actions).filter((a) => a.action === 'update');
     if (replaced.length > 0) {
       const from = replaced.map((a) => `${a.alias} (from ${readReceipt(ctx.home, ctx.runtime, a.alias)?.package ?? 'an earlier add'})`);
@@ -78,6 +83,6 @@ export async function planAdd(ctx: InstallContext, source: AddSourceInfo, skills
 }
 
 /** Plans afresh under the install lock and applies; `expectDigest` pins the plan the user confirmed. */
-export function applyAdd(ctx: InstallContext, source: AddSourceInfo, skills: readonly AddedSkill[], expectDigest?: string): Promise<ApplyOutcome> {
-  return applyPlanned(ctx, () => planAdd(ctx, source, skills), expectDigest);
+export function applyAdd(ctx: InstallContext, skills: readonly AddedSkill[], expectDigest?: string, options: AddPlanOptions = {}): Promise<ApplyOutcome> {
+  return applyPlanned(ctx, () => planAdd(ctx, skills, options), expectDigest);
 }

@@ -215,16 +215,17 @@ Install skills straight from GitHub, an https git URL or a local directory.
 `add` is a thin front end to the [installer](#installer): skills land in the
 same runtime skills directory (`--runtime`, default `claude-code`) with the same
 receipts, install lock, conflicts and backups as `skillx install`. Unlike a
-registry release, a skill added this way is **not scanned, signed or pinned in
-`skillx.lock.json`**; review it before use.
+registry release, a skill added this way is **not scanned or signed**; review
+it before use. A skill read from git is pinned in `skillx.lock.json` by commit
+and tree digest (see [Lock, update and sync](#lock-update-and-sync)).
 
 **Sources:**
 | Source | Meaning |
 |--------|---------|
 | `owner/repo` | A GitHub repository (default branch) |
 | `owner/repo/skill` | One skill of it, by name or directory name (same as `--skill skill`) |
-| `github:owner/repo[/path][@ref]` | A directory of the repository, at a branch or tag |
-| `https://github.com/owner/repo[/tree/<ref>[/<path>]]` | Read as `github:` |
+| `github:owner/repo[/path][@ref]` | A directory of the repository, at a branch, a tag or a full commit id |
+| `https://github.com/owner/repo[/tree/<ref>[/<path>]]` | Read as `github:` (a permalink `/tree/<commit>/...` included) |
 | `https://host/repo.git` | Any https git repository (default branch) |
 | `./dir`, `../dir`, an absolute path | A local directory |
 
@@ -235,6 +236,16 @@ every other protocol disabled. A path or ref with `..`, `.`, empty, `\` or `:`
 segments is refused. `@publisher/package`, `kit:` and `collection:` belong to
 `skillx install`; `@agentkit/*` is reserved.
 
+A ref is a branch or tag name, or a full commit id (40 hex digits, or 64 for a
+SHA-256 repository; case does not matter). A short commit id reads as a branch
+name, since git cannot fetch one. A branch or tag is read with a shallow
+`clone --branch`; a commit is fetched on its own (`git init`, then
+`git fetch --depth 1 <url> <commit>`), which the server must allow for a
+commit reachable from a branch or tag: GitHub and most hosts do, and a host
+that does not answers `not_found` or `network_error` (name a branch or tag
+instead). The commit read must be the one named, or the add is an
+`integrity_error`.
+
 **Options:**
 | Flag | Description | Default |
 |------|-------------|---------|
@@ -242,8 +253,11 @@ segments is refused. `@publisher/package`, `kit:` and `collection:` belong to
 | `-l, --list` | List the skills in the source; install nothing | `false` |
 | `-y, --yes` | Do not ask (no selection prompt, no confirmation); required to install in human mode when stdin is not a terminal | `false` |
 | `--force` | Replace a skill added before, or install over a directory nothing owns (edited files are backed up, unknown files kept) | `false` |
-| `--runtime <id>` | `claude-code` or `codex` | `claude-code` |
-| `--json` | Envelope with `status` (`listed`, `installed` or `cancelled`); never asks, so several skills need `--skill` | `false` |
+| `--runtime <id>` | `claude-code` or `codex`; several comma-separated (`claude-code,codex`) or the option repeated install the same read into each | `claude-code` |
+| `--project` | Install into the current directory's project skills directory (`.claude/skills` for `claude-code`, `.agents/skills` for `codex`) instead of the user's | `false` |
+| `--lock <file>` | Packages lock that pins skills read from git | `skillx.lock.json` |
+| `--no-lock` | Write no lock file | |
+| `--json` | Envelope with `status` (`listed`, `installed` or `cancelled`); never asks, so several skills need `--skill`. `installed` carries the first runtime's `runtime`, `scope`, `skillsDir`, `planDigest`, `applied` and `recovered` at the top level, every runtime under `targets`, and `lockPath` (null for a local source or `--no-lock`) | `false` |
 
 **How a skill is found and read.** A skill is a directory with a regular
 `SKILL.md` whose front matter (between a first `---` line and the next `---`
@@ -283,9 +297,45 @@ listed under `skipped` with the reason.
 receipt's `package` is the skill's origin (for example
 `github:owner/repo/skills/pdf`) and `version` the commit read, or `local`.
 `skillx list` shows it, and `skillx uninstall add:<name>` removes it with
-ownership proof. `skillx update` skips added skills (naming one is a
-`usage_error`); refresh one with `skillx add <source> --force`. `sync --locked`
-does not restore them.
+ownership proof (and drops it from the lock).
+
+**Runtimes and scope.** With several runtimes, the source is read once and
+every runtime is planned before any is written: a refusal or conflict in one
+installs nothing anywhere. A failure while applying a later runtime leaves the
+earlier ones installed (and pinned) and is reported; run the same command
+again. `--project` (also accepted by `install`, `update`, `uninstall`, `list`
+and `sync`) installs into the current directory, so run it from the project
+root; that project keeps its own receipts, owners and install lock under
+`$SKILLX_HOME/projects/<digest of the path>`, apart from the user-scope
+install of the same runtime, and nothing but the skills is written into the
+project. Pass `--project` again to list, update or uninstall them.
+
+#### Lock, update and sync
+
+A skill read from git is written to the packages lock (`--lock`, default
+`skillx.lock.json` in the current directory; `--no-lock` skips it) as an
+`added` entry: the repository URL without credentials, the skill's
+directory, the branch or tag to follow (`ref`; the commit itself when one was
+named; absent for the default branch), the commit read and the skill's
+`agentkit.skill-tree/v1` tree digest. A local directory is never locked: it has
+no portable source. Adding into a lock of another scope (a kit or collection)
+is a `usage_error` before anything is cloned, as with `install`.
+
+- `skillx update` updates added skills with the registry sources, or only the
+  ones named (`skillx update add:pdf`; name them apart from registry sources).
+  Each is re-read from its recorded source (a branch or tag is followed, a
+  commit stays where it is, a local directory is read again) and the skill of
+  the same name there replaces it; local edits are a `conflict` unless
+  `--force`. A skill no longer in its source is `not_found`. A lock that
+  already pins the skill gets its new commit and digest; `update` never starts
+  a lock.
+- `skillx sync --locked` restores added skills with the packages: each locked
+  commit is fetched, and the skill's directory there must hash to the locked
+  tree digest, else `integrity_error` and nothing is installed.
+- A private repository needs credentials git already has (a credential
+  helper): the lock and the recorded source never keep a token from the URL.
+- Older CLIs (before this release) refuse a lock with `added` entries as
+  invalid; upgrade every machine that syncs it.
 
 **Overwrites.** Nothing installed is replaced without `--force`: adding a name
 that `add` installed before from a different tree is a `conflict`, and so is a
@@ -300,7 +350,8 @@ invalid name, several skills under `--json` without `--skill`, or stdin not a
 terminal without `--yes` or `--json`: pass `--yes`, with `--skill` to choose,
 since human mode cannot ask); `3` `not_found` (no skill,
 no such `--skill`, path, repository or branch); `4` `incompatible` (a link,
-special file or limit in a chosen skill); `5` `auth_error` (git asked for
+special file or limit in a chosen skill); `1` `integrity_error` (git returned
+another commit than the one named); `5` `auth_error` (git asked for
 credentials); `6` `network_error` (clone failed or timed out after 120 s);
 `8` `conflict` (see Overwrites). Nothing is installed when any chosen skill
 fails.
@@ -310,6 +361,10 @@ fails.
 skillx add anthropics/skills --list
 skillx add anthropics/skills/pdf
 skillx add github:acme/agent-skills/skills@v1.2 --skill lint review --yes
+skillx add https://github.com/acme/agent-skills/tree/<commit>/skills/lint --yes --runtime claude-code,codex
+skillx add acme/agent-skills/lint --project --yes
+skillx update add:lint
+skillx sync --locked
 skillx add https://git.example.com/team/skills.git --skill '*' --json
 skillx add ./my-skills --force
 skillx uninstall add:pdf
@@ -576,18 +631,21 @@ the release read API; nothing is written until every file is verified.
 
 ### Runtimes (`--runtime`)
 
-| Id | Skills directory |
-|----|------------------|
-| `claude-code` (default) | `$CLAUDE_CONFIG_DIR/skills`, else `~/.claude/skills` |
-| `codex` | `$CODEX_HOME/skills`, else `~/.codex/skills` |
+| Id | Skills directory | With `--project` |
+|----|------------------|------------------|
+| `claude-code` (default) | `$CLAUDE_CONFIG_DIR/skills`, else `~/.claude/skills` | `./.claude/skills` |
+| `codex` | `$CODEX_HOME/skills`, else `~/.codex/skills` | `./.agents/skills` |
 
 `~` is `USERPROFILE` on Windows and `HOME` elsewhere. Installer state lives in
-`$SKILLX_HOME` (default `~/.skillx`).
+`$SKILLX_HOME` (default `~/.skillx`); a `--project` install keeps its own under
+`$SKILLX_HOME/projects/<first 16 hex of the SHA-256 of the project path>`, so
+its ref-counts never mix with the user-scope install. Trusted keys are always
+the user's.
 
 ### Commands
 
 ```bash
-skillx install <refs...> [--runtime id] [--dry-run] [--force] [--lock file | --no-lock] [--json]
+skillx install <refs...> [--runtime id] [--project] [--dry-run] [--force] [--lock file | --no-lock] [--json]
 skillx update [refs...]  [--runtime id] [--force] [--lock file | --no-lock] [--json]
 skillx uninstall <refs...> [--runtime id] [--lock file | --no-lock] [--json]
 skillx list [--runtime id] [--json]
@@ -614,7 +672,7 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
   difference, then refreshes the lock file when its scope was updated. With
   nothing installed it prints `Nothing to update.` (`--json`: empty `outcomes`).
   Skills installed by [`skillx add`](#skillx-add-source) (`add:<name>`) are
-  skipped; naming one is a `usage_error`.
+  re-read from their own source ([Lock, update and sync](#lock-update-and-sync)).
 - **uninstall** drops a kit, a collection, one or more packages, or skills
   installed by `skillx add` (`add:<name>`, named on their own); each
   explicit package is its own source (`packages:@scope/name`), whether it was
@@ -627,7 +685,8 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
   receipt are deleted; edited and unknown files are kept and reported. Links
   are never followed: a file reached through a symlink or junction is kept,
   and a skill directory that is itself a link is left alone.
-- **sync --locked** restores exactly what a lock pins and refuses drift: a kit
+- **sync --locked** restores exactly what a lock pins, including the `added`
+  skills of a packages lock at their locked commit, and refuses drift: a kit
   revision whose re-resolved lock digest differs, a collection revision whose
   content digest differs or whose members are not exactly the locked packages
   (at a member's pinned version or digest), a release whose digest differs, or
@@ -718,7 +777,18 @@ to install, never where: no timestamps, machine paths or secrets.
 ```
 
 `source.kind` is `kit`, `collection` (`collectionId`, `revisionNumber`,
-`revisionDigest`) or `packages`. Packages are sorted by alias; the lock digest
+`revisionDigest`) or `packages`. A packages lock may also hold `added`, the
+skills from [`skillx add`](#lock-update-and-sync) read from git (omitted when
+there is none; schema in `packages/contracts/src/install-lock-added.ts`):
+
+```json
+"added": [
+  { "alias": "pdf", "repository": "https://github.com/acme/skills.git", "path": "skills/pdf",
+    "ref": "v1.2", "commit": "<40 or 64 hex>", "treeDigest": "sha256:…" }
+]
+```
+
+An alias is either a package or an added skill, never both. Packages and added skills are sorted by alias; the lock digest
 is the SHA-256 of its canonical JSON. The lock is scanned for secrets and
 absolute paths (`findSyncLeaks`) before it is written and when it is read.
 

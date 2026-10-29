@@ -14,9 +14,11 @@ export interface InstallerOptions {
   registry?: string;
   json?: boolean;
   force?: boolean;
+  /** Install into the current directory's project skills directory. */
+  project?: boolean;
 }
 
-export function contextFrom(options: InstallerOptions): InstallContext {
+export function contextFrom(options: InstallerOptions, runtime = options.runtime): InstallContext {
   const baseUrl = options.registry ?? getBaseUrl();
   try {
     new URL(baseUrl);
@@ -25,7 +27,8 @@ export function contextFrom(options: InstallerOptions): InstallContext {
   }
   return createInstallContext({
     registry: createRegistry({ baseUrl, apiKey: getApiKey() }),
-    ...(options.runtime ? { runtime: options.runtime } : {}),
+    ...(runtime ? { runtime } : {}),
+    ...(options.project ? { projectDir: process.cwd() } : {}),
     force: options.force === true,
   });
 }

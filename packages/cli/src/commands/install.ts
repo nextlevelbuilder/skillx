@@ -1,7 +1,9 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { INSTALL_LOCK_FILENAME } from '@skillx/contracts';
-import { installRefs, listInstalled, ownersOfRefs, planRefs, uninstallRef, updateInstalled } from '../lib/install/install-operations.js';
+import { dropAddedFromLockFile, writeAddedLock } from '../lib/add/add-lock.js';
+import { readLockedAdded, syncWithAdded, updateAdded, withAddedPlan } from '../lib/add/add-refresh.js';
+import { installRefs, isAddOwner, listInstalled, ownersOfRefs, planRefs, uninstallRef, updateInstalled } from '../lib/install/install-operations.js';
 import type { ApplyOutcome } from '../lib/install/install-operations.js';
 import { usageError } from '../lib/install/install-errors.js';
 import { planLocked, syncLocked } from '../lib/install/sync-locked.js';
@@ -14,7 +16,10 @@ import type { InstallerOptions } from './install-runner.js';
  * `skillx install | update | uninstall | list | sync`: the generic installer.
  * Sources are `kit:@handle/kit[#revisionId]`, `collection:<id>[#revision]`
  * or `@publisher/package[@version]`; `--runtime` picks the adapter
- * (`claude-code`, default, or `codex`). See docs/cli-reference.md.
+ * (`claude-code`, default, or `codex`) and `--project` its project skills
+ * directory. Skills from `skillx add` (`add:<name>`) are updated from their
+ * own source, and a lock's `added` skills are restored at their locked
+ * commit (`lib/add/add-refresh.ts`). See docs/cli-reference.md.
  */
 
 interface ApplyOptions extends InstallerOptions {
@@ -25,6 +30,7 @@ interface ApplyOptions extends InstallerOptions {
 const withCommon = (cmd: Command) =>
   cmd
     .option('--runtime <id>', 'target runtime: claude-code or codex', 'claude-code')
+    .option('--project', "the current directory's project skills directory (.claude/skills, .agents/skills) instead of the user's")
     .option('--registry <url>', 'registry base URL (default: the configured one)')
     .option('--json', 'emit a machine-readable envelope instead of text');
 
@@ -71,7 +77,7 @@ export const installCommand = withCommon(new Command('install'))
 
 export const updateCommand = withCommon(new Command('update'))
   .description('Re-resolve installed sources (all, or the one named) and apply the changes')
-  .argument('[refs...]', 'an installed source; all when omitted')
+  .argument('[refs...]', 'an installed source, or add:<skill> to re-read it from its source; all when omitted')
   .option('--force', 'reinstall over local edits (backed up)')
   .option('--lock <file>', 'lock file to refresh when it locks an updated source', INSTALL_LOCK_FILENAME)
   .option('--no-lock', 'leave the lock file alone')
@@ -79,14 +85,24 @@ export const updateCommand = withCommon(new Command('update'))
     runInstaller(
       options,
       async () => {
-        const outcomes = await updateInstalled(contextFrom(options), refs);
+        const ctx = contextFrom(options);
+        // Added skills are named on their own (ownersOfRefs refuses a mix), and all are updated when none is named.
+        const addOnly = refs.length > 0 && ownersOfRefs(refs).every(isAddOwner);
+        const outcomes = addOnly ? [] : await updateInstalled(ctx, refs);
         const path = options.lock === false ? null : (options.lock ?? INSTALL_LOCK_FILENAME);
         let lockPath: string | null = null;
         for (const o of outcomes) {
           const existing = path === null ? null : existingLock(path);
           if (existing !== null && lockScope(existing) === lockScope(o.lock)) lockPath = writeLockFile(path!, mergeLock(existing, o.lock));
         }
-        return { outcomes, lockPath };
+        // After the registry lock is written, so a source that cannot be read leaves it in step.
+        const added = addOnly || refs.length === 0 ? await updateAdded(ctx, addOnly ? ownersOfRefs(refs) : []) : { outcomes: [], entries: [] };
+        // Only a packages lock that already pins added skills is refreshed; update never starts one.
+        const existing = path === null ? null : existingLock(path);
+        const pinned = new Set((existing?.added ?? []).map((a) => a.alias));
+        const entries = added.entries.filter((e) => pinned.has(e.alias));
+        if (entries.length > 0) lockPath = writeAddedLock(path!, entries) ?? lockPath;
+        return { outcomes: [...outcomes, ...added.outcomes], lockPath };
       },
       printUpdated,
     ),
@@ -104,8 +120,10 @@ export const uninstallCommand = withCommon(new Command('uninstall'))
         let lockPath: string | null = null;
         // Each package leaves the packages lock as soon as it is uninstalled, so a later failure leaves the lock in step.
         const dropFromLock = (owner: string) => {
-          if (options.lock === false || !owner.startsWith('packages:')) return;
-          lockPath = dropFromLockFile(options.lock ?? INSTALL_LOCK_FILENAME, owner.slice('packages:'.length)) ?? lockPath;
+          if (options.lock === false) return;
+          const path = options.lock ?? INSTALL_LOCK_FILENAME;
+          if (owner.startsWith('packages:')) lockPath = dropFromLockFile(path, owner.slice('packages:'.length)) ?? lockPath;
+          if (isAddOwner(owner)) lockPath = dropAddedFromLockFile(path, owner.slice(owner.indexOf(':') + 1)) ?? lockPath;
         };
         const results = await uninstallRef(contextFrom(options), refs, dropFromLock);
         return { uninstalled: results, lockPath };
@@ -158,8 +176,9 @@ export const syncCommand = withCommon(new Command('sync'))
           return { ...(await installRefs(ctx, [options.from])), lockPath: null };
         }
         const lock = readLockFile(options.lock || INSTALL_LOCK_FILENAME);
-        if (options.dryRun) return { dryRun: true as const, ...(await planLocked(ctx, lock)) };
-        return { ...(await syncLocked(ctx, lock)), lockPath: null };
+        const base = () => planLocked(ctx, lock);
+        if (options.dryRun) return { dryRun: true as const, ...(await withAddedPlan(ctx, base, readLockedAdded(lock.added ?? []))()) };
+        return { ...(await (lock.added ? syncWithAdded(ctx, base, lock.added) : syncLocked(ctx, lock))), lockPath: null };
       },
       (data) => ('dryRun' in data ? printPlan(data) : printApplied(data, null)),
     ),
