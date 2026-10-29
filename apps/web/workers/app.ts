@@ -28,6 +28,8 @@ declare global {
     SKILLX_TOKEN_SECRET?: string;
     /** Audience a GitHub Actions OIDC token must carry; defaults to `skillx`. */
     SKILLX_OIDC_AUDIENCE?: string;
+    /** agentkit.best OAuth issuer override (development); defaults to https://agentkit.best. */
+    AGENTKIT_ISSUER?: string;
   }
 }
 

@@ -19,6 +19,7 @@
  * containment never depends on it.
  * Every answer is `no-store`.
  */
+import { BEARER_CHALLENGE } from "~/lib/agentkit/agentkit-config";
 import { RELEASE_STATES, RELEASE_STATUS_REASON_MAX_BYTES, isReleaseState } from "@skillx/contracts";
 import { parsePackageIdentity, parseReleaseVersion } from "./release-access";
 import { ReleaseHttpError, errorResponse, notFoundResponse, releaseError } from "./release-http";
@@ -170,7 +171,7 @@ export async function resolveLimitedActor(request: Request, env: ReleaseStateEnv
 /** `Retry-After` for a 429, `WWW-Authenticate` for a 401. */
 export function failureHeaders(error: ReleaseHttpError): Record<string, string> {
   if (error instanceof RateLimitedError) return { "Retry-After": String(error.retryAfterSeconds) };
-  return error.status === 401 ? { "WWW-Authenticate": "Bearer" } : {};
+  return error.status === 401 ? { "WWW-Authenticate": BEARER_CHALLENGE } : {};
 }
 
 /** Serves one transition request; `params.handle` selects the publisher route. */

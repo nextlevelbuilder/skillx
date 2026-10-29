@@ -22,6 +22,44 @@ Key format: `sx_` prefix + 64 hex characters (32 random bytes). First 8 chars us
 
 Generate keys via `POST /api/user/api-keys` (requires session auth).
 
+### AgentKit access token (flag `SKILLX_AGENTKIT_IDENTITY`)
+
+A SkillX account linked to an agentkit.best account (Settings → "Link with AgentKit") can call the scoped-credential routes (`/api/v1/library`, release reads, `/api/v1/kits/...`) with an agentkit.best access token instead of a SkillX key. There is no SkillX token-exchange endpoint: the client (ak CLI, AgentKit Desktop) asks the agentkit.best AS for a token with `resource=https://skillx.sh/api` and sends it as is:
+
+```
+Authorization: Bearer <agentkit.best at+jwt>
+```
+
+SkillX verifies it locally against `https://agentkit.best/.well-known/jwks.json`: `alg` ES256, `typ` `at+jwt`, `iss` `https://agentkit.best`, `aud` containing `https://skillx.sh/api`, `exp`/`iat` (5 s skew), non-empty `sub`. The token then acts as the linked SkillX account with these scopes:
+
+| AgentKit scope | SkillX scope |
+|----------------|--------------|
+| `skillx-kits:read` | `library:read` |
+| `skillx-kits:write` | `kits:write:@<handle>` for each active publisher the account owns |
+
+A route that accepts none of the translated scopes answers `401 invalid_api_key`, like a scoped key. Other failures:
+
+| Status | Code | Meaning |
+|--------|------|---------|
+| `401` | `invalid_token` | Signature, issuer, audience, type or expiry is wrong |
+| `403` | `account_not_linked` | No SkillX account is linked to this AgentKit `sub` (or the link was revoked); the message carries the link URL `https://skillx.sh/settings#agentkit` |
+| `503` | `agentkit_unavailable` | The JWKS, or the AS while re-validating a link, cannot be reached |
+
+Revocation: AS tokens live 60 s, and SkillX re-validates the link by refreshing its own grant whenever the last check is older than 60 s; an `invalid_grant` deletes the link. During an AS outage a link checked within the last 15 minutes keeps working, then requests answer `503`. Every `401` from these routes carries `WWW-Authenticate: Bearer resource_metadata="https://skillx.sh/.well-known/oauth-protected-resource"`.
+
+Discovery and linking (all `404` while the flag is off, except unlink):
+
+| Route | Purpose |
+|-------|---------|
+| `GET /.well-known/oauth-protected-resource` (also `/.well-known/oauth-protected-resource/api`) | RFC 9728 metadata: `resource`, `authorization_servers`, `scopes_supported` |
+| `GET /oauth/client.json` | SkillX's client ID metadata document (public client, `token_endpoint_auth_method: none`) |
+| `POST /auth/agentkit/start` | Session required; redirects to the AS with auth code + S256 PKCE, `resource=https://skillx.sh/api` |
+| `GET /auth/agentkit/callback` | Completes the link, redirects to `/settings?agentkit=<outcome>#agentkit` (`linked`, `denied`, `expired`, `already_linked`, `taken`, `failed`) |
+| `GET /api/user/agentkit-link` | Session required; `{enabled, linked, linkedAt?, scopes?, unverified?}` |
+| `DELETE /api/user/agentkit-link` | Session, same-origin; revokes SkillX's refresh token at the AS and deletes the link |
+
+One AgentKit account links to at most one SkillX account. Data: table `agentkit_links` (migration `0021_agentkit_links`), refresh token stored AES-GCM encrypted.
+
 ---
 
 ## Endpoints

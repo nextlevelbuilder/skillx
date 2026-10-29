@@ -11,6 +11,7 @@ export default defineConfig({
     "./app/lib/db/entitlements-schema.ts",
     "./app/lib/db/collections-schema.ts",
     "./app/lib/db/personal-kits-schema.ts",
+    "./app/lib/db/agentkit-link-schema.ts",
   ],
   dialect: "sqlite",
 });

@@ -73,6 +73,11 @@
     // Rollback = set "0" and redeploy. Needs migrations 0015 and 0016.
     "SKILLX_PERSONAL_KITS_API": "1",
     // Collections API (/api/v1/collections/...). "0" = off (404 everywhere); rollback = set "0" and redeploy. Needs migrations 0009 and 0019.
-    "SKILLX_COLLECTIONS_API": "1"
+    "SKILLX_COLLECTIONS_API": "1",
+    // AgentKit identity: "Link with AgentKit" on /settings, AgentKit access tokens as API credentials,
+    // /oauth/client.json and /.well-known/oauth-protected-resource. On only for "1" or "true"; off,
+    // those paths answer 404 and SkillX works exactly as before. Needs migration 0021 and the
+    // agentkit.best AS serving the https://skillx.sh/api resource. Rollback = set "0" and redeploy.
+    "SKILLX_AGENTKIT_IDENTITY": "0"
   }
 }

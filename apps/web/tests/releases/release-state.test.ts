@@ -1,3 +1,4 @@
+import { BEARER_CHALLENGE } from "~/lib/agentkit/agentkit-config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { loader as manifestLoader } from "~/routes/api.v1.release-manifest";
 import { loader as artifactLoader } from "~/routes/api.v1.release-artifact";
@@ -174,7 +175,7 @@ describe("release state: negative cases", () => {
     const yank = { from: "published", to: "yanked" };
     const noAuth = await change("@alpha/demo", "1.0.0", yank);
     expectError(noAuth, 401, "auth.required");
-    expect(noAuth.headers.get("WWW-Authenticate")).toBe("Bearer");
+    expect(noAuth.headers.get("WWW-Authenticate")).toBe(BEARER_CHALLENGE);
     // A CI publish key may publish but never change state.
     expectError(await change("@alpha/demo", "1.0.0", yank, { key: h.alphaKey }), 401, "invalid_api_key");
     expectError(await change("@alpha/demo", "1.0.0", yank, { admin: "wrong" }), 401, "invalid_admin_secret");

@@ -31,6 +31,11 @@ export default [
   route("api/report", "routes/api.usage-report.ts"),
   route("api/user/api-keys", "routes/api.user-api-keys.ts"),
   route("api/user/interactions", "routes/api.user-interactions.ts"),
+  route("api/user/agentkit-link", "routes/api.user-agentkit-link.ts"),
+  route("auth/agentkit/:step", "routes/auth.agentkit.ts"),
+  route("oauth/client.json", "routes/oauth.client-json.ts"),
+  route(".well-known/oauth-protected-resource", "routes/well-known.oauth-protected-resource.ts", { id: "protected-resource-metadata" }),
+  route(".well-known/oauth-protected-resource/api", "routes/well-known.oauth-protected-resource.ts", { id: "protected-resource-metadata-api" }),
   // GET lists releases; POST (the action re-exported from api.v1.release-publish.ts) publishes one.
   route("api/v1/packages/:scope/:slug/releases", "routes/api.v1.package-releases.ts"),
   route("api/v1/packages/:scope/:slug/releases/:version", "routes/api.v1.release-manifest.ts", { id: "release-manifest-by-version" }),
