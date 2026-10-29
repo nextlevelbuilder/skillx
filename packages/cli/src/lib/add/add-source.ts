@@ -1,0 +1,129 @@
+import { isAbsolute, resolve } from 'node:path';
+import { usageError } from '../install/install-errors.js';
+
+/**
+ * Sources `skillx add` accepts, parsed before anything touches the network or
+ * the disk:
+ *
+ * - `github:owner/repo[/path][@ref]`: a GitHub repository, optionally a
+ *   directory in it and a branch or tag;
+ * - `owner/repo[/skill]`: GitHub shorthand, optionally one skill by name;
+ * - `https://github.com/owner/repo[/tree/<ref>[/<path>]]` maps to `github:`;
+ * - any other `https://` git URL; every other transport (`http`, `ssh`,
+ *   `git@host:`, `file://`, `ext::` and other `::` helpers) is refused, and so
+ *   is anything that starts with `-`, so a source never becomes a git option;
+ * - a local directory: an absolute path, or one starting with `.`/`..`.
+ *
+ * Credentials in a URL may be used to clone but never leave this module in a
+ * label: `label` strips them, and `redactCredentials` masks them in any text.
+ */
+
+export type AddSource =
+  | { kind: 'github'; owner: string; repo: string; path: string; ref?: string; skill?: string; cloneUrl: string; label: string }
+  | { kind: 'git'; cloneUrl: string; label: string }
+  | { kind: 'local'; dir: string; label: string };
+
+const OWNER = '[A-Za-z0-9][A-Za-z0-9-]{0,38}';
+const REPO = '[A-Za-z0-9._-]{1,100}';
+const SHORTHAND = new RegExp(`^(${OWNER})/(${REPO})(?:/([A-Za-z0-9._-]{1,128}))?$`);
+const GITHUB_REF = new RegExp(`^(${OWNER})/(${REPO})(/[^@]*)?(?:@(.+))?$`);
+const GITHUB_URL = new RegExp(`^/(${OWNER})/(${REPO}?)(?:\\.git)?(?:/tree/([^/]+)((?:/[^/]+)*))?/?$`);
+/** A branch or tag name git accepts and that cannot read as an option or a revision expression. */
+const REF = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.lock$)(?!.*\/$)[A-Za-z0-9._/-]{1,200}$/;
+const USAGE = 'owner/repo[/skill], github:owner/repo[/path][@ref], an https git URL or a local directory';
+
+/**
+ * Masks the userinfo of every `scheme://user:secret@host` in `text`. Quotes
+ * end a match, so the result of redacting serialized JSON is still JSON.
+ */
+export function redactCredentials(text: string): string {
+  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@"'<>]*(?:@[^\s/?#@"'<>]*)*@/gi, '$1***@');
+}
+
+const refuse = (input: string, why: string) => usageError(`refusing source '${redactCredentials(input)}': ${why}`);
+
+function checkRepo(repo: string, input: string): void {
+  if (repo === '.' || repo === '..') throw refuse(input, 'the repository name is not a name');
+}
+
+/** A repository path: plain `/`-separated segments, never `.`, `..`, empty, `\` or `:`. */
+export function checkRepoPath(path: string, input: string): string {
+  const trimmed = path.replace(/^\/+|\/+$/g, '');
+  if (trimmed === '') return '';
+  for (const segment of trimmed.split('/')) {
+    if (segment === '' || segment === '.' || segment === '..' || /[\\:\0-\x1f]/.test(segment)) throw refuse(input, `unsafe path '${trimmed}'`);
+  }
+  return trimmed;
+}
+
+function checkRef(ref: string, input: string): string {
+  if (!REF.test(ref)) throw refuse(input, `'${ref}' is not a branch or tag name`);
+  return ref;
+}
+
+function github(input: string, owner: string, repo: string, path: string, ref: string | undefined, skill?: string): AddSource {
+  checkRepo(repo, input);
+  const label = `github:${owner}/${repo}${path ? `/${path}` : ''}${ref ? `@${ref}` : ''}`;
+  return { kind: 'github', owner, repo, path, ...(ref ? { ref } : {}), ...(skill ? { skill } : {}), cloneUrl: `https://github.com/${owner}/${repo}.git`, label };
+}
+
+function fromUrl(input: string): AddSource {
+  if (input.includes('::')) throw refuse(input, 'git transport helpers (ext::, fd:: and the like) are not accepted');
+  if (/^[^/:]+@[^/:]+:/.test(input)) throw refuse(input, 'scp-style ssh sources are not accepted; use an https URL');
+  let url: URL;
+  try {
+    url = new URL(input);
+  } catch {
+    throw refuse(input, 'not a valid URL');
+  }
+  if (url.protocol !== 'https:') throw refuse(input, `only https git URLs are accepted, not ${url.protocol.replace(/:$/, '')}`);
+  if (url.hostname === '') throw refuse(input, 'the URL has no host');
+  if (url.search !== '' || url.hash !== '') throw refuse(input, 'a git URL takes no query or fragment');
+  const credentials = url.username !== '' || url.password !== '';
+  const gh = url.hostname === 'github.com' && url.port === '' && !credentials ? GITHUB_URL.exec(url.pathname) : null;
+  if (gh) {
+    // Decoded first, so an encoded `..%2F..` is checked as the `../..` GitHub would see.
+    const decode = (part: string) => {
+      try {
+        return decodeURIComponent(part);
+      } catch {
+        throw refuse(input, 'the URL path is not valid percent-encoding');
+      }
+    };
+    return github(input, gh[1]!, gh[2]!, checkRepoPath(decode(gh[4] ?? ''), input), gh[3] ? checkRef(decode(gh[3]), input) : undefined);
+  }
+  const bare = new URL(url.href);
+  bare.username = '';
+  bare.password = '';
+  return { kind: 'git', cloneUrl: url.href, label: bare.href };
+}
+
+function isLocalPath(input: string): boolean {
+  return isAbsolute(input) || /^\.\.?(?:[/\\]|$)/.test(input) || /^[A-Za-z]:[/\\]/.test(input);
+}
+
+/** Parses a source string; every refusal is a `usage_error` whose message never carries credentials. */
+export function parseAddSource(input: string, cwd: string = process.cwd()): AddSource {
+  const raw = input.trim();
+  if (raw === '') throw usageError(`name a source: ${USAGE}`);
+  if (/[\0-\x1f\x7f]/.test(raw)) throw refuse(raw, 'it contains control characters');
+  if (raw.startsWith('-')) throw refuse(raw, 'it reads as an option');
+  if (raw.startsWith('@agentkit/')) throw refuse(raw, '@agentkit is reserved for AgentKit kit releases');
+  if (raw.startsWith('@') || /^(?:kit|collection):/.test(raw)) throw refuse(raw, 'registry sources are installed with skillx install');
+  if (isLocalPath(raw)) {
+    const dir = resolve(cwd, raw);
+    return { kind: 'local', dir, label: dir };
+  }
+  if (raw.startsWith('github:')) {
+    const m = GITHUB_REF.exec(raw.slice('github:'.length));
+    if (!m) throw refuse(raw, 'expected github:owner/repo[/path][@ref]');
+    return github(raw, m[1]!, m[2]!, checkRepoPath(m[3] ?? '', raw), m[4] === undefined ? undefined : checkRef(m[4], raw));
+  }
+  if (raw.includes('://') || raw.includes('::') || /^[^/:]+@[^/:]+:/.test(raw)) return fromUrl(raw);
+  const m = SHORTHAND.exec(raw);
+  if (m) return github(raw, m[1]!, m[2]!, '', undefined, m[3]);
+  throw usageError(`'${redactCredentials(raw)}' is not a source: ${USAGE}`);
+}
+
+/** Where discovery starts inside the source: the `github:` path, else the root. */
+export const searchPathOf = (source: AddSource) => (source.kind === 'github' ? source.path : '');

@@ -1,11 +1,11 @@
-import { canonicalJsonBytes, lockDigest } from '@skillx/contracts';
+import { canonicalJsonBytes, isInstallAlias, lockDigest } from '@skillx/contracts';
 import type { InstallLock } from '@skillx/contracts';
 import { sha256Hex } from './fetch-verify.js';
 import { applyOwned, ownedLocks, planOwned, recover } from './install-engine.js';
 import type { ApplyResult, OwnedLock } from './install-engine.js';
 import type { InstallContext } from './install-context.js';
 import { withInstallLock } from './install-context.js';
-import { InstallError, conflictError } from './install-errors.js';
+import { InstallError, conflictError, usageError } from './install-errors.js';
 import { listReceipts, readOwners } from './install-state.js';
 import type { InstallPlan } from './planner.js';
 import { checkRuntimes, parseRefs, resolveSource } from './resolver.js';
@@ -16,6 +16,10 @@ import type { Resolution, SourceRef } from './resolver.js';
  * and the local MCP tools. Every mutating operation holds the install lock,
  * recovers interrupted transactions first and then plans afresh.
  */
+
+/** Owner key prefix of a skill installed by `skillx add`: one owner per skill, `add:<alias>`. */
+export const ADD_OWNER_PREFIX = 'add:';
+export const isAddOwner = (owner: string) => owner.startsWith(ADD_OWNER_PREFIX);
 
 export interface PlannedItem extends OwnedLock {
   plan: InstallPlan;
@@ -80,6 +84,13 @@ export const installRefs = (ctx: InstallContext, refs: readonly string[], expect
  * splits them, so each package is updated and uninstalled on its own.
  */
 export function ownersOfRefs(refs: readonly string[]): string[] {
+  const added = refs.filter(isAddOwner);
+  if (added.length > 0) {
+    if (added.length !== refs.length) throw usageError(`name ${ADD_OWNER_PREFIX}<skill> owners apart from registry sources`);
+    const bad = added.find((r) => !isInstallAlias(r.slice(ADD_OWNER_PREFIX.length)));
+    if (bad !== undefined) throw usageError(`'${bad}' is not ${ADD_OWNER_PREFIX}<skill directory name>`);
+    return [...new Set(added)];
+  }
   const ref = parseRefs(refs);
   if (ref.kind === 'kit') return [`kit:${ref.kit}`];
   if (ref.kind === 'collection') return [`collection:${ref.id}`];
@@ -109,10 +120,19 @@ export async function uninstallRef(ctx: InstallContext, refs: readonly string[],
   });
 }
 
-/** Re-resolves the named installed sources (all when none is named) and applies the changes. */
+/**
+ * Re-resolves the named installed sources (all when none is named) and applies
+ * the changes. Skills from `skillx add` have no registry source to re-resolve:
+ * updating all leaves them alone, and naming one is a usage error that points
+ * at `skillx add <source> --force`.
+ */
 export async function updateInstalled(ctx: InstallContext, refs: readonly string[]): Promise<ApplyOutcome[]> {
   const records = readOwners(ctx.home, ctx.runtime).owners;
-  const wanted = refs.length > 0 ? ownersOfRefs(refs) : Object.keys(records).sort();
+  const named = refs.length > 0 ? ownersOfRefs(refs) : [];
+  if (named.some(isAddOwner)) {
+    throw new InstallError('usage_error', `${named.join(', ')} came from skillx add; refresh with skillx add <source> --force`, { sources: named.map((o) => records[o]?.ref ?? null) });
+  }
+  const wanted = refs.length > 0 ? named : Object.keys(records).filter((o) => !isAddOwner(o)).sort();
   const outcomes: ApplyOutcome[] = [];
   for (const owner of wanted) {
     const record = records[owner];

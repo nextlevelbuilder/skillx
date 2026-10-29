@@ -94,7 +94,7 @@ export const updateCommand = withCommon(new Command('update'))
 
 export const uninstallCommand = withCommon(new Command('uninstall'))
   .description('Remove a source; skills another source still needs stay, edited and unknown files are kept')
-  .argument('<refs...>', 'the source as installed: kit:@handle/kit, collection:<id> or @publisher/package')
+  .argument('<refs...>', 'the source as installed: kit:@handle/kit, collection:<id>, @publisher/package or add:<skill>')
   .option('--lock <file>', 'packages lock file to drop the package from', INSTALL_LOCK_FILENAME)
   .option('--no-lock', 'leave the lock file alone')
   .action((refs: string[], options: ApplyOptions) =>

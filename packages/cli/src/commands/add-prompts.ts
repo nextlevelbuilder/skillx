@@ -1,128 +1,76 @@
-import * as p from '@clack/prompts';
-import pc from 'picocolors';
-import type { AgentType, Skill, InstallMode } from '../lib/add-types.js';
-import { agents, getNonUniversalAgents, getUniversalAgents } from '../lib/agent-registry.js';
-import { getSkillDisplayName } from '../lib/skill-discovery.js';
-import { getLastSelectedAgents, saveSelectedAgents } from '../lib/skill-lock.js';
+import chalk from 'chalk';
+import { InstallError, usageError } from '../lib/install/install-errors.js';
+import type { FoundSkill, SkippedSkill } from '../lib/add/skill-discovery.js';
+import { promptLine } from '../lib/prompt-line.js';
 
-const isCancelled = (value: unknown): value is symbol => typeof value === 'symbol';
+/**
+ * Which skills `skillx add` installs. Names match a skill's front matter name
+ * or its directory name, case-insensitively; `*` takes every installable
+ * skill. A name that matches a refused skill (reserved, invalid front matter)
+ * fails with the reason instead of being skipped quietly. Without names, one
+ * skill is taken as is; several are all taken with `--yes`, chosen at a
+ * prompt in human mode, and must be named under `--json`.
+ */
 
-/** Prompt user to select skills from a list */
-export async function selectSkillsInteractive(skills: Skill[]): Promise<Skill[] | null> {
-  const sorted = [...skills].sort((a, b) =>
-    getSkillDisplayName(a).localeCompare(getSkillDisplayName(b))
-  );
+const baseName = (dir: string) => dir.slice(dir.lastIndexOf('/') + 1);
+const matches = (name: string, skill: { name?: string; dir: string }) => {
+  const n = name.toLowerCase();
+  return skill.name?.toLowerCase() === n || (skill.dir !== '' && baseName(skill.dir).toLowerCase() === n);
+};
 
-  const choices = sorted.map((s) => ({
-    value: s,
-    label: getSkillDisplayName(s),
-    hint: s.description.length > 60 ? s.description.slice(0, 57) + '...' : s.description,
-  }));
-
-  const selected = await p.multiselect({
-    message: `Select skills to install ${pc.dim('(space to toggle)')}`,
-    options: choices as p.Option<Skill>[],
-    required: true,
-  });
-
-  if (isCancelled(selected)) {
-    p.cancel('Installation cancelled');
-    return null;
+export function pickByName(found: readonly FoundSkill[], skipped: readonly SkippedSkill[], names: readonly string[]): FoundSkill[] {
+  const picked = new Set<FoundSkill>();
+  for (const name of names) {
+    const hits = found.filter((s) => matches(name, s));
+    if (hits.length > 0) {
+      hits.forEach((s) => picked.add(s));
+      continue;
+    }
+    const refused = skipped.find((s) => matches(name, s));
+    if (refused) throw usageError(`cannot install ${name}: ${refused.reason}`, { skill: name, dir: refused.dir });
+    throw new InstallError('not_found', `no skill named ${name} in this source`, { skill: name, available: found.map((s) => s.name) });
   }
-  return selected as Skill[];
+  return [...picked];
 }
 
-/** Interactive agent selection with universal agents always included */
-export async function selectAgentsInteractive(options: {
-  global?: boolean;
-}): Promise<AgentType[] | null> {
-  const supportsGlobal = (a: AgentType) => !options.global || agents[a].globalSkillsDir;
-  const otherAgents = getNonUniversalAgents().filter(supportsGlobal);
-
-  const choices = otherAgents.map((a) => ({
-    value: a,
-    label: agents[a].displayName,
-    hint: options.global ? agents[a].globalSkillsDir! : agents[a].skillsDir,
-  }));
-
-  // Pre-select from last session
-  let lastSelected: string[] | undefined;
-  try {
-    lastSelected = await getLastSelectedAgents();
-  } catch { /* ignore */ }
-
-  const initialValues = lastSelected
-    ? (lastSelected.filter((a) => otherAgents.includes(a as AgentType)) as AgentType[])
-    : [];
-
-  const selected = await p.multiselect({
-    message: `Which agents do you want to install to? ${pc.dim('(space to toggle)')}`,
-    options: choices as p.Option<AgentType>[],
-    initialValues,
-    required: true,
-  });
-
-  if (isCancelled(selected)) {
-    p.cancel('Installation cancelled');
-    return null;
+/** Parses `1,3`, `2-4` or `all` against a list of `count` items; null when the answer is not one of those. */
+export function parseChoice(answer: string, count: number): number[] | null {
+  const text = answer.trim().toLowerCase();
+  if (text === 'all' || text === '*') return Array.from({ length: count }, (_, i) => i);
+  const picked = new Set<number>();
+  for (const part of text.split(/[\s,]+/).filter(Boolean)) {
+    const m = /^(\d+)(?:-(\d+))?$/.exec(part);
+    if (!m) return null;
+    const [from, to] = [Number(m[1]), Number(m[2] ?? m[1])];
+    if (from < 1 || to > count || from > to) return null;
+    for (let i = from; i <= to; i++) picked.add(i - 1);
   }
-
-  const agents_selected = selected as AgentType[];
-
-  // Save selection for next time
-  try {
-    await saveSelectedAgents(agents_selected as string[]);
-  } catch { /* ignore */ }
-
-  // Always include universal agents
-  const universals = getUniversalAgents();
-  for (const ua of universals) {
-    if (!agents_selected.includes(ua)) agents_selected.push(ua);
-  }
-
-  return agents_selected;
+  return picked.size > 0 ? [...picked].sort((a, b) => a - b) : null;
 }
 
-/** Prompt for installation scope (project vs global) */
-export async function selectScope(): Promise<boolean | null> {
-  const scope = await p.select({
-    message: 'Installation scope',
-    options: [
-      { value: false, label: 'Project', hint: 'Install in current directory' },
-      { value: true, label: 'Global', hint: 'Install in home directory (all projects)' },
-    ],
-  });
-
-  if (isCancelled(scope)) {
-    p.cancel('Installation cancelled');
-    return null;
+export async function selectSkills(
+  found: readonly FoundSkill[],
+  skipped: readonly SkippedSkill[],
+  names: readonly string[],
+  mode: { yes?: boolean; json?: boolean },
+): Promise<FoundSkill[] | null> {
+  if (names.length > 0 && !names.includes('*')) return pickByName(found, skipped, names);
+  if (found.length === 0) {
+    throw new InstallError('not_found', 'no installable skill found (a skill is a directory with a SKILL.md that has a name and a description)', { skipped });
   }
-  return scope as boolean;
+  if (names.length > 0 || found.length === 1 || mode.yes) return [...found];
+  if (mode.json) throw usageError(`${found.length} skills found; name them with --skill <name...> or --skill '*'`, { available: found.map((s) => s.name) });
+  found.forEach((s, i) => console.log(`  ${chalk.dim(String(i + 1).padStart(2))}  ${chalk.cyan(s.name)}  ${chalk.dim(s.description.slice(0, 70))}`));
+  for (;;) {
+    const answer = await promptLine('Install which skills? (e.g. 1,3 or 2-4 or all; empty to cancel) ', process.stdout);
+    if (answer === null || answer.trim() === '') return null;
+    const picked = parseChoice(answer, found.length);
+    if (picked) return picked.map((i) => found[i]!);
+    console.log(chalk.yellow(`  answer with numbers from 1 to ${found.length}, ranges, or all`));
+  }
 }
 
-/** Prompt for installation method (symlink vs copy) */
-export async function selectInstallMode(): Promise<InstallMode | null> {
-  const mode = await p.select({
-    message: 'Installation method',
-    options: [
-      { value: 'symlink', label: 'Symlink (Recommended)', hint: 'Single source of truth' },
-      { value: 'copy', label: 'Copy to all agents', hint: 'Independent copies' },
-    ],
-  });
-
-  if (isCancelled(mode)) {
-    p.cancel('Installation cancelled');
-    return null;
-  }
-  return mode as InstallMode;
-}
-
-/** Confirm installation */
 export async function confirmInstall(): Promise<boolean> {
-  const confirmed = await p.confirm({ message: 'Proceed with installation?' });
-  if (isCancelled(confirmed) || !confirmed) {
-    p.cancel('Installation cancelled');
-    return false;
-  }
-  return true;
+  const answer = await promptLine('Install? [y/N] ', process.stdout);
+  return answer !== null && /^y(es)?$/i.test(answer.trim());
 }

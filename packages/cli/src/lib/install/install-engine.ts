@@ -5,7 +5,7 @@ import type { Recovery } from './apply-transaction.js';
 import { fetchVerified } from './fetch-verify.js';
 import type { VerifiedTree } from './fetch-verify.js';
 import type { InstallContext } from './install-context.js';
-import { conflictError } from './install-errors.js';
+import { conflictError, integrityError } from './install-errors.js';
 import { RECEIPT_SCHEMA, listReceipts, readOwners, readReceipt, writeOwners, writeReceipt } from './install-state.js';
 import type { InstallReceipt } from './install-state.js';
 import { packagesToFetch, planInstall } from './planner.js';
@@ -28,6 +28,12 @@ export interface OwnedLock {
   ref: string;
   lock: InstallLock;
   overlays: Map<string, SkillOverlay[]>;
+  /**
+   * Trees already read and checked by the caller, by alias (`skillx add`, whose
+   * bytes come from git or a local path, not the registry). When set, nothing
+   * is fetched: a planned alias without a tree here is an integrity error.
+   */
+  trees?: ReadonlyMap<string, VerifiedTree>;
 }
 
 /** Splits a lock into owners: kits and collections own all their packages; explicit packages own themselves. */
@@ -90,7 +96,11 @@ export async function applyOwned(ctx: InstallContext, owned: OwnedLock, plan: In
   refuseConflicts(plan);
   const trees = new Map<string, VerifiedTree>();
   const deps = { registry: ctx.registry, keys: ctx.keys, cacheDir: join(ctx.home, 'cache', 'blobs'), runtime: ctx.runtime };
-  for (const pkg of packagesToFetch(plan, owned.lock)) trees.set(pkg.alias, await fetchVerified(deps, pkg, owned.overlays.get(pkg.alias) ?? []));
+  for (const pkg of packagesToFetch(plan, owned.lock)) {
+    const given = owned.trees?.get(pkg.alias);
+    if (owned.trees !== undefined && given === undefined) throw integrityError(`no checked tree for ${pkg.alias}`, { alias: pkg.alias });
+    trees.set(pkg.alias, given ?? (await fetchVerified(deps, pkg, owned.overlays.get(pkg.alias) ?? [])));
+  }
 
   const result: ApplyResult = { owner: owned.owner, planDigest: plan.planDigest, changed: [], removed: [] };
   const byAlias = new Map(owned.lock.packages.map((p) => [p.alias, p]));

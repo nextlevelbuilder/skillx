@@ -1,103 +1,53 @@
-import pc from 'picocolors';
-import { homedir } from 'os';
-import { sep } from 'path';
-import type { AgentType, InstallMode } from '../lib/add-types.js';
-import { agents, isUniversalAgent } from '../lib/agent-registry.js';
+import chalk from 'chalk';
+import type { ApplyResult } from '../lib/install/install-engine.js';
+import type { FoundSkill, SkippedSkill } from '../lib/add/skill-discovery.js';
 
-/** Shorten a path for display: replace homedir with ~ and cwd with . */
-export function shortenPath(fullPath: string, cwd: string): string {
-  const home = homedir();
-  if (fullPath === home || fullPath.startsWith(home + sep)) {
-    return '~' + fullPath.slice(home.length);
+/** What `skillx add` reports; the same data backs the `--json` envelope. */
+export type AddResult =
+  | { status: 'cancelled' }
+  | { status: 'listed'; source: string; commit?: string; skills: FoundSkill[]; skipped: SkippedSkill[] }
+  | {
+      status: 'installed';
+      source: string;
+      commit?: string;
+      runtime: string;
+      skillsDir: string;
+      skills: Array<{ alias: string; origin: string; digest: string }>;
+      skipped: SkippedSkill[];
+      planDigest: string;
+      applied: ApplyResult[];
+      recovered: { rolledBack: string[]; rolledForward: string[] };
+    };
+
+/** Refused skills go to stderr, so piped stdout stays clean. */
+export function printSkipped(skipped: readonly SkippedSkill[]): void {
+  for (const s of skipped) console.error(chalk.yellow(`  ! skipped ${s.dir || '(root)'}: ${s.reason}`));
+}
+
+export function printAdd(result: AddResult): void {
+  if (result.status === 'cancelled') {
+    console.log(chalk.dim('Cancelled; nothing was installed.'));
+    return;
   }
-  if (fullPath === cwd || fullPath.startsWith(cwd + sep)) {
-    return '.' + fullPath.slice(cwd.length);
+  const at = result.commit ? chalk.dim(` @ ${result.commit.slice(0, 12)}`) : '';
+  if (result.status === 'listed') {
+    console.log(chalk.bold(`\n${result.source}`) + at);
+    for (const s of result.skills) console.log(`  ${chalk.cyan(s.name.padEnd(28))} ${chalk.dim(s.dir || '.')}  ${s.description.slice(0, 80)}`);
+    if (result.skills.length === 0) console.log(chalk.dim('  no installable skill'));
+    printSkipped(result.skipped);
+    return;
   }
-  return fullPath;
-}
-
-/** Format a list of items, truncating if too many */
-export function formatList(items: string[], maxShow = 5): string {
-  if (items.length <= maxShow) return items.join(', ');
-  const shown = items.slice(0, maxShow);
-  return `${shown.join(', ')} +${items.length - maxShow} more`;
-}
-
-/** Pad a string to visible width (ignoring ANSI codes) */
-function padEnd(str: string, width: number): string {
-  const visible = str.replace(/\x1b\[[0-9;]*m/g, '');
-  return str + ' '.repeat(Math.max(0, width - visible.length));
-}
-
-/** Split agents into universal and non-universal groups */
-function splitAgentsByType(agentTypes: AgentType[]): {
-  universal: string[];
-  symlinked: string[];
-} {
-  const universal: string[] = [];
-  const symlinked: string[] = [];
-  for (const a of agentTypes) {
-    if (isUniversalAgent(a)) {
-      universal.push(agents[a].displayName);
-    } else {
-      symlinked.push(agents[a].displayName);
+  console.log(chalk.bold(`\n${result.source}`) + at + chalk.dim(` → ${result.skillsDir}`));
+  for (const a of result.applied) {
+    for (const c of a.changed) {
+      console.log(`  ${chalk.green(c.action.padEnd(9))} ${c.alias}`);
+      if (c.backupDir) console.log(chalk.yellow(`    local changes saved to ${c.backupDir}`));
+      if (c.preserved.length > 0) console.log(chalk.yellow(`    kept files not in the skill: ${c.preserved.slice(0, 5).join(', ')}`));
+      // Stderr, like the installer: an executable file is reported, never run.
+      if (c.executable) console.error(chalk.yellow(`  ! ${c.alias}: ${c.executable.length} executable file(s) written (${c.executable.slice(0, 5).join(', ')}); skillx never runs them, review before use`));
     }
+    if (a.changed.length === 0) console.log(`  ${chalk.dim('unchanged'.padEnd(9))} ${a.owner.slice(a.owner.indexOf(':') + 1)}`);
   }
-  return { universal, symlinked };
-}
-
-/** Build summary lines showing universal vs symlinked agents */
-export function buildAgentSummaryLines(
-  targetAgents: AgentType[],
-  installMode: InstallMode
-): string[] {
-  const lines: string[] = [];
-  const { universal, symlinked } = splitAgentsByType(targetAgents);
-
-  if (installMode === 'symlink') {
-    if (universal.length > 0) {
-      lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
-    }
-    if (symlinked.length > 0) {
-      lines.push(`  ${pc.dim('symlink →')} ${formatList(symlinked)}`);
-    }
-  } else {
-    const allNames = targetAgents.map((a) => agents[a].displayName);
-    lines.push(`  ${pc.dim('copy →')} ${formatList(allNames)}`);
-  }
-  return lines;
-}
-
-/** Build result lines from installation results */
-export function buildResultLines(
-  results: Array<{ agent: string; symlinkFailed?: boolean }>,
-  targetAgents: AgentType[]
-): string[] {
-  const lines: string[] = [];
-  const { universal } = splitAgentsByType(targetAgents);
-
-  const successSymlinks = results
-    .filter((r) => !r.symlinkFailed && !universal.includes(r.agent))
-    .map((r) => r.agent);
-  const failedSymlinks = results.filter((r) => r.symlinkFailed).map((r) => r.agent);
-
-  if (universal.length > 0) {
-    lines.push(`  ${pc.green('universal:')} ${formatList(universal)}`);
-  }
-  if (successSymlinks.length > 0) {
-    lines.push(`  ${pc.dim('symlinked:')} ${formatList(successSymlinks)}`);
-  }
-  if (failedSymlinks.length > 0) {
-    lines.push(`  ${pc.yellow('copied:')} ${formatList(failedSymlinks)}`);
-  }
-  return lines;
-}
-
-/** Ensure universal agents are always included in target list */
-export function ensureUniversalAgents(targetAgents: AgentType[]): AgentType[] {
-  const result = [...targetAgents];
-  if (!result.includes('universal')) {
-    result.push('universal');
-  }
-  return result;
+  printSkipped(result.skipped);
+  console.log(chalk.green('\n✓ done') + chalk.dim('  Skills from git or a local path are not scanned or signed; review them before use.'));
 }
