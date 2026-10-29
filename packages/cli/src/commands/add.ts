@@ -1,7 +1,7 @@
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { INSTALL_LOCK_FILENAME } from '@skillx/contracts';
-import { applyAdd, planAdd } from '../lib/add/add-install.js';
+import { addOwnerOf, applyAdd, planAdd } from '../lib/add/add-install.js';
 import type { AddedSkill } from '../lib/add/add-install.js';
 import { addedEntryOf, dropAddedFromLockFile, writeAddedLock } from '../lib/add/add-lock.js';
 import { openSource, originOf } from '../lib/add/add-refresh.js';
@@ -11,6 +11,7 @@ import { discoverSkills, prepareSkill } from '../lib/add/skill-discovery.js';
 import type { FoundSkill } from '../lib/add/skill-discovery.js';
 import { conflictError } from '../lib/install/install-errors.js';
 import type { ApplyOutcome } from '../lib/install/install-operations.js';
+import { readOwners } from '../lib/install/install-state.js';
 import { assertLockScope } from '../lib/install/lock-file.js';
 import { CliError } from '../lib/output.js';
 import { assertCanPrompt, confirmInstall, selectSkills } from './add-prompts.js';
@@ -80,6 +81,11 @@ export async function runAdd(input: string, options: AddOptions): Promise<AddRes
       if (!(await confirmInstall())) return { status: 'cancelled' };
       expect = plans.map((p) => p.planDigest);
     }
+    // Skills each target had from git before this add: only replacing one of those touches its lock pin.
+    const fromGit = ctxs.map((ctx) => {
+      const owners = readOwners(ctx.home, ctx.runtime).owners;
+      return added.filter((a) => (owners[addOwnerOf(a.alias)]?.lock.packages[0]?.version ?? 'local') !== 'local').map((a) => a.alias);
+    });
     const outcomes: ApplyOutcome[] = [];
     let failed: unknown;
     try {
@@ -98,12 +104,15 @@ export async function runAdd(input: string, options: AddOptions): Promise<AddRes
     if (failed !== undefined && outcomes.length === 0) throw failed;
     // Whatever was installed is pinned, also when a later target failed; that failure stays the one reported.
     let written: string | null = null;
+    let lockError: string | undefined;
     try {
-      written = lockAdded(lockPath, source, chosen, added, snapshot.commit);
+      if (source.kind === 'local') written = dropReplacedPins(lockPath, new Set(fromGit.slice(0, outcomes.length).flat()));
+      else written = lockAdded(lockPath, source, chosen, added, snapshot.commit);
     } catch (error) {
       if (failed === undefined) throw error;
+      lockError = (error as Error).message;
     }
-    if (failed !== undefined) throw partlyInstalled(failed, targets, written);
+    if (failed !== undefined) throw partlyInstalled(failed, targets, written, lockError);
     return {
       status: 'installed',
       ...base,
@@ -117,22 +126,37 @@ export async function runAdd(input: string, options: AddOptions): Promise<AddRes
   }
 }
 
-/**
- * Pins the skills read from git in the packages lock at `lockPath`. A local
- * copy has no portable source: it drops what the lock pinned under its names.
- */
+/** Pins the skills read from git in the packages lock at `lockPath`. */
 function lockAdded(lockPath: string | null, source: AddSource, chosen: readonly FoundSkill[], added: readonly AddedSkill[], commit?: string): string | null {
   if (lockPath === null) return null;
-  if (source.kind === 'local') return added.reduce<string | null>((written, a) => dropAddedFromLockFile(lockPath, a.alias) ?? written, null);
   return writeAddedLock(lockPath, chosen.flatMap((s, i) => addedEntryOf(source, s.name, s.dir, commit, added[i]!.tree.digest) ?? []));
 }
 
+/**
+ * A local copy that replaced a skill added from git has no portable source:
+ * the lock no longer describes it, so its pin goes. A lock that cannot be
+ * read is left alone, as a local add never needs one.
+ */
+function dropReplacedPins(lockPath: string | null, replaced: ReadonlySet<string>): string | null {
+  if (lockPath === null) return null;
+  let written: string | null = null;
+  for (const alias of replaced) {
+    try {
+      written = dropAddedFromLockFile(lockPath, alias) ?? written;
+    } catch {
+      return written;
+    }
+  }
+  return written;
+}
+
 /** A later target's failure, with the targets installed before it and the lock written for them. */
-function partlyInstalled(error: unknown, targets: AddTarget[], lockPath: string | null): unknown {
+function partlyInstalled(error: unknown, targets: AddTarget[], lockPath: string | null, lockError?: string): unknown {
   if (!(error instanceof CliError)) return error;
   const { details, hint } = error.extra;
   const installed = targets.map((t) => ({ runtime: t.runtime, skillsDir: t.skillsDir }));
-  const merged = typeof details === 'object' && details !== null && !Array.isArray(details) ? { ...details, installed, lockPath } : { cause: details, installed, lockPath };
+  const extra = { installed, lockPath, ...(lockError === undefined ? {} : { lockError }) };
+  const merged = typeof details === 'object' && details !== null && !Array.isArray(details) ? { ...details, ...extra } : { cause: details, ...extra };
   return new CliError(error.code, `${error.message} (installed into ${installed.map((t) => t.runtime).join(', ')} before it failed)`, { details: merged, ...(hint ? { hint } : {}) });
 }
 

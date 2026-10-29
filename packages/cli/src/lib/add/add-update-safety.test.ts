@@ -11,6 +11,9 @@ import { CliError } from '../output.js';
 import type { InstallLockAdded } from '@skillx/contracts';
 import { existingLock } from '../install/lock-file.js';
 import { entrySourceRef, writeAddedLock } from './add-lock.js';
+import { applyAdd } from './add-install.js';
+import { openLocalSource } from './local-source.js';
+import { prepareSkill } from './skill-discovery.js';
 import { pickUpdated, updateAdded, updateFailure } from './add-refresh.js';
 import { parseAddSource } from './add-source.js';
 import { openGitSource } from './git-source.js';
@@ -100,12 +103,20 @@ describe('the lock of added skills', () => {
     expect(entrySourceRef({ ...entry, path: 'team@x/demo' })).toBe('github:acme/skills@v1');
   });
 
-  it('drops a pinned skill that a local copy replaces', async () => {
+  it('drops the pin of a skill from git that a local copy replaces, and no other', async () => {
     const lockPath = join(root, 'skillx.lock.json');
     writeAddedLock(lockPath, [entry, { ...entry, alias: 'other', path: 'skills/other' }]);
     const src = join(root, 'src');
+    write(join(src, 'other', 'SKILL.md'), skillMd('other'));
+    // Never added from git here: the lock is not this install's to change.
+    await runAdd(src, { json: true, skill: ['other'], lock: lockPath });
+    expect((existingLock(lockPath)?.added ?? []).map((a) => a.alias)).toEqual(['demo', 'other']);
     write(join(src, 'demo', 'SKILL.md'), skillMd('demo'));
-    const result = await runAdd(src, { json: true, lock: lockPath });
+    const snapshot = openLocalSource(src);
+    const tree = prepareSkill(snapshot, { name: 'demo', description: '', dir: 'demo' });
+    snapshot.dispose();
+    await applyAdd(ctx(), [{ alias: 'demo', origin: 'github:acme/skills/skills/demo@v1', ref: 'github:acme/skills/skills/demo@v1', version: C, tree }]);
+    const result = await runAdd(src, { json: true, skill: ['demo'], force: true, lock: lockPath });
     expect(result).toMatchObject({ status: 'installed', lockPath });
     expect((existingLock(lockPath)?.added ?? []).map((a) => a.alias)).toEqual(['other']);
   });
@@ -137,6 +148,12 @@ describe('commit ids', () => {
       snapshot.dispose();
     }
     expect(thrown(() => openGitSource(url, 'repo', loose, 'file')).code).toBe('integrity_error');
+    // A remote whose HEAD names no branch still has the commit on its branches.
+    git(src, ['symbolic-ref', 'HEAD', 'refs/heads/gone']);
+    const followed = openGitSource(url, 'repo', side, 'file', 'side');
+    expect(followed.commit).toBe(side);
+    followed.dispose();
+    openGitSource(url, 'repo', side, 'file').dispose();
   });
 });
 

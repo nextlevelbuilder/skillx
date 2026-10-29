@@ -245,8 +245,9 @@ most hosts do; a host that does not answers `not_found` or `network_error`, so
 name a branch or tag instead). A host can serve any commit of its object
 store, and on GitHub that includes commits pushed only to a fork, so the commit
 is read only when a branch or tag of the named repository contains it: the
-default branch is checked first, then every branch and tag, fetching commits
-only (no files). A commit no branch or tag has, or a commit read that is not
+lock's recorded branch or tag is checked first (on `sync --locked`), then the
+default branch, then every branch and tag, fetching commits only where the
+host supports it (`--filter=tree:0`). A commit no branch or tag has, or a commit read that is not
 the one named, is an `integrity_error`.
 
 **Options:**
@@ -337,10 +338,12 @@ is a `usage_error` before anything is cloned, as with `install`.
   are a `conflict` unless `--force`. A skill no longer in its source is
   `not_found`. A source that fails does not stop the others: they are
   installed and locked, then the command fails with every failed source in
-  `details.failures` (and the owners updated in `details.updated`). A lock
+  `details.failures` (the message and `details.updated` name the owners
+  that were updated). A lock
   that already pins the skill gets its new commit and digest; `update` never
-  starts a lock. Adding a skill from a local directory drops a lock entry
-  of the same name, since that skill no longer comes from the pinned source.
+  starts a lock. Adding a local copy over a skill that target had from git
+  drops that skill's lock entry, since it no longer comes from the pinned
+  source; any other local add leaves the lock alone.
 - `skillx sync --locked` restores added skills with the packages: each locked
   commit is fetched, and the skill's directory there must hash to the locked
   tree digest, else `integrity_error` and nothing is installed.

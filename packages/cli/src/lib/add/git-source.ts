@@ -130,27 +130,32 @@ function readBlobs(dir: string, oids: readonly string[]): Uint8Array[] {
  * A host may serve any commit of its object store, and on GitHub that holds
  * commits pushed only to a fork, so a commit id alone does not prove the
  * named repository has it. It is read only when a branch or tag of that
- * repository contains it: the default branch first, then every branch and
- * tag, fetched as commits only (`--filter=tree:0`), so the check costs the
- * history after `commit`, never files.
+ * repository contains it: the recorded branch or tag first (`follow`), then
+ * the default branch, then every branch and tag, as commits only where the
+ * host supports `--filter=tree:0`; a branch holding it costs only later history.
  */
-function assertOnBranchOrTag(repo: string, url: string, label: string, commit: string, transport: string): void {
+function assertOnBranchOrTag(repo: string, url: string, label: string, commit: string, transport: string, follow?: string): void {
   const what = `checking that a branch or tag of ${label} has ${commit}`;
   const fetch = (refspecs: string[]) => git([...guard(transport), ...inClone(repo), 'fetch', '-q', '--filter=tree:0', '--no-tags', '--', url, ...refspecs], what);
   const contained = () => git([...inClone(repo), 'for-each-ref', '--count=1', '--format=%(refname)', '--contains', commit, 'refs/skillx/head', 'refs/skillx/heads/', 'refs/skillx/tags/'], what).length > 0;
-  fetch(['+HEAD:refs/skillx/head']);
-  if (!contained()) fetch(['+refs/heads/*:refs/skillx/heads/*', '+refs/tags/*:refs/skillx/tags/*']);
-  if (!contained()) throw new InstallError('integrity_error', `no branch or tag of ${label} has commit ${commit}; a host can serve a commit that only a fork has, so it is not read`, { commit });
-  try {
-    // The filtered fetch made the URL a promisor remote; without it no later read fetches a missing object.
-    git([...inClone(repo), 'config', '--remove-section', `remote.${url}`], 'git config');
-  } catch {
-    // No promisor remote was recorded (the server ignored the filter).
+  const found = [...(follow === undefined ? [] : [follow]), 'HEAD'].some((ref) => {
+    try {
+      fetch([`+${ref}:refs/skillx/head`]);
+    } catch {
+      return false; // no such ref (or no HEAD): the full check below decides
+    }
+    return contained();
+  });
+  if (!found) {
+    fetch(['+refs/heads/*:refs/skillx/heads/*', '+refs/tags/*:refs/skillx/tags/*']);
+    if (!contained()) throw new InstallError('integrity_error', `no branch or tag of ${label} has commit ${commit}; a host can serve a commit that only a fork has, so it is not read`, { commit });
   }
+  // The filtered fetch made the URL a promisor remote; without it no later read fetches a missing object.
+  spawnSync('git', [...inClone(repo), 'config', '--remove-section', `remote.${url}`], { env: gitEnv(), windowsHide: true });
 }
 
-/** Clones `url` and returns a snapshot of its HEAD; the clone is removed by `dispose`. */
-export function openGitSource(url: string, label: string, ref?: string, transport = 'https'): SourceSnapshot {
+/** Clones `url` and returns a snapshot of its HEAD (`follow`: the branch or tag a commit `ref` is checked on first); the clone is removed by `dispose`. */
+export function openGitSource(url: string, label: string, ref?: string, transport = 'https', follow?: string): SourceSnapshot {
   const dir = mkdtempSync(join(tmpdir(), 'skillx-add-'));
   const dispose = () => rmSync(dir, { recursive: true, force: true });
   try {
@@ -168,7 +173,7 @@ export function openGitSource(url: string, label: string, ref?: string, transpor
     }
     if (ref !== undefined && isCommitRef(ref)) {
       if (commit !== ref) throw new InstallError('integrity_error', `${label} returned commit ${commit}, not ${ref}`);
-      assertOnBranchOrTag(repo, url, label, commit, transport);
+      assertOnBranchOrTag(repo, url, label, commit, transport, follow);
     }
     const entries = listTree(repo);
     const byPath = new Map(entries.map((e) => [e.path, e]));

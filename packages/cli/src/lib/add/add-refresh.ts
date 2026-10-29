@@ -95,10 +95,11 @@ export async function updateAdded(ctx: InstallContext, owners: readonly string[]
 export function updateFailure(result: RefreshOutcome, lockPath: string | null): InstallError | null {
   if (result.failures.length === 0) return null;
   const first = result.failures[0]!.error;
-  const code = first instanceof CliError ? first.code : 'network_error';
+  const code = first instanceof CliError ? first.code : 'unexpected_error';
   const failures = result.failures.map((f) => ({ ref: f.ref, aliases: f.aliases, code: f.error instanceof CliError ? f.error.code : undefined, message: f.error.message }));
   const updated = result.outcomes.flatMap((o) => o.items.map((i) => i.owner));
-  return new InstallError(code, `${failures.length} source(s) could not be updated: ${failures.map((f) => `${f.ref}: ${f.message}`).join('; ')}`, { failures, updated, lockPath });
+  const done = updated.length > 0 ? `; updated ${updated.join(', ')}` : '';
+  return new InstallError(code, `${failures.length} source(s) could not be updated: ${failures.map((f) => `${f.ref}: ${f.message}`).join('; ')}${done}`, { failures, updated, lockPath });
 }
 
 async function updateSource(ctx: InstallContext, ref: string, aliases: readonly string[], records: ReturnType<typeof readOwners>['owners'], result: RefreshOutcome): Promise<void> {
@@ -125,7 +126,8 @@ export function readLockedAdded(entries: readonly InstallLockAdded[], transport 
   const skills: AddedSkill[] = [];
   for (const group of byCommit.values()) {
     const { repository, commit } = group[0]!;
-    const snapshot = openGitSource(repository, repository, commit, transport);
+    const follow = group.map((e) => e.ref).find((r) => r !== undefined && r !== commit);
+    const snapshot = openGitSource(repository, repository, commit, transport, follow);
     try {
       for (const entry of group) {
         const found = discoverSkills(snapshot, entry.path).skills.find((s) => s.dir === entry.path);
