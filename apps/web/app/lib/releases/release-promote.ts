@@ -44,7 +44,7 @@ const isChannel = (value: unknown): value is ReleaseChannel => typeof value === 
 
 /** Re-checked inside the batch: the release is published and its publisher active. */
 const PROMOTABLE_GUARD = `EXISTS (SELECT 1 FROM package_releases gr JOIN packages gp ON gp.id = gr.package_id
-  JOIN publishers gpub ON gpub.id = gp.publisher_id WHERE gr.id = ? AND gr.release_state = 'published' AND gpub.state = 'active')`;
+  JOIN publishers gpub ON gpub.id = gp.publisher_id WHERE gr.id = ? AND gr.release_state = 'published' AND gpub.state = 'active' AND gp.deleted_at IS NULL)`;
 
 interface Subject {
   id: string;

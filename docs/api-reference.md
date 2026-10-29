@@ -1772,14 +1772,19 @@ unscoped API key or the session. Scoped keys (publish, `library:read`,
 so the endpoints do not disclose existence;
 the owner of a suspended or revoked publisher gets `403 publisher_revoked`.
 The admin may delete and restore, never change visibility (`403
-visibility.owner_only`).
+visibility.owner_only`). An admin delete is containment: only the admin can
+restore it, and the owner gets `403 restore.admin_deleted` (decided by the
+latest `delete` row in `package_audit`, re-checked inside the restore batch).
 
 **Visibility** (`public`, `unlisted`, `private`) is a compare-and-set:
 `from` must be the stored visibility, else `409 visibility_conflict` and
-nothing is written. Any change to `public` needs a signed-in web session and
-`"approve": true`; an API key, or a session without approval, gets `403
-visibility.approval_required`. Narrowing (to `unlisted` or `private`) is
-allowed with a session or an unscoped key and takes effect on the next read;
+nothing is written. Widening, so that anonymous callers can read more
+(`private` to `unlisted` or `public`, `unlisted` to `public`), needs a
+signed-in web session and `"approve": true`, because `unlisted` is readable by
+anyone who knows the name; an API key, or a session without approval, gets
+`403 visibility.approval_required`. Narrowing (`public` to `unlisted`,
+anything to `private`) is allowed with a session or an unscoped key and takes
+effect on the next read;
 copies already downloaded are not recalled. A deleted package cannot change
 visibility (`404`). Kit visibility is not changed here: it follows the
 activated revision (`private` or `public`, see
@@ -1809,7 +1814,7 @@ one batch under the same guard, so a lost race writes neither (`409`).
 |--------|-------|
 | 400 | `invalid_request` (body, unknown member, `from` equal to `to`), `identity.invalid` |
 | 401 | `auth.required`, `invalid_api_key`, `invalid_admin_secret`, scoped keys |
-| 403 | `cross_origin`, `visibility.approval_required`, `visibility.owner_only`, `publisher_revoked` |
+| 403 | `cross_origin`, `visibility.approval_required`, `visibility.owner_only`, `publisher_revoked`, `restore.admin_deleted` |
 | 404 | `not_found`, `kit.api_disabled` |
 | 409 | `visibility_conflict`, `package.deleted`, `package.not_deleted`, `package.state_conflict`, `kit.deleted`, `kit.not_deleted`, `kit.state_conflict` |
 | 410 | `restore_window_expired` |

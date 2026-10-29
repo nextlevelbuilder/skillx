@@ -95,18 +95,35 @@ export async function softDelete(db: D1Database, s: LifecycleSubject, actor: Req
   return { deletedAt: at, restoreDeadline: restoreDeadline(at) };
 }
 
-/** Restores a deleted subject within the window; 409 when not deleted, 410 after the window. */
+/** The actor kind of the subject's latest delete. Binds: subject kind, subject id. */
+const LATEST_DELETE_ACTOR = `(SELECT actor_kind FROM package_audit WHERE subject_kind = ? AND subject_id = ? AND action = 'delete'
+  ORDER BY created_at DESC, rowid DESC LIMIT 1)`;
+
+/**
+ * Restores a deleted subject within the window; 409 when not deleted, 410
+ * after the window. An admin delete is containment: only the admin may undo it
+ * (`403 restore.admin_deleted`), re-checked inside the batch.
+ */
 export async function restoreDeleted(db: D1Database, s: LifecycleSubject, actor: RequestActor, now: Date): Promise<{ restoredAt: number }> {
   if (s.deletedAt === null) throw releaseError(409, `${s.kind}.not_deleted`, `${s.name} is not deleted`);
+  const ownerRestore = actor.kind !== "admin";
+  if (ownerRestore) {
+    const latest = await db.prepare(`SELECT ${LATEST_DELETE_ACTOR} AS actor_kind`).bind(s.kind, s.id).first<{ actor_kind: string | null }>();
+    if (latest?.actor_kind === "admin") throw releaseError(403, "restore.admin_deleted", `${s.name} was deleted by an admin; only an admin can restore it`);
+  }
   const at = now.getTime();
   if (at > restoreDeadline(s.deletedAt)) {
     throw releaseError(410, "restore_window_expired", `${s.name} was deleted more than 30 days ago and can no longer be restored; the name stays reserved`);
   }
+  const notAdminDeleted = ownerRestore ? { sql: ` AND COALESCE(${LATEST_DELETE_ACTOR}, '') <> 'admin'`, binds: [s.kind, s.id] } : { sql: "", binds: [] };
   const ok = await applyAudited(
     db,
     { subjectKind: s.kind, subjectId: s.id, subjectName: s.name, actor, action: "restore", from: "deleted", to: "live", at },
-    { sql: `EXISTS (SELECT 1 FROM ${s.table} WHERE id = ? AND deleted_at = ?)`, binds: [s.id, s.deletedAt] },
-    { sql: `UPDATE ${s.table} SET deleted_at = NULL, updated_at = ?${s.extraSet ?? ""} WHERE id = ? AND deleted_at = ?`, binds: [at, s.id, s.deletedAt] },
+    { sql: `EXISTS (SELECT 1 FROM ${s.table} WHERE id = ? AND deleted_at = ?)${notAdminDeleted.sql}`, binds: [s.id, s.deletedAt, ...notAdminDeleted.binds] },
+    {
+      sql: `UPDATE ${s.table} SET deleted_at = NULL, updated_at = ?${s.extraSet ?? ""} WHERE id = ? AND deleted_at = ?${notAdminDeleted.sql}`,
+      binds: [at, s.id, s.deletedAt, ...notAdminDeleted.binds],
+    },
   );
   if (!ok) throw lifecycleConflict(s);
   return { restoredAt: at };

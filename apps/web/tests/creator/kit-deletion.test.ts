@@ -134,6 +134,16 @@ describe("kit restore", () => {
     expect((await k.call("")).status).toBe(404);
   });
 
+  it("refuses the owner restoring an admin delete with 403 restore.admin_deleted", async () => {
+    const admin = { key: null, headers: { "X-Admin-Secret": ADMIN } };
+    expect((await k.call("delete", {}, admin)).status).toBe(200);
+    expect(await kitAction("restore", NOW)).toMatchObject({ status: 403, body: { error: { code: "restore.admin_deleted" } } });
+    expect((await k.call("")).status).toBe(404);
+    expect(kitAudit().map((a: any) => [a.actor_kind, a.action])).toEqual([["admin", "delete"]]);
+    expect((await k.call("restore", {}, admin)).status).toBe(200);
+    expect((await k.call("")).status).toBe(200);
+  });
+
   it("answers 409 kit.not_deleted to a live kit and kit.deleted to a second delete", async () => {
     expect((await k.call("restore", {})).body.error.code).toBe("kit.not_deleted");
     await k.call("delete", {});

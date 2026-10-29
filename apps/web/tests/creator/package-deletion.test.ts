@@ -135,6 +135,23 @@ describe("package restore", () => {
     expect(res.body.error.code).toBe("package.deleted");
   });
 
+  it("refuses the owner restoring an admin delete with 403 restore.admin_deleted", async () => {
+    expect((await manage("@alpha/demo", "delete", {}, { admin: ADMIN, now: NOW })).status).toBe(200);
+    session.user = { id: "user-a" };
+    expectError(await manage("@alpha/demo", "restore", {}, { key: ownerKey, now: at(1) }), 403, "restore.admin_deleted");
+    expectError(await manage("@alpha/demo", "restore", {}, { headers: { Origin: "https://skillx.test" }, now: at(1) }), 403, "restore.admin_deleted");
+    expect(visibilityOf(h, "@alpha/demo").deleted_at).toBe(NOW.getTime());
+    expect(packageAudit(h).map((a) => [a.actor_kind, a.action])).toEqual([["admin", "delete"]]);
+    expect((await manage("@alpha/demo", "restore", {}, { admin: ADMIN, now: at(1) })).status).toBe(200);
+  });
+
+  it("lets the owner restore their own delete after an earlier admin delete was restored", async () => {
+    await manage("@alpha/demo", "delete", {}, { admin: ADMIN, now: NOW });
+    await manage("@alpha/demo", "restore", {}, { admin: ADMIN, now: at(1) });
+    expect((await manage("@alpha/demo", "delete", {}, { key: ownerKey, now: at(2) })).status).toBe(200);
+    expect((await manage("@alpha/demo", "restore", {}, { key: ownerKey, now: at(3) })).status).toBe(200);
+  });
+
   it("answers 409 package.not_deleted to a live package", async () => {
     expectError(await manage("@alpha/demo", "restore", {}, { key: ownerKey }), 409, "package.not_deleted");
   });

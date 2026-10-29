@@ -2,7 +2,8 @@
  * Soft delete and restore of a personal kit. Only its owner (session or
  * unscoped key) or the admin may; anyone else gets the kit API's unknown-kit
  * `404 not_found`. The owner's publisher must still be active and owned
- * (`403 kit.publisher_not_owned`, as on every kit write). Both changes bump
+ * (`403 kit.publisher_not_owned`, as on every kit write). A kit the admin
+ * deleted can only be restored by the admin (`403 restore.admin_deleted`). Both changes bump
  * the kit generation, so a kit write racing them fails its compare-and-set.
  */
 import { kitNotFound } from "~/lib/personal-kits/kit-http";

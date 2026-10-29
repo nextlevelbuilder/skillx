@@ -70,10 +70,13 @@ export function LifecycleActions({ noun, identity, deletedAt, restoreDeadline, u
           }}
         >
           <p>
-            The {noun} disappears from every read, listing, install and download link at once, for everyone including you. You can restore it from this
-            dashboard for 30 days.
+            New requests for the {noun} stop being served at once: reads, listings, installs and download links refuse it, for everyone including you. You
+            can restore it from this dashboard for 30 days.
           </p>
-          <p>After 30 days it cannot be restored, and its name stays reserved: it can never be published again. Copies already installed are not recalled.</p>
+          <p>
+            After 30 days it cannot be restored, and its name stays reserved: it can never be published again. Copies already installed, downloaded or cached
+            elsewhere are not deleted or recalled.
+          </p>
         </ConfirmDialog>
       )}
     </>

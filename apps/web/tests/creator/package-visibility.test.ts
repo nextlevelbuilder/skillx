@@ -47,7 +47,7 @@ describe("package visibility: narrowing", () => {
   });
 
   it("answers 409 visibility_conflict when from is stale and writes nothing", async () => {
-    expectError(await manage("@alpha/demo", "visibility", { from: "private", to: "unlisted" }, { key: ownerKey }), 409, "visibility_conflict");
+    expectError(await manage("@alpha/demo", "visibility", { from: "unlisted", to: "private" }, { key: ownerKey }), 409, "visibility_conflict");
     expect(packageAudit(h)).toEqual([]);
     expect(visibilityOf(h, "@alpha/demo").visibility).toBe("public");
   });
@@ -89,6 +89,34 @@ describe("package visibility: making a package public", () => {
       expectError(await manage("@alpha/demo", "delete", {}, { headers }), 403, "cross_origin");
     }
     expect(packageAudit(h)).toEqual([]);
+  });
+});
+
+describe("package visibility: making a private package unlisted", () => {
+  beforeEach(() => setVisibility("@alpha/demo", "private"));
+
+  it("refuses an owner API key, because unlisted is readable anonymously", async () => {
+    for (const approve of [false, true]) {
+      expectError(await manage("@alpha/demo", "visibility", { from: "private", to: "unlisted", approve }, { key: ownerKey }), 403, "visibility.approval_required");
+    }
+    expect(visibilityOf(h, "@alpha/demo").visibility).toBe("private");
+    expect(packageAudit(h)).toEqual([]);
+    expect(await readStatuses("@alpha/demo", digest)).toEqual([404, 404, 404, 404]);
+  });
+
+  it("refuses a web session without approve: true and accepts one with it", async () => {
+    session.user = { id: "user-a" };
+    expectError(await manage("@alpha/demo", "visibility", { from: "private", to: "unlisted" }, { headers: SAME_ORIGIN }), 403, "visibility.approval_required");
+    const res = await manage("@alpha/demo", "visibility", { from: "private", to: "unlisted", approve: true }, { headers: SAME_ORIGIN });
+    expect(res).toMatchObject({ status: 200, body: { visibility: "unlisted" } });
+    expect(packageAudit(h)).toEqual([expect.objectContaining({ actor_kind: "user", from_value: "private", to_value: "unlisted" })]);
+    expect(await readStatuses("@alpha/demo", digest)).toEqual([200, 200, 200, 200]);
+  });
+
+  it("lets an owner API key make an unlisted package private again", async () => {
+    setVisibility("@alpha/demo", "unlisted");
+    expect((await manage("@alpha/demo", "visibility", { from: "unlisted", to: "private" }, { key: ownerKey })).status).toBe(200);
+    expect(visibilityOf(h, "@alpha/demo").visibility).toBe("private");
   });
 });
 

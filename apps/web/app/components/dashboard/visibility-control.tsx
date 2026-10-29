@@ -16,16 +16,22 @@ const MEANING: Record<PackageVisibility, string> = {
   private: "Readable only by you and accounts holding an entitlement.",
 };
 
+const WIDENED_READERS: Record<string, string> = {
+  public: "Every release that is not yanked or quarantined becomes downloadable by anyone, without signing in.",
+  unlisted: "Anyone with its name or a link to a release can read and download every release that is not yanked or quarantined, without signing in.",
+};
+
 /**
- * Visibility selector. Every change is confirmed; making a package public
- * takes a second explicit approval (the API accepts it only from this signed-in
- * session with `approve: true`). Narrowing visibility never recalls copies
- * already downloaded or installed.
+ * Visibility selector. Every change is confirmed; widening it (out of private,
+ * or to public) takes a second explicit approval (the API accepts it only from
+ * this signed-in session with `approve: true`). Narrowing visibility never
+ * recalls copies already downloaded or installed.
  */
 export function VisibilityControl({ identity, visibility, disabled = false }: VisibilityControlProps) {
   const { run, busy, error, clearError } = useOwnerAction();
   const [target, setTarget] = useState<PackageVisibility | null>(null);
   const [step, setStep] = useState<1 | 2>(1);
+  const widening = target !== null && (visibility === "private" ? target !== "private" : target === "public");
 
   const close = () => {
     setTarget(null);
@@ -34,7 +40,7 @@ export function VisibilityControl({ identity, visibility, disabled = false }: Vi
   };
   const apply = async () => {
     if (target === null) return;
-    const ok = await run(packageActionUrl(identity, "visibility"), { from: visibility, to: target, ...(target === "public" ? { approve: true } : {}) });
+    const ok = await run(packageActionUrl(identity, "visibility"), { from: visibility, to: target, ...(widening ? { approve: true } : {}) });
     if (ok) close();
   };
 
@@ -58,21 +64,22 @@ export function VisibilityControl({ identity, visibility, disabled = false }: Vi
         ))}
       </select>
 
-      {target === "public" && step === 1 && (
-        <ConfirmDialog title={`Make ${identity} public?`} confirmLabel="Continue" onConfirm={() => setStep(2)} onCancel={close}>
-          <p>{MEANING.public}</p>
-          <p>Every release that is not yanked or quarantined becomes downloadable by anyone, without signing in.</p>
+      {widening && step === 1 && (
+        <ConfirmDialog title={`Make ${identity} ${target}?`} confirmLabel="Continue" onConfirm={() => setStep(2)} onCancel={close}>
+          <p>{MEANING[target]}</p>
+          <p>{WIDENED_READERS[target]}</p>
         </ConfirmDialog>
       )}
-      {target === "public" && step === 2 && (
-        <ConfirmDialog title="Approve making it public" confirmLabel="Approve and make public" busy={busy} error={error} onConfirm={apply} onCancel={close}>
+      {widening && step === 2 && (
+        <ConfirmDialog title={`Approve making it ${target}`} confirmLabel={`Approve and make ${target}`} busy={busy} error={error} onConfirm={apply} onCancel={close}>
           <p>
-            This is a separate approval: <code className="font-mono text-sx-fg">{identity}</code> becomes readable by anyone. Making it private again later
-            does not recall copies people downloaded in the meantime.
+            This is a separate approval: <code className="font-mono text-sx-fg">{identity}</code> becomes readable by{" "}
+            {target === "public" ? "anyone" : "anyone with its name or a link"}. Making it private again later does not recall copies people downloaded in
+            the meantime.
           </p>
         </ConfirmDialog>
       )}
-      {target !== null && target !== "public" && (
+      {target !== null && !widening && (
         <ConfirmDialog title={`Make ${identity} ${target}?`} confirmLabel={`Make ${target}`} busy={busy} error={error} onConfirm={apply} onCancel={close}>
           <p>{MEANING[target]}</p>
           {(target === "private" || visibility === "public") && <p>Copies already downloaded or installed are not recalled; only new reads are refused.</p>}

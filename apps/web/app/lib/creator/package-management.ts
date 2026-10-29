@@ -7,13 +7,16 @@
  *   cannot test whether a package exists. The owner of a suspended or revoked
  *   publisher gets `403 publisher_revoked`.
  * - The admin (`X-Admin-Secret`) may delete and restore, never change
- *   visibility (`403 visibility.owner_only`).
+ *   visibility (`403 visibility.owner_only`). A package the admin deleted
+ *   can only be restored by the admin (`403 restore.admin_deleted`).
  * - A visibility change is a compare-and-set on `from` (`409
- *   visibility_conflict`). Making a package `public` (from private or
- *   unlisted) needs an interactive web session and `"approve": true`, never an
- *   API key (`403 visibility.approval_required`). Narrowing (to unlisted or
- *   private) is allowed with a session or an unscoped key. A deleted package
- *   cannot change visibility (`404`).
+ *   visibility_conflict`). Widening it, so anonymous callers can read more
+ *   (private to unlisted or public, unlisted to public), needs an interactive
+ *   web session and `"approve": true`, never an API key (`403
+ *   visibility.approval_required`): unlisted is anonymously readable by name.
+ *   Narrowing (public to unlisted, anything to private) is allowed with a
+ *   session or an unscoped key. A deleted package cannot change visibility
+ *   (`404`).
  */
 import type { PackageVisibility } from "@skillx/contracts";
 import { notFound } from "~/lib/releases/release-access";
@@ -64,7 +67,7 @@ const lifecycleSubject = (pkg: PackageSubject): LifecycleSubject => ({
 export interface VisibilityChange {
   from: PackageVisibility;
   to: PackageVisibility;
-  /** The explicit approval a change to `public` needs. */
+  /** The explicit approval a widening change (out of private, or to public) needs. */
   approve: boolean;
   /** A signed-in web session: no API key and no admin secret. */
   interactive: boolean;
@@ -78,11 +81,12 @@ export async function changePackageVisibility(db: D1Database, identity: string, 
   const pkg = await managedPackage(db, identity, actor);
   if (pkg.deleted_at !== null) throw notFound();
   if (from === to) throw releaseError(400, "invalid_request", "from and to must differ");
-  if (to === "public" && !(change.interactive && change.approve)) {
+  const widening = from === "private" ? to !== "private" : to === "public";
+  if (widening && !(change.interactive && change.approve)) {
     throw releaseError(
       403,
       "visibility.approval_required",
-      'making a package public needs explicit approval in a signed-in web session ("approve": true), never an API key',
+      `making a ${from} package ${to} needs explicit approval in a signed-in web session ("approve": true), never an API key`,
     );
   }
   if (pkg.visibility !== from) throw releaseError(409, "visibility_conflict", `${identity} is no longer ${from}; reload it and retry`);

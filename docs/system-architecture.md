@@ -719,10 +719,12 @@ catalog, not registry packages) and is never shared-cached.
 **Changing visibility, deleting and restoring** happen only through the owner
 management API (`lib/creator/`, used by the `/dashboard` page; see
 [api-reference.md](./api-reference.md#managing-packages-and-kits-owner)).
-A visibility change is a compare-and-set on `from`; widening to `public` needs
-an interactive web session and explicit approval, never an API key, while
-narrowing is allowed with an unscoped key and applies to the next read only
-(copies already downloaded are not recalled). Delete is a soft tombstone
+A visibility change is a compare-and-set on `from`; widening (out of
+`private`, or to `public`) needs an interactive web session and explicit
+approval, never an API key, while narrowing is allowed with an unscoped key
+and applies to the next read only (copies already downloaded are not
+recalled). A package or kit the admin deleted can only be restored by the
+admin. Delete is a soft tombstone
 (`packages.deleted_at`, `personal_kits.deleted_at`): every read query of the
 release gate (`release-access.ts`), the library, the kit store, publish,
 transitions, promotion and review filter it, so a deleted package is `404`

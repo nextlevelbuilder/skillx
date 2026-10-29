@@ -87,9 +87,9 @@ const RELEASE_ENTRY_TIMESTAMP: Partial<Record<ReleaseState, string>> = {
   quarantined: ", quarantined_at = ?",
 };
 
-/** Re-checked inside the batch for owners, so a suspension landing after the pre-check still refuses the change. */
+/** Re-checked inside the batch for owners, so a suspension or package delete landing after the pre-check still refuses the change. */
 const ACTIVE_PUBLISHER_GUARD = `EXISTS (SELECT 1 FROM package_releases gr JOIN packages gp ON gp.id = gr.package_id
-  JOIN publishers gpub ON gpub.id = gp.publisher_id WHERE gr.id = ? AND gpub.state = 'active')`;
+  JOIN publishers gpub ON gpub.id = gp.publisher_id WHERE gr.id = ? AND gpub.state = 'active' AND gp.deleted_at IS NULL)`;
 
 const publisherInactive = () => releaseError(403, "publisher_revoked", "the publisher of this package is suspended or revoked");
 
