@@ -211,42 +211,106 @@ skillx import --dry-run
 
 ### `skillx add <source>`
 
-Copy or symlink skills straight from a GitHub repo, a git URL or a local path
-into agent skill directories. This does not go through the registry; use the
-[installer](#installer) for signed releases, kits and collections.
+Install skills straight from GitHub, an https git URL or a local directory.
+`add` is a thin front end to the [installer](#installer): skills land in the
+same runtime skills directory (`--runtime`, default `claude-code`) with the same
+receipts, install lock, conflicts and backups as `skillx install`. Unlike a
+registry release, a skill added this way is **not scanned, signed or pinned in
+`skillx.lock.json`**; review it before use.
 
-Skills are written once to a canonical `.agents/skills/<name>` directory and
-linked (or, with `--copy`, copied) into each target agent's skills directory.
-With `--global` they go under your home directory, and the source is recorded in
-the global skill lock.
+**Sources:**
+| Source | Meaning |
+|--------|---------|
+| `owner/repo` | A GitHub repository (default branch) |
+| `owner/repo/skill` | One skill of it, by name or directory name (same as `--skill skill`) |
+| `github:owner/repo[/path][@ref]` | A directory of the repository, at a branch or tag |
+| `https://github.com/owner/repo[/tree/<ref>[/<path>]]` | Read as `github:` |
+| `https://host/repo.git` | Any https git repository (default branch) |
+| `./dir`, `../dir`, an absolute path | A local directory |
 
-**Arguments:**
-- `<source>`: `owner/repo`, `owner/repo@skill`, a git or GitHub URL (a `tree/<ref>/<path>` URL selects a ref and subpath), or a local path.
+Only `https` is accepted. `http`, `ssh`, `git@host:` (scp style), `file://`,
+`ext::` and other `::` transport helpers, a URL with a query or fragment, and
+anything starting with `-` are refused as `usage_error`; git is also run with
+every other protocol disabled. A path or ref with `..`, `.`, empty, `\` or `:`
+segments is refused. `@publisher/package`, `kit:` and `collection:` belong to
+`skillx install`; `@agentkit/*` is reserved.
 
 **Options:**
 | Flag | Description | Default |
 |------|-------------|---------|
-| `-g, --global` | Install under the home directory instead of the project | asks, or project with `-y` |
-| `-a, --agent <agents...>` | Target agents (`*` for all) | detected agents |
-| `-s, --skill <skills...>` | Skills to install (`*` for all) | asks, or all with `-y` |
-| `-l, --list` | List the skills in the source without installing | `false` |
-| `-y, --yes` | Skip every prompt | `false` |
-| `--copy` | Copy files instead of symlinking | symlink |
-| `--all` | Shorthand for `--skill '*' --agent '*' -y` | `false` |
-| `--full-depth` | Search all subdirectories even when a root SKILL.md exists | `false` |
-| `--json` | Envelope with `status` (`listed`, `installed` or `cancelled`) and per-agent results; implies `--yes` | `false` |
+| `-s, --skill <names...>` | Skills to install, by front matter name or directory name (`*` for all) | ask; the only skill; all with `-y` |
+| `-l, --list` | List the skills in the source; install nothing | `false` |
+| `-y, --yes` | Do not ask (no selection prompt, no confirmation) | `false` |
+| `--force` | Replace a skill added before, or install over a directory nothing owns (edited files are backed up, unknown files kept) | `false` |
+| `--runtime <id>` | `claude-code` or `codex` | `claude-code` |
+| `--json` | Envelope with `status` (`listed`, `installed` or `cancelled`); never asks, so several skills need `--skill` | `false` |
 
-A missing local path or an unknown agent is a `usage_error` (exit 2), a source
-with no matching skills is `not_found` (exit 3), and a failed clone is
-`network_error` (exit 6). Review skills before use; they run with full agent
-permissions.
+**How a skill is found and read.** A skill is a directory with a regular
+`SKILL.md` whose front matter (between a first `---` line and the next `---`
+line) is plain YAML with a non-empty `name` and `description`. The front matter
+is parsed as data only (YAML 1.2 core schema): a `---js`/`---javascript` fence
+is not front matter, and tags or duplicate keys reject the file, so nothing in
+a source ever runs. When the source (or `github:` path) is itself a skill, it
+is the only one; otherwise every skill up to 6 directories deep counts,
+outside `.git`, other VCS and cache directories and `node_modules`, and a
+skill's own subdirectories are its content. Skills that cannot be installed are
+listed under `skipped` with the reason.
+
+- **Names.** `name` is the installed directory name and is never rewritten:
+  it must be a valid alias (up to 64 lowercase letters, digits, `.`, `_`, `-`,
+  not ending in `.`, not a Windows device name). Names starting with `ak-` or `ak:` are reserved for
+  AgentKit and refused. Naming a skipped skill with `--skill` is a
+  `usage_error`; two chosen skills with one name are a `usage_error`.
+- **Content.** Each chosen skill is checked with the release tree rules
+  (`agentkit.skill-tree/v1`): a symlink, junction, hardlink, git submodule or
+  other special entry, an unsafe or colliding path, or a tree over the release
+  limits (4,096 files, 32 MiB per file, 256 MiB in all) refuses the skill as
+  `incompatible`. Links are never followed or copied, neither while searching
+  nor while reading.
+- **Git.** The clone is shallow, single-branch and without a checkout, into a
+  temporary directory removed afterwards: files are read from git objects, so
+  no repository file is written, and no hook, filter or LFS download runs. git
+  runs without a shell, with `--` before the URL and all credential prompts
+  off (`core.askPass=`, `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`), so
+  a private repository works only with credentials git already has (a
+  credential helper, or a token in the URL).
+- **Credentials.** A token in the URL is used to clone and nothing else: it is
+  removed from the recorded source and masked (`https://***@host`) in every
+  message and envelope.
+
+**Where it is recorded.** Each added skill is its own installer source,
+`add:<name>`, recorded with the source it came from (no credentials): its
+receipt's `package` is the skill's origin (for example
+`github:owner/repo/skills/pdf`) and `version` the commit read, or `local`.
+`skillx list` shows it, and `skillx uninstall add:<name>` removes it with
+ownership proof. `skillx update` skips added skills (naming one is a
+`usage_error`); refresh one with `skillx add <source> --force`. `sync --locked`
+does not restore them.
+
+**Overwrites.** Nothing installed is replaced without `--force`: adding a name
+that `add` installed before from a different tree is a `conflict`, and so is a
+directory no source owns (with `--force` its unknown files are kept). A skill
+that another source (a registry package, kit or collection) installed at
+other content is a `conflict` even with `--force`; the same content just adds
+`add:<name>` as a second owner.
+
+**Exit codes.** `0` installed, listed or cancelled at a prompt; `2`
+`usage_error` (bad source, refused transport or path, reserved or invalid name,
+several skills under `--json` without `--skill`); `3` `not_found` (no skill,
+no such `--skill`, path, repository or branch); `4` `incompatible` (a link,
+special file or limit in a chosen skill); `5` `auth_error` (git asked for
+credentials); `6` `network_error` (clone failed or timed out after 120 s);
+`8` `conflict` (see Overwrites). Nothing is installed when any chosen skill
+fails.
 
 **Examples:**
 ```bash
-skillx add owner/repo --list
-skillx add owner/repo --skill my-skill --agent claude-code codex
-skillx add https://github.com/owner/repo/tree/main/skills/my-skill -y
-skillx add ./my-skills --all --copy --json
+skillx add anthropics/skills --list
+skillx add anthropics/skills/pdf
+skillx add github:acme/agent-skills/skills@v1.2 --skill lint review --yes
+skillx add https://git.example.com/team/skills.git --skill '*' --json
+skillx add ./my-skills --force
+skillx uninstall add:pdf
 ```
 
 ---
@@ -547,7 +611,10 @@ is sent only over `https`; plain `http` is refused except for `localhost`,
 - **update** re-resolves installed sources (all, or those named) and applies the
   difference, then refreshes the lock file when its scope was updated. With
   nothing installed it prints `Nothing to update.` (`--json`: empty `outcomes`).
-- **uninstall** drops a kit, a collection, or one or more packages; each
+  Skills installed by [`skillx add`](#skillx-add-source) (`add:<name>`) are
+  skipped; naming one is a `usage_error`.
+- **uninstall** drops a kit, a collection, one or more packages, or skills
+  installed by `skillx add` (`add:<name>`, named on their own); each
   explicit package is its own source (`packages:@scope/name`), whether it was
   installed alone, with others, or by `sync --locked` from a packages lock.
   Each package is dropped from a packages lock file as soon as it is
