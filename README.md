@@ -78,6 +78,8 @@ Discover and install skills directly in Claude Code:
 - **skill-creator** (v3.0.0, Apache-2.0, adapted from Anthropic's skill-creator) — Create/update skills optimized for Skillmark benchmarks
 - **hol-guard** (Hashgraph Online, Apache-2.0) and **marketing-mindset** (Axel Freeman, MIT) — third-party skills listed in this marketplace under their authors' names and licenses; not part of the SkillX plugin
 
+Chinese users can also search and install skills through [Skills宝](https://skilery.com).
+
 ## Architecture
 
 **Tech Stack:**
