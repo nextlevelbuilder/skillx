@@ -1,0 +1,225 @@
+{
+  "schema": "agentkit.three-way-merge-vectors/v1",
+  "note": "Three-way line merge (diff3) of base, ours and theirs, as a rebase merges one text file. Lines keep their endings; touching changes conflict. A conflict is the 0-based base range [baseStart, baseEnd); an empty range is an insertion point. Regenerate with SKILLOVERLAY_VECTORS_OUT; SkillX checks the same file against mergeThreeWay.",
+  "cases": [
+    {
+      "name": "disjoint edits",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "1\nTWO\n3\n4\n5\n6\n7\n8\n",
+      "theirs": "1\n2\n3\n4\n5\n6\nSEVEN\n8\n",
+      "expect": {
+        "clean": true,
+        "text": "1\nTWO\n3\n4\n5\n6\nSEVEN\n8\n"
+      }
+    },
+    {
+      "name": "ours only",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "1\n2\n3\nFOUR\n5\n6\n7\n8\n",
+      "theirs": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "expect": {
+        "clean": true,
+        "text": "1\n2\n3\nFOUR\n5\n6\n7\n8\n"
+      }
+    },
+    {
+      "name": "theirs only",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "theirs": "1\n2\n3\n4\n5\n6\n7\n8\n9\n",
+      "expect": {
+        "clean": true,
+        "text": "1\n2\n3\n4\n5\n6\n7\n8\n9\n"
+      }
+    },
+    {
+      "name": "same line edited differently",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "1\nA\n3\n4\n5\n6\n7\n8\n",
+      "theirs": "1\nB\n3\n4\n5\n6\n7\n8\n",
+      "expect": {
+        "clean": false,
+        "conflicts": [
+          {
+            "baseStart": 1,
+            "baseEnd": 2
+          }
+        ]
+      }
+    },
+    {
+      "name": "adjacent edits fail closed",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "1\nA\n3\n4\n5\n6\n7\n8\n",
+      "theirs": "1\n2\nC\n4\n5\n6\n7\n8\n",
+      "expect": {
+        "clean": false,
+        "conflicts": [
+          {
+            "baseStart": 1,
+            "baseEnd": 3
+          }
+        ]
+      }
+    },
+    {
+      "name": "identical change both sides",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "1\n2\n3\nx\n5\n6\n7\n8\n",
+      "theirs": "1\n2\n3\nx\n5\n6\n7\n8\n",
+      "expect": {
+        "clean": true,
+        "text": "1\n2\n3\nx\n5\n6\n7\n8\n"
+      }
+    },
+    {
+      "name": "insertions at one point differ",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "1\n2\n3\n4\nours\n5\n6\n7\n8\n",
+      "theirs": "1\n2\n3\n4\ntheirs\n5\n6\n7\n8\n",
+      "expect": {
+        "clean": false,
+        "conflicts": [
+          {
+            "baseStart": 4,
+            "baseEnd": 4
+          }
+        ]
+      }
+    },
+    {
+      "name": "insertions at one point agree",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "1\n2\n3\n4\nsame\n5\n6\n7\n8\n",
+      "theirs": "1\n2\n3\n4\nsame\n5\n6\n7\n8\n",
+      "expect": {
+        "clean": true,
+        "text": "1\n2\n3\n4\nsame\n5\n6\n7\n8\n"
+      }
+    },
+    {
+      "name": "insertion at the edge of an edit",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "1\n2\n3\nnew\n4\n5\n6\n7\n8\n",
+      "theirs": "1\n2\n3\nFOUR\n5\n6\n7\n8\n",
+      "expect": {
+        "clean": false,
+        "conflicts": [
+          {
+            "baseStart": 3,
+            "baseEnd": 4
+          }
+        ]
+      }
+    },
+    {
+      "name": "prepend and append",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "0\n1\n2\n3\n4\n5\n6\n7\n8\n",
+      "theirs": "1\n2\n3\n4\n5\n6\n7\n8\n9\n",
+      "expect": {
+        "clean": true,
+        "text": "0\n1\n2\n3\n4\n5\n6\n7\n8\n9\n"
+      }
+    },
+    {
+      "name": "delete against edit",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "1\n2\n4\n5\n6\n7\n8\n",
+      "theirs": "1\n2\nTHREE\n4\n5\n6\n7\n8\n",
+      "expect": {
+        "clean": false,
+        "conflicts": [
+          {
+            "baseStart": 2,
+            "baseEnd": 3
+          }
+        ]
+      }
+    },
+    {
+      "name": "both delete the same line",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "1\n2\n3\n5\n6\n7\n8\n",
+      "theirs": "1\n2\n3\n5\n6\n7\n8\n",
+      "expect": {
+        "clean": true,
+        "text": "1\n2\n3\n5\n6\n7\n8\n"
+      }
+    },
+    {
+      "name": "two conflicts",
+      "base": "1\n2\n3\n4\n5\n6\n7\n8\n",
+      "ours": "A\n2\n3\n4\n5\n6\n7\nH\n",
+      "theirs": "B\n2\n3\n4\n5\n6\n7\nI\n",
+      "expect": {
+        "clean": false,
+        "conflicts": [
+          {
+            "baseStart": 0,
+            "baseEnd": 1
+          },
+          {
+            "baseStart": 7,
+            "baseEnd": 8
+          }
+        ]
+      }
+    },
+    {
+      "name": "repeated lines align deterministically",
+      "base": "a\nb\na\nb\na\n",
+      "ours": "a\nb\nx\na\nb\na\n",
+      "theirs": "a\nb\na\nb\na\ny\n",
+      "expect": {
+        "clean": true,
+        "text": "a\nb\nx\na\nb\na\ny\n"
+      }
+    },
+    {
+      "name": "line endings are bytes",
+      "base": "one\r\ntwo\r\nthree\r\nfour\r\nfive\r\n",
+      "ours": "one\r\nTWO\r\nthree\r\nfour\r\nfive\r\n",
+      "theirs": "one\r\ntwo\r\nthree\r\nfour\r\nfive\n",
+      "expect": {
+        "clean": true,
+        "text": "one\r\nTWO\r\nthree\r\nfour\r\nfive\n"
+      }
+    },
+    {
+      "name": "missing final newline",
+      "base": "a\nb\nc\nd\ne",
+      "ours": "a\nB\nc\nd\ne",
+      "theirs": "a\nb\nc\nd\ne\n",
+      "expect": {
+        "clean": true,
+        "text": "a\nB\nc\nd\ne\n"
+      }
+    },
+    {
+      "name": "empty base",
+      "base": "",
+      "ours": "ours\n",
+      "theirs": "theirs\n",
+      "expect": {
+        "clean": false,
+        "conflicts": [
+          {
+            "baseStart": 0,
+            "baseEnd": 0
+          }
+        ]
+      }
+    },
+    {
+      "name": "empty base same content",
+      "base": "",
+      "ours": "same\n",
+      "theirs": "same\n",
+      "expect": {
+        "clean": true,
+        "text": "same\n"
+      }
+    }
+  ]
+}
