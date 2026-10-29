@@ -62,6 +62,16 @@ describe('front matter is data, never code', () => {
     expect(readFrontmatter(enc('---\n- a\n---\n')).ok).toBe(false);
   });
 
+  it('refuses alias abuse as a skipped skill instead of aborting discovery', () => {
+    const laughs = 'a: &a [x, x, x, x, x, x, x, x, x]\nb: &b [*a, *a, *a, *a, *a, *a, *a, *a, *a]\nc: &c [*b, *b, *b, *b, *b, *b, *b, *b, *b]\nd: [*c, *c, *c, *c, *c, *c, *c, *c, *c]\n';
+    expect(readFrontmatter(enc(skillMd('bomb', laughs)))).toEqual({ ok: false, reason: 'SKILL.md front matter uses too many aliases' });
+    write('skills/bomb/SKILL.md', skillMd('bomb', laughs));
+    write('skills/fine/SKILL.md', skillMd('fine'));
+    const { skills, skipped } = discoverSkills(openLocalSource(root), '');
+    expect(skills.map((s) => s.name)).toEqual(['fine']);
+    expect(skipped).toEqual([{ dir: 'skills/bomb', reason: 'SKILL.md front matter uses too many aliases' }]);
+  });
+
   it('accepts plain front matter with a BOM and CRLF', () => {
     expect(readFrontmatter(enc('﻿---\r\nname: demo\r\ndescription: Does a thing\r\n---\r\n'))).toEqual({ ok: true, name: 'demo', description: 'Does a thing' });
   });

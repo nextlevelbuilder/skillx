@@ -19,6 +19,8 @@ import { isDiscoverable } from './skill-discovery.js';
  * repository is written to disk, no checkout filter, LFS smudge or hook runs,
  * and a symlink stays a `120000` tree entry that the tree rules refuse. How
  * git is run, and how URL credentials are kept off disk, is in `git-run.ts`.
+ * Every local call names the clone's `--git-dir`, never a repository found
+ * from the directory or environment.
  */
 
 const MAX_LISTING = 256 * 1024 * 1024;
@@ -73,6 +75,9 @@ function splitBlobs(out: Buffer, oids: readonly string[]): Uint8Array[] {
   return blobs;
 }
 
+/** Pins a call to the clone itself, never a repository found from the directory or environment. */
+const inClone = (repo: string) => ['-C', repo, `--git-dir=${join(repo, '.git')}`];
+
 /** Clones `url` and returns a snapshot of its HEAD; the clone is removed by `dispose`, or when the process exits or is interrupted. */
 export function openGitSource(url: string, label: string, ref?: string, transport = 'https'): SourceSnapshot {
   const remote = remoteOf(url);
@@ -80,7 +85,7 @@ export function openGitSource(url: string, label: string, ref?: string, transpor
   const repo = join(scratch.dir, 'repo');
   // Missing blobs are fetched explicitly, in one batch; git 2.44+ also refuses to fetch them lazily here.
   const local = (args: string[], what: string, maxBuffer: number, input?: string) =>
-    git([...guardArgs(transport), '-C', repo, ...args], what, { input, maxBuffer, config: remote.config, env: { GIT_NO_LAZY_FETCH: '1' } });
+    git([...guardArgs(transport), ...inClone(repo), ...args], what, { input, maxBuffer, config: remote.config, env: { GIT_NO_LAZY_FETCH: '1' } });
   try {
     git(cloneArgs(remote.url, repo, ref, transport), `cloning ${label}`, { config: remote.config, maxBuffer: 1024 * 1024 });
     let commit: string;
@@ -98,7 +103,7 @@ export function openGitSource(url: string, label: string, ref?: string, transpor
       const want = [...new Set(oids)].filter((oid) => !fetched.has(oid) && !sizes.has(oid));
       if (want.length === 0) return;
       git(
-        [...guardArgs(transport), '-C', repo, '-c', 'fetch.negotiationAlgorithm=noop', 'fetch', '-q', '--no-tags', '--no-write-fetch-head', '--recurse-submodules=no', '--filter=blob:none', '--stdin', 'origin'],
+        [...guardArgs(transport), ...inClone(repo), '-c', 'fetch.negotiationAlgorithm=noop', 'fetch', '-q', '--no-tags', '--no-write-fetch-head', '--recurse-submodules=no', '--filter=blob:none', '--stdin', 'origin'],
         `fetching files of ${label}`,
         { input: `${want.join('\n')}\n`, config: remote.config, maxBuffer: 1024 * 1024 },
       );

@@ -48,6 +48,15 @@ export function parseChoice(answer: string, count: number): number[] | null {
   return picked.size > 0 ? [...picked].sort((a, b) => a - b) : null;
 }
 
+/**
+ * Human mode asks before it installs, so it needs a terminal. A pipe, a closed
+ * stdin or CI is a usage error, never a silent "cancelled" with exit 0.
+ */
+export function assertCanPrompt(mode: { yes?: boolean; json?: boolean }, isTTY = process.stdin.isTTY === true): void {
+  if (mode.yes || mode.json || isTTY) return;
+  throw usageError('stdin is not a terminal, so skillx add cannot ask; pass --yes to install without a prompt (with --skill <name...> to choose skills)');
+}
+
 export async function selectSkills(
   found: readonly FoundSkill[],
   skipped: readonly SkippedSkill[],

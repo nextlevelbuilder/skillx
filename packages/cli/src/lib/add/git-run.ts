@@ -9,7 +9,8 @@ import { exitOnSignal, isCleanupSignal } from './scratch-dirs.js';
  * `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`), only one transport
  * allowed (`https` outside tests) so `ext::`, `file://` and `ssh` are refused
  * by git itself too, also on a redirect, a bounded output and a timeout.
- * Every message is redacted.
+ * Variables that point git at another repository (`GIT_DIR`,
+ * `GIT_WORK_TREE`, ...) are never inherited. Every message is redacted.
  *
  * A URL's credentials never reach git's argument list or `.git/config`:
  * `remoteOf` strips them and hands them over as an `Authorization` header in
@@ -27,8 +28,13 @@ export const GIT_TIMEOUT_MS = 120_000;
 
 export type ConfigPair = readonly [key: string, value: string];
 
+/** Variables that redirect git to another repository, index or object store. */
+const REPO_ENV = new Set(['GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'GIT_OBJECT_DIRECTORY', 'GIT_ALTERNATE_OBJECT_DIRECTORIES', 'GIT_COMMON_DIR', 'GIT_NAMESPACE', 'GIT_CEILING_DIRECTORIES']);
+
 export function gitEnv(base: NodeJS.ProcessEnv = process.env, config: readonly ConfigPair[] = []): NodeJS.ProcessEnv {
-  const env: NodeJS.ProcessEnv = { ...base, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_ASKPASS: '', SSH_ASKPASS: '', GIT_LFS_SKIP_SMUDGE: '1' };
+  // Compared in upper case: Windows environment names are case-insensitive.
+  const kept = Object.fromEntries(Object.entries(base).filter(([key]) => !REPO_ENV.has(key.toUpperCase())));
+  const env: NodeJS.ProcessEnv = { ...kept, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_ASKPASS: '', SSH_ASKPASS: '', GIT_LFS_SKIP_SMUDGE: '1' };
   if (config.length === 0) return env;
   const start = Number(base.GIT_CONFIG_COUNT) > 0 ? Number(base.GIT_CONFIG_COUNT) : 0;
   config.forEach(([key, value], i) => {

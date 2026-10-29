@@ -3,7 +3,7 @@ import { execFile, execFileSync, execSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -389,6 +389,12 @@ describe("built cli", { timeout: 30_000 }, () => {
     expect(JSON.parse(conflict.stdout)).toMatchObject({ ok: false, error: { code: "conflict" } });
     expect((await run("add", src, "--force", "--json")).code).toBe(0);
     expect((await run("uninstall", "add:smoke-skill", "--json")).code).toBe(0);
+
+    // Human mode on a piped stdin cannot ask: a usage error, never a silent exit-0 cancel.
+    const piped = await run("add", src);
+    expect(piped.code).toBe(2);
+    expect(piped.stdout).not.toContain("Cancelled");
+    expect(existsSync(join(home, ".claude", "skills", "smoke-skill"))).toBe(false);
 
     const missing = await run("add", join(root, "no-such-dir"), "--json");
     expect(missing.code).toBe(2);
