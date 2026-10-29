@@ -29,9 +29,20 @@ describe("collections: same-origin web sessions", () => {
 
     const { id } = (await create({}, { key: ownerKey })).body.collection;
     const foreign = { key: null, headers: { Origin: "https://evil.example" } };
-    expect((await call(`/api/v1/collections/${id}`, { name: "x" }, { ...foreign, method: "PATCH" })).body.error.code).toBe("cross_origin");
-    expect((await call(`/api/v1/collections/${id}`, {}, { ...foreign, method: "DELETE" })).body.error.code).toBe("cross_origin");
-    expect((await call(`/api/v1/collections/${id}`, undefined, { key: ownerKey })).body.collection.name).toBe("Starter");
+    for (const [path, body, method] of [
+      [`/api/v1/collections/${id}`, { name: "x" }, "PATCH"],
+      [`/api/v1/collections/${id}`, {}, "DELETE"],
+      [`/api/v1/collections/${id}/revisions`, { expectedRevision: 1, members: [] }, "POST"],
+      [`/api/v1/collections/${id}/members`, { expectedRevision: 1, remove: ["@alpha/demo"] }, "POST"],
+      [`/api/v1/collections/${id}/clone`, { slug: "copy" }, "POST"],
+    ] as const) {
+      const refused = await call(path, body, { ...foreign, method });
+      expect(refused.status).toBe(403);
+      expect(refused.body.error.code).toBe("cross_origin");
+    }
+    const after = await call(`/api/v1/collections/${id}`, undefined, { key: ownerKey });
+    expect(after.body.collection).toMatchObject({ name: "Starter", latestRevisionNumber: 1 });
+    expect(count().n).toBe(1);
   });
 
   it("accepts a same-origin or header-less web-session write", async () => {

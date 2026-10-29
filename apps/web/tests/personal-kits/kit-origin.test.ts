@@ -34,6 +34,15 @@ describe("personal kits: same-origin web sessions", () => {
     expect((await write({ Origin: "https://skillx.test" })).status).toBe(201);
   });
 
+  it("refuses a cross-origin web-session write on every write sub-route", async () => {
+    session.user = { id: "user-a" };
+    for (const sub of ["proposals", "proposals/validate", "preview-update", "activate", "rollback", "rebase", "conflicts/c-1/resolve", "revisions/rev-1/reject", "revisions/rev-1/review", "revisions/rev-1/quarantine"]) {
+      const refused = await k.call(sub, {}, { key: null, headers: { Origin: "https://evil.example" } });
+      expect(refused.status, sub).toBe(403);
+      expect(refused.body.error.code, sub).toBe("cross_origin");
+    }
+  });
+
   it("accepts a header-less web-session write", async () => {
     session.user = { id: "user-a" };
     const body = { expectedGeneration: 0, idempotencyKey: k.idem(), document: k.doc([await k.entry("@alpha/demo", "1.0.0", MINE)]) };
