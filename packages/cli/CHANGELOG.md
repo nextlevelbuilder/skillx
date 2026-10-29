@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.9.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.8.0...skillx-sh-v0.9.0) (2026-10-29)
+
+
+### Features
+
+* **cli:** add skillx add to install skills from GitHub, git URLs or local paths ([#120](https://github.com/nextlevelbuilder/skillx/issues/120)) ([b53007c](https://github.com/nextlevelbuilder/skillx/commit/b53007c7b370402f66398ece273e739842b75f43))
+* **cli:** lock, update and sync skills from skillx add; project scope, several runtimes, commit refs ([#168](https://github.com/nextlevelbuilder/skillx/issues/168)) ([c95ab77](https://github.com/nextlevelbuilder/skillx/commit/c95ab773d5c33670f07ed38babb61c1a4c8ddffb))
+* **web:** creator dashboard with visibility, soft delete and restore ([#162](https://github.com/nextlevelbuilder/skillx/issues/162)) ([a81117b](https://github.com/nextlevelbuilder/skillx/commit/a81117bf6c5a7f8861e6edd4edd57413158cb4cc))
+
 ## [0.8.0](https://github.com/nextlevelbuilder/skillx/compare/skillx-sh-v0.7.1...skillx-sh-v0.8.0) (2026-10-28)
 
 
