@@ -68,6 +68,7 @@ export function openLocalSource(dir: string): SourceSnapshot {
       )
         .filter((e) => e.kind === 'regular' && (e.path === 'SKILL.md' || e.path.endsWith('/SKILL.md')))
         .map((e) => e.path),
+    sizes: (paths) => paths.map((path) => lstatSync(containedPath(root, path)).size),
     hasDir: (path) => linkFreeParents(root, `${path}/x`),
     entriesUnder: (d) =>
       walk(root, d, () => true, LIMITS.maxEntries, () =>

@@ -1,75 +1,46 @@
-import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { LIMITS } from '@skillx/skill-tree';
 import { InstallError } from '../install/install-errors.js';
-import { redactCredentials } from './add-source.js';
+import { git, guardArgs, remoteOf } from './git-run.js';
+import { scratchDir } from './scratch-dirs.js';
 import type { ListedEntry, SourceSnapshot } from './skill-discovery.js';
 import { isDiscoverable } from './skill-discovery.js';
 
 /**
  * A git source, cloned into a private temporary directory and read from git
- * objects only. The clone is shallow, single-branch and has no checkout, so
- * no file of the repository is ever written to disk, no checkout filter, LFS
- * smudge or hook runs, and a symlink stays a `120000` tree entry that the
- * tree rules refuse. git runs with argument arrays (no shell), `--` before the
- * URL, every credential prompt off (`core.askPass=` plus an empty
- * `GIT_ASKPASS`, `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`), and only
- * the https transport allowed, so `ext::`, `file://` and `ssh` are refused by
- * git itself too, also on a redirect. Every message is redacted.
+ * objects only. The clone is shallow, single-branch, has no checkout and,
+ * where the server supports it, no blobs (`--filter=blob:none`): the listing
+ * comes from tree objects, and only the blobs discovery or a chosen skill
+ * needs are fetched, in one batch each. No file of the repository is written
+ * to disk, no checkout filter, LFS smudge or hook runs, and a symlink stays a
+ * `120000` tree entry that the tree rules refuse. Sizes are read from object
+ * headers before any content, so content is read in bounded batches. How git
+ * is run, and how URL credentials are kept off disk, is in `git-run.ts`.
  */
 
-const CLONE_TIMEOUT_MS = 120_000;
-const MAX_OUTPUT = 1024 * 1024 * 1024;
-
-export function gitEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
-  return { ...base, GIT_TERMINAL_PROMPT: '0', GCM_INTERACTIVE: 'never', GIT_ASKPASS: '', SSH_ASKPASS: '', GIT_LFS_SKIP_SMUDGE: '1' };
-}
+const MAX_LISTING = 256 * 1024 * 1024;
+const READ_BATCH = 64 * 1024 * 1024;
 
 /** The clone command line. `transport` is `https` outside tests. */
 export function cloneArgs(url: string, dest: string, ref?: string, transport = 'https'): string[] {
   return [
-    '-c', 'core.askPass=',
-    '-c', 'protocol.allow=never',
-    '-c', `protocol.${transport}.allow=always`,
-    'clone', '--depth', '1', '--no-checkout', '--single-branch', '--no-tags',
+    ...guardArgs(transport),
+    'clone', '--depth', '1', '--no-checkout', '--single-branch', '--no-tags', '--filter=blob:none',
     ...(ref === undefined ? [] : ['--branch', ref]),
     '--', url, dest,
   ];
 }
 
-function git(args: string[], what: string, input?: string): Buffer {
-  const r = spawnSync('git', args, { env: gitEnv(), input, maxBuffer: MAX_OUTPUT, timeout: CLONE_TIMEOUT_MS, windowsHide: true });
-  if (r.error) {
-    const code = (r.error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') throw new InstallError('unexpected_error', 'git is not installed or not on PATH');
-    if (code === 'ETIMEDOUT') throw new InstallError('network_error', `${what} timed out after ${CLONE_TIMEOUT_MS / 1000}s`);
-    throw new InstallError('unexpected_error', `${what} failed: ${redactCredentials(r.error.message)}`);
-  }
-  if (r.status !== 0) {
-    const stderr = redactCredentials(r.stderr.toString('utf8')).trim();
-    const line = stderr.split('\n').filter((l) => !/^\s*$/.test(l)).pop() ?? `exit ${r.status}`;
-    throw new InstallError(classify(stderr), `${what} failed: ${line}`);
-  }
-  return r.stdout;
-}
+type GitEntry = Omit<ListedEntry, 'size'> & { oid: string };
 
-function classify(stderr: string): 'auth_error' | 'not_found' | 'usage_error' | 'network_error' {
-  if (/authentication failed|could not read (username|password)|terminal prompts disabled|returned error: 40[13]/i.test(stderr)) return 'auth_error';
-  if (/repository .*not found|not found|remote branch .* not found|returned error: 404/i.test(stderr)) return 'not_found';
-  if (/transport .* not allowed|unsupported protocol/i.test(stderr)) return 'usage_error';
-  return 'network_error';
-}
-
-/** `ls-tree -r -l -z` records: every blob and submodule of the commit, with its mode and size. */
-function listTree(dir: string): Array<ListedEntry & { oid: string }> {
-  const out = git(['-C', dir, 'ls-tree', '-r', '-l', '-z', '--full-tree', 'HEAD'], 'git ls-tree');
+/** `ls-tree -r -z` records: every blob and submodule of the commit, with its mode. No size, so no blob is fetched. */
+function parseTree(out: Buffer): GitEntry[] {
   const decoder = new TextDecoder('utf-8', { fatal: true });
-  const entries: Array<ListedEntry & { oid: string }> = [];
+  const entries: GitEntry[] = [];
   for (const record of out.toString('latin1').split('\0')) {
     if (record === '') continue;
     const tab = record.indexOf('\t');
-    const m = /^(\d{6}) \w+ ([0-9a-f]{40,64}) +(\S+)$/.exec(record.slice(0, tab));
+    const m = /^(\d{6}) \w+ ([0-9a-f]{40,64})$/.exec(record.slice(0, tab));
     if (tab < 0 || !m) throw new InstallError('unexpected_error', 'git ls-tree printed an unexpected record');
     let path: string;
     try {
@@ -77,17 +48,15 @@ function listTree(dir: string): Array<ListedEntry & { oid: string }> {
     } catch {
       throw new InstallError('incompatible', 'a path in the repository is not valid UTF-8');
     }
-    const [mode, oid, size] = [m[1]!, m[2]!, m[3]!];
+    const [mode, oid] = [m[1]!, m[2]!];
     const kind = mode === '120000' ? 'symlink' : mode === '160000' ? 'special' : 'regular';
-    entries.push({ path, kind, mode: mode === '100664' ? '100644' : mode, size: size === '-' ? 0 : Number(size), oid });
+    entries.push({ path, kind, mode: mode === '100664' ? '100644' : mode, oid });
   }
   return entries;
 }
 
 /** Splits `git cat-file --batch` output into blob contents, in request order. */
-function readBlobs(dir: string, oids: readonly string[]): Uint8Array[] {
-  if (oids.length === 0) return [];
-  const out = git(['-C', dir, 'cat-file', '--batch'], 'git cat-file', `${oids.join('\n')}\n`);
+function splitBlobs(out: Buffer, oids: readonly string[]): Uint8Array[] {
   const blobs: Uint8Array[] = [];
   let at = 0;
   for (const oid of oids) {
@@ -101,37 +70,100 @@ function readBlobs(dir: string, oids: readonly string[]): Uint8Array[] {
   return blobs;
 }
 
-/** Clones `url` and returns a snapshot of its HEAD; the clone is removed by `dispose`. */
+/** Clones `url` and returns a snapshot of its HEAD; the clone is removed by `dispose`, or when the process exits or is interrupted. */
 export function openGitSource(url: string, label: string, ref?: string, transport = 'https'): SourceSnapshot {
-  const dir = mkdtempSync(join(tmpdir(), 'skillx-add-'));
-  const dispose = () => rmSync(dir, { recursive: true, force: true });
+  const remote = remoteOf(url);
+  const scratch = scratchDir('skillx-add-');
+  const repo = join(scratch.dir, 'repo');
+  // Local object reads never fetch behind our back: missing blobs are fetched explicitly, in one batch.
+  const local = (args: string[], what: string, maxBuffer: number, input?: string) =>
+    git([...guardArgs(transport), '-C', repo, ...args], what, { input, maxBuffer, config: remote.config, env: { GIT_NO_LAZY_FETCH: '1' } });
   try {
-    git(cloneArgs(url, join(dir, 'repo'), ref, transport), `cloning ${label}`);
-    const repo = join(dir, 'repo');
+    git(cloneArgs(remote.url, repo, ref, transport), `cloning ${label}`, { config: remote.config, maxBuffer: 1024 * 1024 });
     let commit: string;
     try {
-      commit = git(['-C', repo, 'rev-parse', '--verify', 'HEAD^{commit}'], 'git rev-parse').toString('utf8').trim();
+      commit = local(['rev-parse', '--verify', 'HEAD^{commit}'], 'git rev-parse', 4096).toString('utf8').trim();
     } catch {
       throw new InstallError('not_found', `${label} has no commit to read`);
     }
-    const entries = listTree(repo);
+    const entries = parseTree(local(['ls-tree', '-r', '-z', '--full-tree', 'HEAD'], 'git ls-tree', MAX_LISTING));
     const byPath = new Map(entries.map((e) => [e.path, e]));
+    let partial: boolean;
+    try {
+      partial = local(['config', '--get', 'remote.origin.promisor'], 'git config', 4096).toString('utf8').trim() === 'true';
+    } catch {
+      partial = false;
+    }
+    const fetched = new Set<string>();
+    const sizes = new Map<string, number>();
+
+    const fetchBlobs = (oids: readonly string[]) => {
+      const want = [...new Set(oids)].filter((oid) => !fetched.has(oid) && !sizes.has(oid));
+      if (!partial || want.length === 0) return;
+      git(
+        [...guardArgs(transport), '-C', repo, '-c', 'fetch.negotiationAlgorithm=noop', 'fetch', '-q', '--no-tags', '--no-write-fetch-head', '--recurse-submodules=no', '--filter=blob:none', '--stdin', 'origin'],
+        `fetching files of ${label}`,
+        { input: `${want.join('\n')}\n`, config: remote.config, maxBuffer: 1024 * 1024 },
+      );
+      want.forEach((oid) => fetched.add(oid));
+    };
+    const sizeOf = (list: readonly GitEntry[]): number[] => {
+      const blobs = list.filter((e) => e.kind !== 'special');
+      fetchBlobs(blobs.map((e) => e.oid));
+      const unknown = [...new Set(blobs.map((e) => e.oid).filter((oid) => !sizes.has(oid)))];
+      if (unknown.length > 0) {
+        const out = local(['cat-file', '--batch-check'], 'git cat-file', unknown.length * 160 + 1024, `${unknown.join('\n')}\n`).toString('utf8');
+        out.split('\n').filter(Boolean).forEach((line, i) => {
+          const [id, type, size] = line.split(' ');
+          if (id !== unknown[i] || type !== 'blob') throw new InstallError('unexpected_error', `git could not read object ${unknown[i]}`);
+          sizes.set(id, Number(size));
+        });
+      }
+      return list.map((e) => (e.kind === 'special' ? 0 : sizes.get(e.oid)!));
+    };
+    const readBlobs = (list: readonly GitEntry[]): Uint8Array[] => {
+      const lengths = sizeOf(list);
+      const blobs: Uint8Array[] = [];
+      for (let i = 0; i < list.length; ) {
+        let end = i + 1;
+        let bytes = lengths[i]!;
+        while (end < list.length && bytes + lengths[end]! <= READ_BATCH) bytes += lengths[end++]!;
+        const oids = list.slice(i, end).map((e) => e.oid);
+        blobs.push(...splitBlobs(local(['cat-file', '--batch'], 'git cat-file', bytes + oids.length * 160 + 1024, `${oids.join('\n')}\n`), oids));
+        i = end;
+      }
+      return blobs;
+    };
     const under = (d: string) => (p: string) => d === '' || p.startsWith(`${d}/`);
+    const entry = (p: string): GitEntry => {
+      const found = byPath.get(p);
+      if (!found) throw new InstallError('unexpected_error', `${p} is not a file of ${label}`);
+      return found;
+    };
+
     return {
       label,
       commit,
       skillFiles: (searchPath) =>
         entries.filter((e) => e.kind === 'regular' && under(searchPath)(e.path) && (e.path === 'SKILL.md' || e.path.endsWith('/SKILL.md')) && isDiscoverable(e.path, searchPath)).map((e) => e.path),
+      sizes: (paths) => sizeOf(paths.map(entry)),
       hasDir: (path) => entries.some((e) => e.path.startsWith(`${path}/`)),
-      entriesUnder: (d) => entries.filter((e) => under(d)(e.path)).map(({ path, kind, mode, size }) => ({ path: d === '' ? path : path.slice(d.length + 1), kind, mode, size })),
+      entriesUnder: (d) => {
+        const list = entries.filter((e) => under(d)(e.path));
+        if (list.length > LIMITS.maxEntries) {
+          throw new InstallError('incompatible', `${d || label} has more than ${LIMITS.maxEntries} entries`, { code: 'tree.limit_exceeded', dir: d });
+        }
+        const lengths = sizeOf(list);
+        return list.map(({ path, kind, mode }, i) => ({ path: d === '' ? path : path.slice(d.length + 1), kind, mode, size: lengths[i]! }));
+      },
       read: (paths) => {
-        const blobs = readBlobs(repo, paths.map((p) => byPath.get(p)!.oid));
+        const blobs = readBlobs(paths.map(entry));
         return new Map(paths.map((p, i) => [p, blobs[i]!]));
       },
-      dispose,
+      dispose: scratch.remove,
     };
   } catch (error) {
-    dispose();
+    scratch.remove();
     throw error;
   }
 }

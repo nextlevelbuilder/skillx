@@ -2,7 +2,7 @@ import { LIMITS, buildTree, isNoisePath, isSkillTreeError } from '@skillx/skill-
 import type { EntryKind, TreeEntry } from '@skillx/skill-tree';
 import type { VerifiedTree } from '../install/fetch-verify.js';
 import { sha256Hex } from '../install/fetch-verify.js';
-import { InstallError } from '../install/install-errors.js';
+import { InstallError, usageError } from '../install/install-errors.js';
 import { readFrontmatter } from './skill-frontmatter.js';
 
 /**
@@ -13,7 +13,9 @@ import { readFrontmatter } from './skill-frontmatter.js';
  * is a directory holding a regular `SKILL.md`; when the search path itself is
  * one, it is the only skill. Otherwise every such directory up to
  * `MAX_DEPTH` below it counts, outside noise directories and `node_modules`,
- * and a skill's own subdirectories are its content, not more skills.
+ * and a skill's own subdirectories are its content, not more skills. Sizes
+ * come before bytes: more than `MAX_SKILL_FILES` candidates refuse the search
+ * path, and a `SKILL.md` over `MAX_SKILL_MD_SIZE` is skipped unread.
  *
  * `prepareSkill` builds the tree with the registry's `agentkit.skill-tree/v1`
  * rules: a symlink, junction, hardlink, submodule or other special entry,
@@ -36,6 +38,8 @@ export interface SourceSnapshot {
   commit?: string;
   /** Regular `SKILL.md` files under `searchPath` that discovery may consider, relative to the source root. */
   skillFiles(searchPath: string): string[];
+  /** Sizes of regular files, read without their content. */
+  sizes(paths: readonly string[]): number[];
   /** True when `path` names a directory of the source. */
   hasDir(path: string): boolean;
   /** Every entry under directory `dir` ('' for the root), relative to it. */
@@ -58,6 +62,11 @@ export interface SkippedSkill {
 }
 
 export const MAX_DEPTH = 6;
+/** Discovery refuses a search path holding more `SKILL.md` files than this, before reading any of them. */
+export const MAX_SKILL_FILES = 1000;
+/** A larger `SKILL.md` is skipped unread. */
+export const MAX_SKILL_MD_SIZE = 1024 * 1024;
+const READ_CHUNK = 64;
 const SKIPPED_DIRS = new Set(['node_modules']);
 
 /** True when discovery may look at this `SKILL.md` path (depth, noise and skipped directories). */
@@ -75,18 +84,32 @@ export function discoverSkills(source: SourceSnapshot, searchPath: string): { sk
     throw new InstallError('not_found', `${searchPath} is not a directory in ${source.label}`, { path: searchPath });
   }
   const files = source.skillFiles(searchPath);
+  if (files.length > MAX_SKILL_FILES) {
+    throw usageError(`more than ${MAX_SKILL_FILES} SKILL.md files under ${searchPath || 'the root'} of ${source.label}; point at a smaller directory`, { path: searchPath, count: files.length });
+  }
   const root = join(searchPath, 'SKILL.md');
   const dirs = files.includes(root) ? [searchPath] : files.map(parentOf).sort();
   // A skill's subdirectories are its content: drop any skill nested inside another one.
   const outer = dirs.filter((d) => !dirs.some((o) => o !== d && (o === '' || d.startsWith(`${o}/`))));
-  const bytes = source.read(outer.map((d) => join(d, 'SKILL.md')));
+  const sizes = source.sizes(outer.map((d) => join(d, 'SKILL.md')));
   const skills: FoundSkill[] = [];
   const skipped: SkippedSkill[] = [];
-  for (const dir of outer) {
-    const fm = readFrontmatter(bytes.get(join(dir, 'SKILL.md'))!);
-    if (fm.ok) skills.push({ name: fm.name, description: fm.description, dir });
-    else skipped.push({ dir, reason: fm.reason });
+  const readable = outer.filter((dir, i) => {
+    if (sizes[i]! <= MAX_SKILL_MD_SIZE) return true;
+    skipped.push({ dir, reason: `SKILL.md is larger than ${MAX_SKILL_MD_SIZE} bytes` });
+    return false;
+  });
+  // Read in chunks and keep only the front matter, so memory stays bounded by the chunk.
+  for (let i = 0; i < readable.length; i += READ_CHUNK) {
+    const chunk = readable.slice(i, i + READ_CHUNK);
+    const bytes = source.read(chunk.map((d) => join(d, 'SKILL.md')));
+    for (const dir of chunk) {
+      const fm = readFrontmatter(bytes.get(join(dir, 'SKILL.md'))!);
+      if (fm.ok) skills.push({ name: fm.name, description: fm.description, dir });
+      else skipped.push({ dir, reason: fm.reason });
+    }
   }
+  skipped.sort((a, b) => (a.dir < b.dir ? -1 : a.dir > b.dir ? 1 : 0));
   return { skills, skipped };
 }
 

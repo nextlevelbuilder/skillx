@@ -224,7 +224,7 @@ registry release, a skill added this way is **not scanned, signed or pinned in
 | `owner/repo` | A GitHub repository (default branch) |
 | `owner/repo/skill` | One skill of it, by name or directory name (same as `--skill skill`) |
 | `github:owner/repo[/path][@ref]` | A directory of the repository, at a branch or tag |
-| `https://github.com/owner/repo[/tree/<ref>[/<path>]]` | Read as `github:` |
+| `https://github.com/owner/repo[/tree/<ref>[/<path>]]` | Read as `github:`; a branch name with `/` is found by asking the remote which leading segments name a branch or tag (longest wins) |
 | `https://host/repo.git` | Any https git repository (default branch) |
 | `./dir`, `../dir`, an absolute path | A local directory |
 
@@ -232,8 +232,12 @@ Only `https` is accepted. `http`, `ssh`, `git@host:` (scp style), `file://`,
 `ext::` and other `::` transport helpers, a URL with a query or fragment, and
 anything starting with `-` are refused as `usage_error`; git is also run with
 every other protocol disabled. A path or ref with `..`, `.`, empty, `\` or `:`
-segments is refused. `@publisher/package`, `kit:` and `collection:` belong to
-`skillx install`; `@agentkit/*` is reserved.
+segments is refused. A URL that holds an `@` but does not parse, or whose path
+holds one (`https://user:pa/ss@host/...`), is refused without being echoed:
+percent-encode `/`, `?`, `#` and `@` in a user name or password.
+`@publisher/package`, `kit:` and `collection:` belong to `skillx install`;
+`@agentkit/*` is reserved. A ref is a branch or tag name; commit SHAs are not
+accepted.
 
 **Options:**
 | Flag | Description | Default |
@@ -253,8 +257,10 @@ is not front matter, and tags or duplicate keys reject the file, so nothing in
 a source ever runs. When the source (or `github:` path) is itself a skill, it
 is the only one; otherwise every skill up to 6 directories deep counts,
 outside `.git`, other VCS and cache directories and `node_modules`, and a
-skill's own subdirectories are its content. Skills that cannot be installed are
-listed under `skipped` with the reason.
+skill's own subdirectories are its content. Sizes are read before content: more
+than 1,000 `SKILL.md` files under the search path is a `usage_error` (point at a
+smaller path), and a `SKILL.md` over 1 MiB is skipped unread. Skills that cannot
+be installed are listed under `skipped` with the reason.
 
 - **Names.** `name` is the installed directory name and is never rewritten:
   it must be a valid alias (up to 64 lowercase letters, digits, `.`, `_`, `-`,
@@ -267,14 +273,23 @@ listed under `skipped` with the reason.
   limits (4,096 files, 32 MiB per file, 256 MiB in all) refuses the skill as
   `incompatible`. Links are never followed or copied, neither while searching
   nor while reading.
-- **Git.** The clone is shallow, single-branch and without a checkout, into a
-  temporary directory removed afterwards: files are read from git objects, so
-  no repository file is written, and no hook, filter or LFS download runs. git
-  runs without a shell, with `--` before the URL and all credential prompts
-  off (`core.askPass=`, `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`), so
-  a private repository works only with credentials git already has (a
-  credential helper, or a token in the URL).
-- **Credentials.** A token in the URL is used to clone and nothing else: it is
+- **Git.** The clone is shallow, single-branch, without a checkout and, where
+  the server supports partial clone, without blobs (`--filter=blob:none`): the
+  listing comes from tree objects and only the files discovery and the chosen
+  skills need are fetched, so a skill in a large monorepo does not download
+  the rest. Files are read from git objects in bounded batches after their
+  sizes, so no repository file is written, and no hook, filter or LFS download
+  runs. The temporary directory is removed afterwards, also on Ctrl+C, SIGTERM
+  or SIGHUP (exit `130`, `143`, `129`). git runs without a shell, with `--`
+  before the URL and all credential prompts off (`core.askPass=`,
+  `GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`), so a private repository
+  works only with credentials git already has (a credential helper, or a token
+  in the URL).
+- **Credentials.** A token in the URL is used to clone and nothing else. It is
+  removed from the URL git sees and passed as an `Authorization` header through
+  `GIT_CONFIG_*` environment entries scoped to that origin, so it never appears
+  in git's argument list, the clone's `.git/config` or a credential helper, and
+  a redirect to another host does not receive it (git 2.31 or newer). It is
   removed from the recorded source and masked (`https://***@host`) in every
   message and envelope.
 

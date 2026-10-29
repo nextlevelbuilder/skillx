@@ -16,10 +16,24 @@ import { usageError } from '../install/install-errors.js';
  *
  * Credentials in a URL may be used to clone but never leave this module in a
  * label: `label` strips them, and `redactCredentials` masks them in any text.
+ * A URL that holds an `@` but does not parse, or whose path holds one, is
+ * refused without being echoed, since where its credentials end cannot be
+ * known.
  */
 
 export type AddSource =
-  | { kind: 'github'; owner: string; repo: string; path: string; ref?: string; skill?: string; cloneUrl: string; label: string }
+  | {
+      kind: 'github';
+      owner: string;
+      repo: string;
+      path: string;
+      ref?: string;
+      skill?: string;
+      /** Segments after `/tree/` when there are several: which ones name the ref is settled against the remote (`resolveTreeRef`). */
+      tree?: string[];
+      cloneUrl: string;
+      label: string;
+    }
   | { kind: 'git'; cloneUrl: string; label: string }
   | { kind: 'local'; dir: string; label: string };
 
@@ -33,13 +47,17 @@ const REF = /^(?!-)(?!.*\.\.)(?!.*\/\/)(?!.*@\{)(?!.*\.lock$)(?!.*\/$)[A-Za-z0-9
 const USAGE = 'owner/repo[/skill], github:owner/repo[/path][@ref], an https git URL or a local directory';
 
 /**
- * Masks the userinfo of every `scheme://user:secret@host` in `text`. Quotes
- * end a match, so the result of redacting serialized JSON is still JSON.
+ * Masks the userinfo of every `scheme://user:secret@host` in `text`, up to
+ * the last `@` of the URL, so a secret holding `/`, `?` or `#` is masked whole
+ * (at the cost of masking a path `@` too). Whitespace and quotes end a match,
+ * so the result of redacting serialized JSON is still JSON.
  */
 export function redactCredentials(text: string): string {
-  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s/?#@"'<>]*(?:@[^\s/?#@"'<>]*)*@/gi, '$1***@');
+  return text.replace(/([a-z][a-z0-9+.-]*:\/\/)[^\s"'<>]*@/gi, '$1***@');
 }
 
+const UNSHOWN_URL =
+  'refusing the source: not a valid git URL (not shown, as it may hold credentials; percent-encode `/`, `?`, `#` and `@` in a user name or password)';
 const refuse = (input: string, why: string) => usageError(`refusing source '${redactCredentials(input)}': ${why}`);
 
 function checkRepo(repo: string, input: string): void {
@@ -61,10 +79,38 @@ function checkRef(ref: string, input: string): string {
   return ref;
 }
 
-function github(input: string, owner: string, repo: string, path: string, ref: string | undefined, skill?: string): AddSource {
+const githubLabel = (owner: string, repo: string, path: string, ref?: string) => `github:${owner}/${repo}${path ? `/${path}` : ''}${ref ? `@${ref}` : ''}`;
+
+type GithubSource = Extract<AddSource, { kind: 'github' }>;
+
+function github(input: string, owner: string, repo: string, path: string, ref: string | undefined, skill?: string): GithubSource {
   checkRepo(repo, input);
-  const label = `github:${owner}/${repo}${path ? `/${path}` : ''}${ref ? `@${ref}` : ''}`;
-  return { kind: 'github', owner, repo, path, ...(ref ? { ref } : {}), ...(skill ? { skill } : {}), cloneUrl: `https://github.com/${owner}/${repo}.git`, label };
+  return { kind: 'github', owner, repo, path, ...(ref ? { ref } : {}), ...(skill ? { skill } : {}), cloneUrl: `https://github.com/${owner}/${repo}.git`, label: githubLabel(owner, repo, path, ref) };
+}
+
+/** How a `/tree/a/b/c` URL may split into a ref and a path, longest ref first; refs that are not valid names are left out. */
+function treeSplits(tree: readonly string[]): Array<{ ref: string; path: string }> {
+  return tree
+    .map((_, i) => ({ ref: tree.slice(0, tree.length - i).join('/'), path: tree.slice(tree.length - i).join('/') }))
+    .filter(({ ref }) => REF.test(ref));
+}
+
+/** The ref names a `/tree/` URL may mean, to look up on the remote. */
+export const treeRefCandidates = (source: AddSource): string[] => (source.kind === 'github' && source.tree ? treeSplits(source.tree).map((s) => s.ref) : []);
+
+/**
+ * Settles a `/tree/<ref>/<path>` URL against the refs the remote has: a branch
+ * name may hold `/`, so the longest leading segments that name a branch or tag
+ * are the ref and the rest the path. With no match the first segment stays the
+ * ref, and the clone reports it missing.
+ */
+export function resolveTreeRef(source: AddSource, remoteRefs: ReadonlySet<string>): AddSource {
+  if (source.kind !== 'github' || !source.tree) return source;
+  const { tree, ...rest } = source;
+  const split = treeSplits(tree).find((s) => remoteRefs.has(s.ref));
+  if (split === undefined) return rest;
+  const path = checkRepoPath(split.path, source.label);
+  return { ...rest, ref: split.ref, path, label: githubLabel(source.owner, source.repo, path, split.ref) };
 }
 
 function fromUrl(input: string): AddSource {
@@ -74,8 +120,11 @@ function fromUrl(input: string): AddSource {
   try {
     url = new URL(input);
   } catch {
+    if (input.includes('@')) throw usageError(UNSHOWN_URL);
     throw refuse(input, 'not a valid URL');
   }
+  // `https://user:12/ss@host` parses as host `user`: an `@` past the host means a secret may sit in the path.
+  if (url.pathname.includes('@')) throw usageError(UNSHOWN_URL);
   if (url.protocol !== 'https:') throw refuse(input, `only https git URLs are accepted, not ${url.protocol.replace(/:$/, '')}`);
   if (url.hostname === '') throw refuse(input, 'the URL has no host');
   if (url.search !== '' || url.hash !== '') throw refuse(input, 'a git URL takes no query or fragment');
@@ -90,7 +139,9 @@ function fromUrl(input: string): AddSource {
         throw refuse(input, 'the URL path is not valid percent-encoding');
       }
     };
-    return github(input, gh[1]!, gh[2]!, checkRepoPath(decode(gh[4] ?? ''), input), gh[3] ? checkRef(decode(gh[3]), input) : undefined);
+    const source = github(input, gh[1]!, gh[2]!, checkRepoPath(decode(gh[4] ?? ''), input), gh[3] ? checkRef(decode(gh[3]), input) : undefined);
+    const tree = gh[3] && gh[4] ? [gh[3], ...(gh[4].split('/').filter(Boolean))].map(decode) : [];
+    return tree.length > 1 ? { ...source, tree } : source;
   }
   const bare = new URL(url.href);
   bare.username = '';

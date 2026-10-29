@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { CliError } from '../output.js';
 import { openLocalSource } from './local-source.js';
-import { discoverSkills, prepareSkill } from './skill-discovery.js';
+import { MAX_SKILL_FILES, MAX_SKILL_MD_SIZE, discoverSkills, prepareSkill } from './skill-discovery.js';
 import { readFrontmatter } from './skill-frontmatter.js';
 
 const enc = (text: string) => new TextEncoder().encode(text);
@@ -155,3 +155,21 @@ describe('a chosen skill is refused, never copied, when it holds links', () => {
     expect(refusedWith(() => openLocalSource(file)).code).toBe('usage_error');
   });
 });
+
+describe('discovery bounds', () => {
+  it('skips a SKILL.md over the size cap without reading it', () => {
+    write('a/SKILL.md', skillMd('a'));
+    write('b/SKILL.md', skillMd('b', `pad: ${'x'.repeat(MAX_SKILL_MD_SIZE)}\n`));
+    const { skills, skipped } = discoverSkills(openLocalSource(root), '');
+    expect(skills.map((s) => s.name)).toEqual(['a']);
+    expect(skipped).toEqual([{ dir: 'b', reason: `SKILL.md is larger than ${MAX_SKILL_MD_SIZE} bytes` }]);
+  });
+
+  it('refuses a search path with too many SKILL.md files before reading one', () => {
+    for (let i = 0; i <= MAX_SKILL_FILES; i++) write(`s${i}/SKILL.md`, 'not front matter');
+    const error = refusedWith(() => discoverSkills(openLocalSource(root), ''));
+    expect(error.code).toBe('usage_error');
+    expect(error.message).toContain(`more than ${MAX_SKILL_FILES} SKILL.md files`);
+  });
+});
+
