@@ -20,6 +20,8 @@ export const personalKits = sqliteTable(
     latest_revision_number: integer("latest_revision_number").notNull().default(0),
     created_at: integer("created_at", { mode: "timestamp_ms" }).notNull(),
     updated_at: integer("updated_at", { mode: "timestamp_ms" }).notNull(),
+    // Soft delete: invisible to the kit API, library and MCP; restorable for 30 days.
+    deleted_at: integer("deleted_at", { mode: "timestamp_ms" }),
   },
   (table) => [uniqueIndex("idx_personal_kits_name").on(table.name), index("idx_personal_kits_owner").on(table.owner_user_id)]
 );

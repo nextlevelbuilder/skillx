@@ -280,7 +280,7 @@ not a local path (or no source at all) runs the deprecated import (see
 | `--kind <kind>` | `skill`, `hook-pack` or `bundle` | `skill` |
 | `--repo <https-url>` | Provenance repository URL | `origin` remote (https form) |
 | `--script <path>` | Declare a packaged script (repeatable) | — |
-| `--visibility <visibility>` | `public` or `private`. Omitted: a new package is `private` (a note goes to stderr, never stdout) and an existing package keeps its visibility. A different visibility for an existing package is refused: `api_error`, exit `1`, `error.details.code` `release.visibility_mismatch` (like `release.version_exists`) | — |
+| `--visibility <visibility>` | `public`, `unlisted` (readable by anyone who knows the name, never listed) or `private`. Omitted: a new package is `private` (a note goes to stderr, never stdout) and an existing package keeps its visibility. A different visibility for an existing package is refused: `api_error`, exit `1`, `error.details.code` `release.visibility_mismatch` (like `release.version_exists`); change it in the web dashboard (`/dashboard`) instead. Publishing to a deleted package is refused with `package.deleted` | — |
 | `--kit-origin <origin>` | Publish an `@agentkit/*` kit release (`remote-signed` or `local-dev`), signed as `skillx.release/v2`; needs a `releases:publish:@agentkit` key; the slug omits `ak-` (`@agentkit/plan`). Installing v2 releases needs skillx-sh 0.7.0 or later | — |
 | `--registry <url>` | Registry base URL; `https` only (`http` only for localhost) | configured base URL |
 | `--idempotency-key <key>` | Sends `Idempotency-Key`: a retry with the same key and bytes replays the first answer; other bytes are refused | — |

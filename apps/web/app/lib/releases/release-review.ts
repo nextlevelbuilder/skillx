@@ -83,7 +83,7 @@ export async function reviewRelease(
   const subject = await db
     .prepare(
       `SELECT r.id, r.release_state, r.release_digest, r.signed_manifest_key, r.quarantined_at
-         FROM package_releases r JOIN packages p ON p.id = r.package_id WHERE p.name = ? AND r.version = ?`,
+         FROM package_releases r JOIN packages p ON p.id = r.package_id WHERE p.name = ? AND r.version = ? AND p.deleted_at IS NULL`,
     )
     .bind(identity, version)
     .first<Subject>();

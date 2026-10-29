@@ -8,6 +8,7 @@ export default [
   route("llms-full.txt", "routes/llms-full-txt.ts"),
   route("profile", "routes/profile.tsx"),
   route("settings", "routes/settings.tsx"),
+  route("dashboard", "routes/dashboard.tsx"),
   route("docs", "routes/docs.tsx"),
   route("docs/agents", "routes/docs-agents.tsx"),
   route("docs/api", "routes/docs-api.tsx"),
@@ -43,6 +44,10 @@ export default [
   route("api/v1/packages/:scope/:slug/releases/:version/status", "routes/api.v1.release-status.ts"),
   route("api/v1/packages/:scope/:slug/releases/:version/promote", "routes/api.v1.release-promote.ts"),
   route("api/v1/packages/:scope/:slug/releases/:version/review", "routes/api.v1.release-review.ts"),
+  // Owner management: the last path segment names the action.
+  route("api/v1/packages/:scope/:slug/visibility", "routes/api.v1.package-manage.ts", { id: "package-visibility" }),
+  route("api/v1/packages/:scope/:slug/delete", "routes/api.v1.package-manage.ts", { id: "package-delete" }),
+  route("api/v1/packages/:scope/:slug/restore", "routes/api.v1.package-manage.ts", { id: "package-restore" }),
   route("api/v1/admin/quarantine", "routes/api.v1.admin-quarantine.ts"),
   route("api/v1/publishers", "routes/api.v1.publishers.ts"),
   route("api/v1/publishers/:handle/state", "routes/api.v1.release-state.ts", { id: "publisher-state" }),

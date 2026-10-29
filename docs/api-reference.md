@@ -1038,8 +1038,8 @@ or `null` reasons and reason rules). Same public test key as the manifest vector
 `status_sequence` and `status_issued_at` (sequence and issue time of the last
 signed status; the state itself stays in `release_state`), and the non-unique
 index `idx_package_releases_digest`. `packages.visibility`
-(`public` column default, `private`; the publish route always writes it
-explicitly, see Visibility below). `publishers.state` (`active` default,
+(`public` column default, `unlisted`, `private`; the publish route always
+writes it explicitly, see Visibility below). `publishers.state` (`active` default,
 `suspended`, `revoked`). All additive; rollback SQL is in the migration header
 and ends by deleting the `0011_release_tree_digest.sql` row from
 `d1_migrations`, so the migration can be applied again.
@@ -1073,8 +1073,8 @@ Unscoped keys are rejected (`auth.scope_missing`).
   `bundle`), `sourceProvenance` (`{repo, commit, path}` or `null`) and
   `declaredScripts` (packaged paths) and `provenance` (`null`,
   `{"provider": "skillx"}`, or `{"provider": "kit", "origin":
-  "remote-signed" | "local-dev"}`) and `visibility` (`public` or `private`;
-  any other value is `400 release.invalid_metadata`). Unknown members are
+  "remote-signed" | "local-dev"}`) and `visibility` (`public`, `unlisted`
+  or `private`; any other value is `400 release.invalid_metadata`). Unknown members are
   rejected.
   `sourceProvenance` is asserted by the publisher and not verified (GitHub
   OIDC is a follow-up); the registry signature covers it but does not vouch
@@ -1098,7 +1098,11 @@ never changes the visibility of an existing package: omitting `visibility`
 keeps it, and naming a different one is `409 release.visibility_mismatch`
 before anything is written (also when a concurrent first publish created the
 package with the other visibility). Visibility is registry policy, not part
-of the signed manifest. The response carries the stored `visibility`.
+of the signed manifest. The response carries the stored `visibility`. After
+creation only the owner changes it, with the visibility endpoint (see
+[Managing packages and kits](#managing-packages-and-kits-owner)). Publishing
+to a deleted package is `409 package.deleted` before anything is written,
+also after its restore window: a deleted name is never reused.
 
 **Processing**, each step rejecting before the next runs: name and reserved
 namespaces, key and ownership, signing key, metadata, package owner, kind and
@@ -1208,7 +1212,7 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 | 401 | `auth.invalid_key` (also an expired, forged or revoked `sxo_` OIDC publish token) |
 | 403 | `identity.reserved_publisher` (`@agentkit` without kit provenance), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
 | 404 | `not_found` (API disabled) |
-| 409 | `release.version_exists`, `release.kind_conflict`, `release.visibility_mismatch`, `idempotency.in_progress` |
+| 409 | `release.version_exists`, `release.kind_conflict`, `release.visibility_mismatch`, `package.deleted`, `idempotency.in_progress` |
 | 413 | `tree.limit_exceeded` |
 | 415 | `release.unsupported_media_type` |
 | 422 | other `tree.*` codes from the skill-tree reader, `exec.manifest_invalid`, `exec.entrypoint_undeclared`, `idempotency.key_reused` |
@@ -1320,6 +1324,16 @@ never accepted in the query string.
 order: unknown or not readable by the caller `404`, then quarantined `403`,
 then publisher revoked `403`, then yanked):
 
+- Deleted package (`packages.deleted_at` set): `404 not_found` to everyone,
+  its owner and the admin included, on every endpoint, including signed
+  download URLs minted before the delete. Restoring it within 30 days makes
+  it readable again under its visibility.
+- Unlisted package (`packages.visibility = 'unlisted'`): readable by anyone
+  who knows its name or digest, exactly like a public package, but never
+  listed: public discovery (search, leaderboard, `llms.txt`, MCP
+  `search_packages`) reads the skill catalog, never registry packages, and
+  the private library lists it only to its owner and entitled callers. Its
+  answers are `private, no-store` like a private package's.
 - Private package (`packages.visibility = 'private'`): readable by the owner
   of its publisher (`publishers.owner_user_id`, the signed-in account of the
   session or unscoped API key; no entitlement needed) and by a caller with an
@@ -1726,13 +1740,80 @@ The publisher route answers `{"handle", "from", "to", "state", "changedAt"}`.
 | 400 | `invalid_request` (body, states, reason), `identity.invalid`, `invalid_version` |
 | 401 | `auth.required`, `invalid_api_key`, `invalid_admin_secret` (with `WWW-Authenticate: Bearer`) |
 | 403 | `cross_origin` (web session from another origin), `transition.not_owner` (public package), `transition.admin_only`, `publisher_revoked` |
-| 404 | `not_found` (unknown release or publisher; a private package of another owner; API disabled) |
+| 404 | `not_found` (unknown release or publisher; a private package of another owner; a deleted package; API disabled) |
 | 409 | `state_conflict` |
 | 413 | `request_too_large` |
 | 415 | `unsupported_media_type` |
 | 422 | `transition.invalid`, `release.incomplete` |
 | 429 | `rate_limited` (with `Retry-After`) |
 | 500 | `release.internal_error` |
+
+### Managing packages and kits (owner)
+
+The owner manages a package or personal kit from the web dashboard
+(`/dashboard`) or with these endpoints. All are `POST` with an
+`application/json` body, behind `SKILLX_RELEASES_API` (`404 not_found` while
+it is off; kits also need `SKILLX_PERSONAL_KITS_API`, else `404
+kit.api_disabled`), other methods `405`. Every answer is `Cache-Control:
+no-store`; errors use the usual `{"error": {"code", "message"}}` envelope.
+
+| Path | Body | Answer |
+|------|------|--------|
+| `/api/v1/packages/@{publisher}/{slug}/visibility` | `{"from", "to", "approve"?}` | `{identity, from, to, visibility, changedAt}` |
+| `/api/v1/packages/@{publisher}/{slug}/delete` | `{}` | `{identity, deletedAt, restoreDeadline}` |
+| `/api/v1/packages/@{publisher}/{slug}/restore` | `{}` | `{identity, visibility, restoredAt}` |
+| `/api/v1/kits/@{handle}/{name}/delete` | `{}` | `{kit, deletedAt, restoreDeadline}` |
+| `/api/v1/kits/@{handle}/{name}/restore` | `{}` | `{kit, restoredAt, generation}` |
+
+**Callers.** Resolved as for state changes: a web session from another origin
+is `403 cross_origin` before anything else; then the admin secret, an
+unscoped API key or the session. Scoped keys (publish, `library:read`,
+`kits:write`) are refused (`401`). Anyone but the owner gets `404 not_found`,
+so the endpoints do not disclose existence;
+the owner of a suspended or revoked publisher gets `403 publisher_revoked`.
+The admin may delete and restore, never change visibility (`403
+visibility.owner_only`).
+
+**Visibility** (`public`, `unlisted`, `private`) is a compare-and-set:
+`from` must be the stored visibility, else `409 visibility_conflict` and
+nothing is written. Any change to `public` needs a signed-in web session and
+`"approve": true`; an API key, or a session without approval, gets `403
+visibility.approval_required`. Narrowing (to `unlisted` or `private`) is
+allowed with a session or an unscoped key and takes effect on the next read;
+copies already downloaded are not recalled. A deleted package cannot change
+visibility (`404`). Kit visibility is not changed here: it follows the
+activated revision (`private` or `public`, see
+[personal-kits-api.md](./personal-kits-api.md)).
+
+**Delete and restore** are soft. A deleted package disappears from every
+read path for every viewer (see Access and state rules), refuses new
+versions (`409 package.deleted`) and answers `404` to state changes,
+promotion and quarantine review of its releases; it leaves the review queue.
+A deleted kit disappears from the kit API (`404 not_found`), the library
+and MCP `get_kit`, and a new revision under its name is `409 kit.deleted`.
+Restore within 30 days of the delete (`restoreDeadline`) clears the
+tombstone and keeps visibility and releases as they were; a kit's
+`generation` advances on delete and on restore. After the deadline restore is
+`410 restore_window_expired`, the tombstone stays and the name is never
+reused. Deleting a deleted subject is `409 package.deleted` / `kit.deleted`;
+restoring a live one is `409 package.not_deleted` / `kit.not_deleted`.
+
+Every change writes one row to the append-only `package_audit` table
+(migration `0022_creator_dashboard`, triggers refuse `UPDATE` and `DELETE`):
+`subject_kind` (`package` or `kit`), `subject_id`, `subject_name`,
+`actor_kind`, `actor_id`, `action` (`visibility`, `delete`, `restore`),
+`from_value`, `to_value`, `created_at`. The write and its audit row commit in
+one batch under the same guard, so a lost race writes neither (`409`).
+
+| Status | Codes |
+|--------|-------|
+| 400 | `invalid_request` (body, unknown member, `from` equal to `to`), `identity.invalid` |
+| 401 | `auth.required`, `invalid_api_key`, `invalid_admin_secret`, scoped keys |
+| 403 | `cross_origin`, `visibility.approval_required`, `visibility.owner_only`, `publisher_revoked` |
+| 404 | `not_found`, `kit.api_disabled` |
+| 409 | `visibility_conflict`, `package.deleted`, `package.not_deleted`, `package.state_conflict`, `kit.deleted`, `kit.not_deleted`, `kit.state_conflict` |
+| 410 | `restore_window_expired` |
+| 429 | `rate_limited` (with `Retry-After`; `RELEASE_WRITE_LIMITER`) |
 
 ### Provisioning a publisher
 

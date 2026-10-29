@@ -90,12 +90,13 @@ export async function serveReleaseRead(
 
 /**
  * Public answers are cacheable (`immutable` for bytes). Every answer about a
- * private package is `private, no-store`, so revoking access, a quarantine or
- * a key revocation takes effect on the next request instead of after a
- * browser-held copy expires.
+ * private or unlisted package is `private, no-store`, so revoking access, a
+ * quarantine, a visibility change, a delete or a key revocation takes effect
+ * on the next request instead of after a shared or browser-held copy expires
+ * (and an unlisted package never sits in a shared cache).
  */
 export function cacheControl(release: { visibility: string }, maxAge: number, immutable: boolean): string {
-  if (release.visibility !== "public") return "private, no-store";
+  if (release.visibility !== "public") return "private, no-store"; // private, unlisted, or unknown (fails closed)
   return `public, max-age=${maxAge}${immutable ? ", immutable" : ""}, no-transform`;
 }
 

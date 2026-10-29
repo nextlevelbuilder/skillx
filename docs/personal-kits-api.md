@@ -237,6 +237,7 @@ Every kit has a `generation`. `GET` returns it, with an `ETag` of `"g<n>"`.
 | `POST /conflicts/:id/resolve` `{expectedGeneration, idempotencyKey, approvedBy:"user", decisions, agentSuggestion?}` | The user's decision becomes a `draft` revision with origin `resolution`. |
 | `POST /activate`, `POST /rollback` `{expectedGeneration, revisionId, approval:{revisionDigest}}` | Make a revision effective. `rollback` re-activates an earlier effective revision. |
 | `GET /lock[?revision=<id>]` | The lock and lineage documents of the effective (or named) revision. |
+| `POST /delete`, `POST /restore` `{}` | Soft-delete the kit, or restore it within 30 days (owner session or unscoped key, or the admin; scoped keys 401). A deleted kit answers 404 here, in the library and in MCP `get_kit`, and a new revision under its name is 409 `kit.deleted`. Both advance `generation`. See [api-reference.md](./api-reference.md#managing-packages-and-kits-owner). |
 
 The default sources are the effective revision for `fromRevisionId` and for
 the lock.
@@ -575,8 +576,9 @@ other deployment and to re-enabling after a rollback.
    the owner's kit unchanged. It never follows a redirect (a 3xx fails the
    check) and prints a JSON receipt with no keys. Exit 2 means the deployment
    still answers `kit.api_disabled`.
-3. Clean up: the API cannot delete a kit (revisions and audit rows are
-   immutable, and kits are `ON DELETE RESTRICT`), so the smoke reuses one
+3. Clean up: the API only soft-deletes a kit, and a deleted name is never
+   reused (revisions and audit rows are immutable, and kits are `ON DELETE
+   RESTRICT`), so the smoke reuses one
    private kit, `@handle/agentkit-smoke` (`--kit-name` to choose another), and
    each run only appends and activates one revision there; the receipt names
    the kit and the run. Keep that kit on the dedicated smoke account; do not

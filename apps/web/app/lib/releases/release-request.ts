@@ -3,7 +3,7 @@
  * the `X-SkillX-Release` metadata header and the capped tar body. Nothing
  * here touches storage.
  */
-import { PACKAGE_KINDS, PACKAGE_NAME_PATTERN, PACKAGE_VISIBILITIES, RELEASE_CHANNELS, RELEASE_VERSION_PATTERN } from "@skillx/contracts";
+import { PACKAGE_KINDS, PACKAGE_NAME_PATTERN, PACKAGE_VISIBILITIES, RELEASE_CHANNELS, RELEASE_VERSION_PATTERN, isPackageVisibility } from "@skillx/contracts";
 import type { PackageKind, PackageVisibility, ReleaseChannel, ReleaseProvenance, ReleaseProvider, ReleaseSourceProvenance } from "@skillx/contracts";
 import { ERROR_CODES, SkillTreeError, checkDirectoryAlias, checkPublisher, validateIdentity } from "@skillx/skill-tree";
 import { releaseError } from "./release-http";
@@ -150,7 +150,7 @@ export function parseReleaseMetadata(header: string | null): ReleaseMetadata {
  * kits read foundation content as a public base.
  */
 export function publishVisibility(metadata: ReleaseMetadata, stored: string | null): PackageVisibility {
-  if (stored !== null) return stored === "public" ? "public" : "private";
+  if (stored !== null) return isPackageVisibility(stored) ? stored : "private";
   if (metadata.visibility !== null) return metadata.visibility;
   return metadata.provenance?.provider === "kit" ? "public" : "private";
 }

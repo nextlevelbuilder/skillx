@@ -68,7 +68,7 @@ export function kitProvenance(name: { handle: string; slug: string }, kitOrigin:
   return { provider: 'kit', origin: kitOrigin };
 }
 
-/** `--visibility`: undefined when omitted (the registry decides), else exactly public or private. */
+/** `--visibility`: undefined when omitted (the registry decides), else exactly one of PACKAGE_VISIBILITIES. */
 export function requestedVisibility(raw: string | undefined): PackageVisibility | undefined {
   if (raw === undefined) return undefined;
   if (!(PACKAGE_VISIBILITIES as readonly string[]).includes(raw)) {
@@ -193,7 +193,7 @@ export function withReleasePublishOptions(command: Command): Command {
     .option('--kind <kind>', 'skill | hook-pack | bundle', 'skill')
     .option('--repo <https-url>', 'source repository URL for provenance (default: git remote origin)')
     .option('--kit-origin <origin>', 'publish an @agentkit/* kit release with this origin: remote-signed | local-dev (needs a releases:publish:@agentkit key)')
-    .option('--visibility <visibility>', 'public | private; omitted: a new package is private, an existing one keeps its visibility (a different one is refused)')
+    .option('--visibility <visibility>', `${PACKAGE_VISIBILITIES.join(' | ')} (unlisted: readable by anyone who knows the name, never listed); omitted: a new package is private, an existing one keeps its visibility (a different one is refused)`)
     .option('--script <path>', 'declare a packaged file as a script (repeatable)', collect, [])
     .option('--registry <url>', 'registry base URL (default: configured base URL)')
     .option('--idempotency-key <key>', 'Idempotency-Key header: a retry with the same key replays the first answer')

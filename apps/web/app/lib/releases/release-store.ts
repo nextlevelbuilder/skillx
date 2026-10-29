@@ -5,12 +5,15 @@
  * makes exactly one of two concurrent uploads of a version win.
  */
 import type { ExecSummary, PackageKind, PackageVisibility, ReleaseChannel, ReleaseSourceProvenance } from "@skillx/contracts";
+import { releaseError } from "./release-http";
 
 export interface ExistingPackage {
   id: string;
   publisherId: string;
   kind: string;
   visibility: string;
+  /** Set when the package is soft-deleted: no new release may land in it. */
+  deletedAt: number | null;
 }
 
 export interface ExistingRelease {
@@ -47,10 +50,23 @@ export interface NewRelease {
 
 export async function findPackage(db: D1Database, identity: string): Promise<ExistingPackage | null> {
   const row = await db
-    .prepare("SELECT id, publisher_id, kind, visibility FROM packages WHERE name = ?")
+    .prepare("SELECT id, publisher_id, kind, visibility, deleted_at FROM packages WHERE name = ?")
     .bind(identity)
-    .first<{ id: string; publisher_id: string; kind: string; visibility: string }>();
-  return row === null ? null : { id: row.id, publisherId: row.publisher_id, kind: row.kind, visibility: row.visibility };
+    .first<{ id: string; publisher_id: string; kind: string; visibility: string; deleted_at: number | null }>();
+  if (row === null) return null;
+  const deletedAt = row.deleted_at === null ? null : Number(row.deleted_at);
+  return { id: row.id, publisherId: row.publisher_id, kind: row.kind, visibility: row.visibility, deletedAt };
+}
+
+/**
+ * A deleted package takes no new release, and its name is not reusable while
+ * the tombstone exists (always: there is no hard purge): `409 package.deleted`
+ * before anything is written. The owner restores it within the window instead.
+ */
+export function assertPackageLive(identity: string, pkg: ExistingPackage | null): void {
+  if (pkg !== null && pkg.deletedAt !== null) {
+    throw releaseError(409, "package.deleted", `${identity} is deleted; restore it within 30 days of deletion to publish again (the name is never reused)`);
+  }
 }
 
 export async function findRelease(db: D1Database, identity: string, version: string): Promise<ExistingRelease | null> {
@@ -77,8 +93,9 @@ const isUniqueViolation = (error: unknown) => error instanceof Error && /UNIQUE 
 /**
  * Creates the package when needed and inserts the release, atomically.
  * Returns "conflict" when the version already exists (a concurrent upload
- * won) or the package exists with another kind, publisher or visibility, so
- * a release never lands in a package more visible than the caller decided.
+ * won) or the package exists with another kind, publisher or visibility, or
+ * is deleted, so a release never lands in a package more visible than the
+ * caller decided, nor in a deleted one.
  */
 export async function insertRelease(db: D1Database, release: NewRelease): Promise<"inserted" | "conflict"> {
   const packageId = `pkg_${crypto.randomUUID()}`;
@@ -100,7 +117,7 @@ export async function insertRelease(db: D1Database, release: NewRelease): Promis
            artifact_key, artifact_digest, artifact_size, release_digest, file_count, tree_size, signed_manifest_key,
            source_provenance, exec_summary_json, created_at, published_at, quarantined_at)
          SELECT ?, id, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
-           FROM packages WHERE name = ? AND publisher_id = ? AND kind = ? AND visibility = ?`,
+           FROM packages WHERE name = ? AND publisher_id = ? AND kind = ? AND visibility = ? AND deleted_at IS NULL`,
       )
       .bind(
         releaseId,

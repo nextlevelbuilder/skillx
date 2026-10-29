@@ -159,7 +159,7 @@ describe("publish visibility: never changed by a publish", () => {
     expect(h.releaseRows()).toEqual([expect.objectContaining({ name: "@alpha/notes", version: winner.body.version })]);
   });
 
-  it.each([["unlisted"], [true], [null]])("rejects visibility %j with 400 before any write", async (value) => {
+  it.each([["internal"], ["Public"], [true], [null]])("rejects visibility %j with 400 before any write", async (value) => {
     const res = await publish("@alpha/notes", { metadata: { version: "1.0.0", visibility: value } });
     expect(res).toMatchObject({ status: 400, body: { error: { code: "release.invalid_metadata" } } });
     expect(h.r2.putLog).toEqual([]);

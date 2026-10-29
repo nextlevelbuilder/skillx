@@ -12,7 +12,7 @@ import { conflict, handleOfKit, json } from "./kit-http";
 import type { KitCaller } from "./kit-http";
 import {
   commitKitMutation,
-  findKit,
+  findKitRecord,
   getRevision,
   listRevisions,
   newId,
@@ -91,8 +91,10 @@ export async function readRevision(caller: KitCaller, kitName: string, id: strin
  */
 export async function storeRevision(caller: KitCaller, req: StoreRequest): Promise<{ revision: RevisionRow; generation: number; warnings: string[]; replayed: boolean }> {
   const db = caller.env.DB;
-  const existing = await findKit(db, req.kitName);
+  const existing = await findKitRecord(db, req.kitName);
   if (existing !== null && existing.owner_user_id !== caller.userId) throw releaseError(404, "not_found", "Not found");
+  // The tombstone keeps the name: the owner restores the kit (within the window) instead of recreating it.
+  if (existing !== null && existing.deleted_at !== null) throw conflict("kit.deleted", `${req.kitName} is deleted; restore it instead of creating it again`);
   const doc = validateKitDocument(req.document);
   const digest = await revisionDigest(doc);
   if (existing !== null) {

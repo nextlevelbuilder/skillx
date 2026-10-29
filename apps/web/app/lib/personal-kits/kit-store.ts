@@ -21,6 +21,7 @@ export interface KitRow {
   latest_revision_number: number;
   created_at: number;
   updated_at: number;
+  deleted_at: number | null;
 }
 
 export interface RevisionRow {
@@ -44,9 +45,9 @@ export interface RevisionRow {
 
 export const newId = (prefix: string) => `${prefix}_${crypto.randomUUID()}`;
 
-export async function findKit(db: D1Database, name: string): Promise<KitRow | null> {
-  return db.prepare("SELECT * FROM personal_kits WHERE name = ?").bind(name).first<KitRow>();
-}
+/** A kit by name: `findKitRecord` also finds a deleted one (delete, restore, create-name check); `findKit`, for every other read and write, does not. */
+export const findKitRecord = (db: D1Database, name: string) => db.prepare("SELECT * FROM personal_kits WHERE name = ?").bind(name).first<KitRow>();
+export const findKit = (db: D1Database, name: string) => db.prepare("SELECT * FROM personal_kits WHERE name = ? AND deleted_at IS NULL").bind(name).first<KitRow>();
 
 /** The kit of its owner; anyone else (and an unknown kit) gets the same 404. */
 export async function ownedKit(db: D1Database, name: string, userId: string): Promise<KitRow> {

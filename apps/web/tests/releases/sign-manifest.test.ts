@@ -78,7 +78,8 @@ describe("request boundary", () => {
       visibility: null,
     });
     expect(parseReleaseMetadata(header({ version: "1.0.0", visibility: "private" })).visibility).toBe("private");
-    expect(() => parseReleaseMetadata(header({ version: "1.0.0", visibility: "unlisted" }))).toThrow(/visibility/);
+    expect(parseReleaseMetadata(header({ version: "1.0.0", visibility: "unlisted" })).visibility).toBe("unlisted");
+    expect(() => parseReleaseMetadata(header({ version: "1.0.0", visibility: "internal" }))).toThrow(/visibility/);
     expect(() => parseReleaseMetadata(null)).toThrow(/required/);
     expect(() => parseReleaseMetadata("%%%")).toThrow(/base64/);
     expect(() => parseReleaseMetadata(header({ version: "1.0.0+build" }))).toThrow(/SemVer/);

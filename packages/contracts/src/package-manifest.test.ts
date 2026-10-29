@@ -19,7 +19,9 @@ import {
   PACKAGE_VISIBILITIES,
   RELEASE_STATES,
   SEMVER_PATTERN,
+  isOpenPackageVisibility,
   isPackageKind,
+  isPackageVisibility,
   isReleaseState,
   isResolvableReleaseState,
   validatePackageManifest,
@@ -94,8 +96,18 @@ describe("package kinds and release states", () => {
     expect(isPackageKind("plugin")).toBe(false);
   });
 
-  it("defines exactly the public and private package visibilities", () => {
-    expect([...PACKAGE_VISIBILITIES]).toEqual(["public", "private"]);
+  it("defines exactly the public, unlisted and private package visibilities", () => {
+    expect([...PACKAGE_VISIBILITIES]).toEqual(["public", "unlisted", "private"]);
+    for (const v of PACKAGE_VISIBILITIES) expect(isPackageVisibility(v)).toBe(true);
+    for (const bad of ["Public", "internal", "", null, 1]) expect(isPackageVisibility(bad)).toBe(false);
+  });
+
+  it("protects only private packages and fails closed on unknown stored values", () => {
+    expect(isOpenPackageVisibility("public")).toBe(true);
+    expect(isOpenPackageVisibility("unlisted")).toBe(true);
+    expect(isOpenPackageVisibility("private")).toBe(false);
+    expect(isOpenPackageVisibility("PUBLIC")).toBe(false);
+    expect(isOpenPackageVisibility("")).toBe(false);
   });
 
   it("defines exactly the four release states", () => {

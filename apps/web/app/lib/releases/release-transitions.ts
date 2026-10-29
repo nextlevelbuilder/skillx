@@ -24,7 +24,7 @@
  * every other edge, the containment composite and every publisher
  * transition are admin-only.
  */
-import { RELEASE_STATE_TRANSITIONS } from "@skillx/contracts";
+import { RELEASE_STATE_TRANSITIONS, isOpenPackageVisibility } from "@skillx/contracts";
 import type { ReleaseState } from "@skillx/contracts";
 import { notFound } from "./release-access";
 import { releaseError } from "./release-http";
@@ -130,10 +130,11 @@ export async function transitionRelease(
          FROM package_releases r
          JOIN packages p ON p.id = r.package_id
          JOIN publishers pub ON pub.id = p.publisher_id
-        WHERE p.name = ? AND r.version = ?`,
+        WHERE p.name = ? AND r.version = ? AND p.deleted_at IS NULL`,
     )
     .bind(identity, version)
     .first<ReleaseSubject>();
+  // A deleted package's releases do not exist here, for the admin too.
   if (subject === null) throw notFound();
   const attempt: Attempt = { kind: "release", subjectId: subject.id, input };
   const { from, to, actor } = input;
@@ -143,8 +144,8 @@ export async function transitionRelease(
   // Authorization first: ownership, then the publisher's standing, then the graph.
   if (actor.kind !== "admin") {
     if (subject.owner_user_id === null || subject.owner_user_id !== actor.id) {
-      // A private package stays indistinguishable from an unknown one.
-      await denied(db, attempt, subject.visibility === "public" ? releaseError(403, "transition.not_owner", `only the owner of ${identity} or an admin may change its state`) : notFound());
+      // A private package stays indistinguishable from an unknown one; public and unlisted ones are readable anyway.
+      await denied(db, attempt, isOpenPackageVisibility(subject.visibility) ? releaseError(403, "transition.not_owner", `only the owner of ${identity} or an admin may change its state`) : notFound());
     }
     if (subject.publisher_state !== "active") await denied(db, attempt, publisherInactive());
   }

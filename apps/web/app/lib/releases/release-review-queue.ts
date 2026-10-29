@@ -24,7 +24,7 @@ export async function listQuarantine(db: D1Database) {
          JOIN packages p ON p.id = r.package_id
          LEFT JOIN release_reviews rv ON rv.id = (
            SELECT id FROM release_reviews WHERE release_id = r.id ORDER BY created_at DESC, rowid DESC LIMIT 1)
-        WHERE r.release_state = 'quarantined'
+        WHERE r.release_state = 'quarantined' AND p.deleted_at IS NULL
         ORDER BY r.quarantined_at, r.id LIMIT ?`,
     )
     .bind(MAX_QUEUE_ENTRIES)

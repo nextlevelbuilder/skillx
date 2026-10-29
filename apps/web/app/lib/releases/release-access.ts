@@ -5,6 +5,9 @@
  * then publisher revoked (403), then yanked (410 by version, served with its
  * state by digest).
  *
+ * - Only `private` is protected: `public` and `unlisted` are readable by
+ *   anyone. A deleted package (`packages.deleted_at` set) does not exist
+ *   here, for every viewer including its owner.
  * - A private package is readable by the owner of its publisher
  *   (`publishers.owner_user_id`, read at request time, so a change of owner
  *   takes effect at once) and by a viewer holding an unrevoked entitlement
@@ -21,7 +24,7 @@
  *   new resolution by version.
  * - Draft rows, and rows without a signed manifest, do not exist here.
  */
-import { PACKAGE_NAME_PATTERN, RELEASE_DIGEST_PATTERN, RELEASE_VERSION_PATTERN, decidePayloadAccess } from "@skillx/contracts";
+import { PACKAGE_NAME_PATTERN, RELEASE_DIGEST_PATTERN, RELEASE_VERSION_PATTERN, decidePayloadAccess, isOpenPackageVisibility } from "@skillx/contracts";
 import { ERROR_CODES } from "@skillx/skill-tree";
 import { releaseError } from "./release-http";
 
@@ -39,7 +42,7 @@ export interface ReadableRelease {
   artifactSize: number | null;
   manifestKey: string;
   createdAt: number;
-  /** `public` or `private`; anything else is treated as private. */
+  /** `public`, `unlisted` or `private`; anything else is treated as private. */
   visibility: string;
 }
 
@@ -104,7 +107,7 @@ const RELEASE_SELECT = `
     FROM package_releases r
     JOIN packages p ON p.id = r.package_id
     JOIN publishers pub ON pub.id = p.publisher_id
-   WHERE r.release_state IN ('published', 'yanked', 'quarantined')
+   WHERE r.release_state IN ('published', 'yanked', 'quarantined') AND p.deleted_at IS NULL
      AND r.release_digest IS NOT NULL AND r.signed_manifest_key IS NOT NULL`;
 
 interface ReleaseRowRaw {
@@ -156,14 +159,16 @@ async function queryReleases(db: D1Database, where: string, userId: string | nul
 }
 
 /**
- * The shared payload-access gate: public packages for everyone, private ones
- * only for the owner of their publisher or with an entitlement. Ownership
+ * The shared payload-access gate: only `private` is protected. Public and
+ * unlisted packages are for everyone (unlisted is merely kept out of public
+ * discovery); private ones only for the owner of their publisher or with an
+ * entitlement. An unknown stored value is protected (fails closed). Ownership
  * counts only for a signed-in viewer, never for anonymous.
  */
 function viewerMayRead(target: { identity: string; visibility: string; entitled: boolean; owned: boolean }, userId: string | null): boolean {
   const owner = target.owned && userId !== null && userId !== "";
   return decidePayloadAccess(
-    { slug: target.identity, isProtected: target.visibility !== "public", state: "published" },
+    { slug: target.identity, isProtected: !isOpenPackageVisibility(target.visibility), state: "published" },
     { userId, hasEntitlement: target.entitled || owner },
     () => true,
   ).granted;
@@ -246,14 +251,14 @@ export const MAX_DIGEST_ROWS = 50;
 
 /**
  * Bounds the digest lookup deterministically, in exactly the order that
- * decides the winner: rows the viewer may read (public, owned, or entitled
+ * decides the winner: rows the viewer may read (public or unlisted, owned, or entitled
  * to the package or the release, mirroring `viewerMayRead`; `entitled` and
  * `owned` are always 0 for an anonymous viewer), then rows of active
  * publishers, then published before yanked, then the earliest, then `id`. So
  * the bound only drops rows that could not have won, and the in-memory sort
  * below agrees with it.
  */
-const DIGEST_ORDER = `ORDER BY (p.visibility = 'public' OR entitled OR owned) DESC, pub.state = 'active' DESC,
+const DIGEST_ORDER = `ORDER BY (p.visibility IN ('public', 'unlisted') OR entitled OR owned) DESC, pub.state = 'active' DESC,
                                r.release_state = 'published' DESC, r.created_at, r.id`;
 
 const publishedFirst = (row: ReleaseRowAccess) => (row.state === "published" ? 0 : 1);
@@ -294,7 +299,7 @@ export async function readablePackageNames(db: D1Database, names: readonly strin
                            WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL) AS entitled,
                   ${OWNED} AS owned
              FROM packages p JOIN publishers pub ON pub.id = p.publisher_id
-            WHERE p.name IN (${chunk.map(() => "?").join(", ")})`,
+            WHERE p.name IN (${chunk.map(() => "?").join(", ")}) AND p.deleted_at IS NULL`,
         )
         .bind(userId ?? "", userId ?? "", ...chunk),
     );
@@ -318,7 +323,7 @@ export async function listPackageReleases(db: D1Database, identity: string, user
                        WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL) AS entitled,
               ${OWNED} AS owned
          FROM packages p JOIN publishers pub ON pub.id = p.publisher_id
-        WHERE p.name = ?`,
+        WHERE p.name = ? AND p.deleted_at IS NULL`,
     )
     .bind(userId ?? "", userId ?? "", identity)
     .first<{ id: string; visibility: string; publisher_state: string; entitled: number; owned: number }>();
