@@ -292,7 +292,9 @@ be installed are listed under `skipped` with the reason.
   `GIT_CONFIG_*` environment entries (git 2.31 or newer), so it never appears
   in git's argument list, the clone's `.git/config` or a credential helper.
   git would send that header on to wherever a redirect leads, so redirects are
-  not followed while a token is in use: use the repository's final URL. It is
+  not followed while a token is in use, even if your git config follows them
+  for that URL. A server that redirects (for example GitLab without `.git`)
+  fails with `usage_error`: use the repository's final URL. The token is
   removed from the recorded source and masked (`https://***@host`) in every
   message and envelope.
 

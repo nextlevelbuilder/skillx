@@ -95,6 +95,29 @@ describe('URL credentials', () => {
     expect(requests.filter((r) => r.name === 'elsewhere' && r.auth !== null)).toEqual([]);
     // With redirects off the clone stops at the 302, and its message carries no credential.
     expect(failure).toBeInstanceOf(CliError);
+    expect((failure as CliError).code).toBe('usage_error');
+    expect((failure as CliError).extra.hint).toMatch(/final URL/);
     expect(JSON.stringify({ m: (failure as CliError).message, e: (failure as CliError).extra })).not.toContain(token);
+  }, 60_000);
+
+  it("stay off a redirect when the user's git config follows redirects for that URL", () => {
+    const token = 'SECRET-TOKEN-2';
+    const url = `http://127.0.0.1:${originPort}/repo.git`;
+    const global = join(dir, 'gitconfig');
+    writeFileSync(global, `[http "${url}"]\n\tfollowRedirects = true\n[http "http://127.0.0.1:${originPort}/"]\n\tfollowRedirects = true\n`);
+    const saved = process.env.GIT_CONFIG_GLOBAL;
+    process.env.GIT_CONFIG_GLOBAL = global;
+    writeFileSync(log, '');
+    try {
+      openGitSource(`http://user:${token}@127.0.0.1:${originPort}/repo.git`, 'test-repo', undefined, 'http').dispose();
+    } catch {
+      // The clone stops at the redirect; only the requests matter here.
+    } finally {
+      if (saved === undefined) delete process.env.GIT_CONFIG_GLOBAL;
+      else process.env.GIT_CONFIG_GLOBAL = saved;
+    }
+    const requests = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line) as { name: string; auth: string | null });
+    expect(requests.some((r) => r.name === 'origin')).toBe(true);
+    expect(requests.filter((r) => r.name === 'elsewhere' && r.auth !== null)).toEqual([]);
   }, 60_000);
 });

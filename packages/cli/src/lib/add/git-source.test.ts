@@ -154,7 +154,7 @@ describe('git sources', () => {
     expect(remote.url).toBe('https://git.example.com:8443/team/x.git');
     expect(remote.config).toEqual([
       ['http.https://git.example.com:8443/.extraHeader', `Authorization: Basic ${Buffer.from('user:pa/ss').toString('base64')}`],
-      ['http.followRedirects', 'false'],
+      ['http.https://git.example.com:8443/team/x.git.followRedirects', 'false'],
     ]);
     expect(remoteOf('https://host/x.git')).toEqual({ url: 'https://host/x.git', config: [] });
     // Entries already in the environment are kept; ours are appended after them.

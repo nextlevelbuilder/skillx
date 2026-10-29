@@ -72,7 +72,8 @@ export function remoteOf(url: string): Remote {
     url: parsed.href,
     config: [
       [`http.${parsed.origin}/.extraHeader`, `Authorization: Basic ${basic}`],
-      ['http.followRedirects', 'false'],
+      // Scoped to the whole URL: a user's URL-scoped `followRedirects` would beat a shorter key.
+      [`http.${parsed.href}.followRedirects`, 'false'],
     ],
   };
 }
@@ -99,10 +100,16 @@ export function git(args: string[], what: string, run: GitRun): Buffer {
   if (r.status !== 0) {
     const stderr = redactCredentials(r.stderr.toString('utf8')).trim();
     const line = stderr.split('\n').filter((l) => !/^\s*$/.test(l)).pop() ?? `exit ${r.status}`;
+    if (carriesCredential(run.config) && /returned error: 30[1278]/.test(stderr)) {
+      const hint = "the server redirects, and redirects are not followed while the URL holds credentials; use the repository's final URL (often ending in .git)";
+      throw new InstallError('usage_error', `${what} failed: ${line}`, undefined, hint);
+    }
     throw new InstallError(classify(stderr), `${what} failed: ${line}`);
   }
   return r.stdout;
 }
+
+const carriesCredential = (config: readonly ConfigPair[] = []) => config.some(([key]) => key.endsWith('.extraHeader'));
 
 function classify(stderr: string): 'auth_error' | 'not_found' | 'usage_error' | 'network_error' {
   if (/authentication failed|could not read (username|password)|terminal prompts disabled|returned error: 40[13]/i.test(stderr)) return 'auth_error';
