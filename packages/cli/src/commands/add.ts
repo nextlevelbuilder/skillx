@@ -2,9 +2,10 @@ import { join } from 'node:path';
 import { Command } from 'commander';
 import chalk from 'chalk';
 import { applyAdd, planAdd } from '../lib/add/add-install.js';
-import { parseAddSource, redactCredentials, searchPathOf } from '../lib/add/add-source.js';
+import { parseAddSource, redactCredentials, resolveTreeRef, searchPathOf, treeRefCandidates } from '../lib/add/add-source.js';
 import type { AddSource } from '../lib/add/add-source.js';
 import { openGitSource } from '../lib/add/git-source.js';
+import { remoteOf, remoteRefNames } from '../lib/add/git-run.js';
 import { openLocalSource } from '../lib/add/local-source.js';
 import { discoverSkills, prepareSkill } from '../lib/add/skill-discovery.js';
 import type { SourceSnapshot } from '../lib/add/skill-discovery.js';
@@ -36,6 +37,13 @@ export function openSource(source: AddSource): SourceSnapshot {
   return openGitSource(source.cloneUrl, source.label, source.kind === 'github' ? source.ref : undefined);
 }
 
+/** A `/tree/<ref>/<path>` URL with several segments, split where the remote has a branch or tag. */
+export function settleSource(source: AddSource, transport = 'https'): AddSource {
+  const candidates = treeRefCandidates(source);
+  if (source.kind !== 'github' || candidates.length === 0) return source;
+  return resolveTreeRef(source, remoteRefNames(remoteOf(source.cloneUrl), source.label, candidates, transport));
+}
+
 /** Where a skill came from: the source plus the skill's directory in it, never credentials. */
 export function originOf(source: AddSource, dir: string): string {
   if (source.kind === 'local') return dir === '' ? source.dir : join(source.dir, ...dir.split('/'));
@@ -44,10 +52,11 @@ export function originOf(source: AddSource, dir: string): string {
 }
 
 export async function runAdd(input: string, options: AddOptions): Promise<AddResult> {
-  const source = parseAddSource(input);
-  // Resolve the runtime before any clone, so a bad --runtime fails fast.
+  const parsed = parseAddSource(input);
+  // Resolve the runtime before any network call, so a bad --runtime fails fast.
   const ctx = options.list ? null : contextFrom(options);
   if (ctx !== null) assertCanPrompt(options);
+  const source = settleSource(parsed);
   if (!options.json && source.kind !== 'local') console.error(chalk.dim(`cloning ${source.label} ...`));
   const snapshot = openSource(source);
   try {

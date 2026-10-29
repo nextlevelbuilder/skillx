@@ -1,7 +1,7 @@
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { CliError } from '../output.js';
-import { parseAddSource, redactCredentials } from './add-source.js';
+import { parseAddSource, redactCredentials, resolveTreeRef, treeRefCandidates } from './add-source.js';
 import { redactError } from '../../commands/add.js';
 
 const refusal = (input: string) => {
@@ -104,5 +104,33 @@ describe('credentials in URLs', () => {
     expect(JSON.stringify({ m: out.message, e: out.extra })).not.toContain(token);
     expect(out.code).toBe('network_error');
     expect((redactError(new Error(`boom https://${token}@h`)) as Error).message).toBe('boom https://***@h');
+  });
+
+  it('refuses a URL whose password holds a slash without echoing any of it', () => {
+    for (const input of ['https://user:pa/ss@example.com/r.git', 'https://user:12/ss@example.com/r.git', 'https://tok/en@example.com/r.git']) {
+      const error = refusal(input);
+      expect(error.code).toBe('usage_error');
+      expect(error.message).not.toMatch(/pa\/ss|12\/ss|tok\/en|example/);
+    }
+    expect(redactCredentials('clone https://user:pa/ss@example.com/r.git failed')).toBe('clone https://***@example.com/r.git failed');
+    expect(redactCredentials('https://u:a?b#c@h/x')).toBe('https://***@h/x');
+  });
+
+  it('keeps every segment after /tree/ until the remote says which ones name the ref', () => {
+    const source = parseAddSource('https://github.com/acme/skills/tree/feature/x/skills/a');
+    expect(source).toMatchObject({ ref: 'feature', path: 'x/skills/a', tree: ['feature', 'x', 'skills', 'a'] });
+    expect(treeRefCandidates(source)).toEqual(['feature/x/skills/a', 'feature/x/skills', 'feature/x', 'feature']);
+    expect(resolveTreeRef(source, new Set(['feature/x', 'feature']))).toEqual({
+      kind: 'github', owner: 'acme', repo: 'skills', ref: 'feature/x', path: 'skills/a', cloneUrl: 'https://github.com/acme/skills.git', label: 'github:acme/skills/skills/a@feature/x',
+    });
+    expect(resolveTreeRef(source, new Set(['feature']))).toMatchObject({ ref: 'feature', path: 'x/skills/a' });
+    const unknown = resolveTreeRef(source, new Set());
+    expect(unknown).toMatchObject({ ref: 'feature', path: 'x/skills/a' });
+    expect(unknown).not.toHaveProperty('tree');
+    // A whole URL naming only a ref, or a ref and one directory, still splits per segment.
+    expect(parseAddSource('https://github.com/acme/skills/tree/main')).not.toHaveProperty('tree');
+    expect(treeRefCandidates(parseAddSource('https://github.com/acme/skills/tree/main/skills'))).toEqual(['main/skills', 'main']);
+    // An encoded slash stays inside its segment.
+    expect(resolveTreeRef(parseAddSource('https://github.com/acme/skills/tree/rel%2F1/a/b'), new Set(['rel/1']))).toMatchObject({ ref: 'rel/1', path: 'a/b' });
   });
 });
