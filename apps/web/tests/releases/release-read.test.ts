@@ -1,4 +1,3 @@
-import { BEARER_CHALLENGE } from "~/lib/agentkit/agentkit-config";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import { verifyReleaseManifest } from "@skillx/contracts";
@@ -330,7 +329,7 @@ describe("release read: private packages", () => {
     ];
     for (const options of attempts) {
       for (const res of await everyEndpoint(digest, options)) {
-        expect(res.headers.get("WWW-Authenticate")).toBe(BEARER_CHALLENGE);
+        expect(res.headers.get("WWW-Authenticate")).toBe("Bearer");
         await expectError(res, 401, "invalid_api_key");
       }
     }

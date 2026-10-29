@@ -1,4 +1,3 @@
-import { BEARER_CHALLENGE } from "~/lib/agentkit/agentkit-config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LIBRARY_READ_SCOPE, kitsWriteScope, releasePublishScope } from "~/lib/auth/api-key-scopes";
 import { encodeCursor } from "~/lib/library/library-http";
@@ -184,7 +183,7 @@ describe("credentials", () => {
     const res = await library({ key: await make() });
     expect(res.status).toBe(401);
     expect(res.body.error.code).toBe("invalid_api_key");
-    expect(res.headers.get("WWW-Authenticate")).toBe(BEARER_CHALLENGE);
+    expect(res.headers.get("WWW-Authenticate")).toBe("Bearer");
   });
 
   it("never falls back to the session when the key is refused", async () => {

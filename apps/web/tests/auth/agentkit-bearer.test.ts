@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { InvalidAccessTokenError, resetJwksCache, verifyAccessToken } from "~/lib/agentkit/access-token";
+import { bearerChallenge } from "~/lib/agentkit/agentkit-config";
 import { insertLink } from "~/lib/agentkit/link-store";
 import { grantsAnyKitRead, grantsLibraryRead } from "~/lib/auth/api-key-scopes";
 import { resolveRequestCredential } from "~/lib/auth/scoped-viewer";
@@ -57,6 +58,35 @@ describe("AgentKit access token verification", () => {
     await verifyAccessToken(ctx.env, await as.sign(), as.fetcher);
     await verifyAccessToken(ctx.env, await as.sign(), as.fetcher);
     expect(as.state.jwksCalls).toBe(1);
+  });
+
+  it("refuses an undecodable signature as an invalid token, not an outage", async () => {
+    const [h, p] = (await as.sign()).split(".");
+    await expect(verifyAccessToken(ctx.env, `${h}.${p}.abcde`, as.fetcher)).rejects.toBeInstanceOf(InvalidAccessTokenError);
+  });
+
+  it("keeps verifying with cached keys while a JWKS refresh fails, refetching at most every 30 s", async () => {
+    vi.useFakeTimers({ now: Date.now(), toFake: ["Date"] });
+    try {
+      await verifyAccessToken(ctx.env, await as.sign(), as.fetcher);
+      as.state.jwksDown = true;
+      vi.setSystemTime(Date.now() + 11 * 60_000);
+      await verifyAccessToken(ctx.env, await as.sign(), as.fetcher);
+      await verifyAccessToken(ctx.env, await as.sign(), as.fetcher);
+      expect(as.state.jwksCalls).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("401 challenge", () => {
+  it("advertises the RFC 9728 metadata only while the feature is on", () => {
+    expect(bearerChallenge(createIdentityEnv("0").env)).toBe("Bearer");
+    expect(bearerChallenge(createIdentityEnv("1").env)).toBe('Bearer resource_metadata="https://skillx.sh/.well-known/oauth-protected-resource"');
+    expect(bearerChallenge({ SKILLX_AGENTKIT_IDENTITY: "1", ENVIRONMENT: "development" })).toBe(
+      'Bearer resource_metadata="http://localhost:5173/.well-known/oauth-protected-resource"',
+    );
   });
 });
 

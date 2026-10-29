@@ -1,4 +1,3 @@
-import { BEARER_CHALLENGE } from "~/lib/agentkit/agentkit-config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { releasePublishScope } from "~/lib/auth/api-key-scopes";
 import { MAX_DIGEST_ROWS } from "~/lib/releases/release-access";
@@ -157,7 +156,7 @@ describe("private package reads: callers other than the owner stay denied", () =
     session.user = { id: "user-a" };
     for (const key of [revoked, `sx_${"0".repeat(64)}`, h.alphaKey]) {
       for (const res of await everyRead(PRIVATE, digest, { key })) {
-        expect(res.headers.get("WWW-Authenticate")).toBe(BEARER_CHALLENGE);
+        expect(res.headers.get("WWW-Authenticate")).toBe("Bearer");
         await expectError(res, 401, "invalid_api_key");
       }
     }

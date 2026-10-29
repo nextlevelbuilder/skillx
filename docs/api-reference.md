@@ -45,7 +45,7 @@ A route that accepts none of the translated scopes answers `401 invalid_api_key`
 | `403` | `account_not_linked` | No SkillX account is linked to this AgentKit `sub` (or the link was revoked); the message carries the link URL `https://skillx.sh/settings#agentkit` |
 | `503` | `agentkit_unavailable` | The JWKS, or the AS while re-validating a link, cannot be reached |
 
-Revocation: AS tokens live 60 s, and SkillX re-validates the link by refreshing its own grant whenever the last check is older than 60 s; an `invalid_grant` deletes the link. During an AS outage a link checked within the last 15 minutes keeps working, then requests answer `503`. Every `401` from these routes carries `WWW-Authenticate: Bearer resource_metadata="https://skillx.sh/.well-known/oauth-protected-resource"`.
+Revocation: AS tokens live 60 s, and SkillX re-validates the link by refreshing its own grant whenever the last check is older than 60 s; an `invalid_grant` deletes the link. During an AS outage a link checked within the last 15 minutes keeps working, then requests answer `503`. A signed artifact download URL already minted with the token stays valid for its 5 minutes, as with a session. While the flag is on, every `401` from these routes carries `WWW-Authenticate: Bearer resource_metadata="https://skillx.sh/.well-known/oauth-protected-resource"`; with it off the challenge stays plain `Bearer`.
 
 Discovery and linking (all `404` while the flag is off, except unlink):
 

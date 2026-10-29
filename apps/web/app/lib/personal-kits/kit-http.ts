@@ -233,7 +233,7 @@ export async function serveKit(
     }
     if (error instanceof ReleaseHttpError) {
       const retry = (error as { retryAfter?: number }).retryAfter;
-      return errorResponse(error, retry === undefined ? failureHeaders(error) : { "Retry-After": String(retry) });
+      return errorResponse(error, retry === undefined ? failureHeaders(error, env) : { "Retry-After": String(retry) });
     }
     console.error("personal kit request failed:", error instanceof Error ? error.message : String(error));
     return errorResponse(releaseError(500, "kit.internal_error", "personal kit request failed"));

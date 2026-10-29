@@ -1,4 +1,3 @@
-import { BEARER_CHALLENGE } from "~/lib/agentkit/agentkit-config";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { LIBRARY_READ_SCOPE, kitsWriteScope, releasePublishScope } from "~/lib/auth/api-key-scopes";
 import { serveDownloadRedeem } from "~/lib/releases/release-download-url";
@@ -110,7 +109,7 @@ async function expectError(res: Response | { status: number; body: Record<string
 async function expectAll(responses: Response[], status: number, code: string) {
   for (const res of responses) {
     expect(res.headers.get("Cache-Control")).toBe("no-store");
-    if (status === 401) expect(res.headers.get("WWW-Authenticate")).toBe(BEARER_CHALLENGE);
+    if (status === 401) expect(res.headers.get("WWW-Authenticate")).toBe("Bearer");
     await expectError(res, status, code);
   }
 }

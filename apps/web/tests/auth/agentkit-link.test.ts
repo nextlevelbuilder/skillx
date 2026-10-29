@@ -86,7 +86,11 @@ describe("Link with AgentKit", () => {
 });
 
 describe("link liveness", () => {
-  const stale = async () => ({ ...(await linkOfUser(ctx.env.DB, "user-a"))!, validatedAt: Date.now() - 61_000 });
+  /** Ages the stored validation and returns the row as a request would read it. */
+  const stale = async (ageMs = 61_000) => {
+    ctx.d1.raw.prepare("UPDATE agentkit_links SET validated_at = ?").run(Date.now() - ageMs);
+    return (await linkOfUser(ctx.env.DB, "user-a"))!;
+  };
 
   it("trusts a link validated within 60 seconds without calling the AS", async () => {
     await linkAs("user-a");
@@ -113,20 +117,53 @@ describe("link liveness", () => {
     await linkAs("user-a");
     as.state.down = true;
     expect(await ensureLinkLive(ctx.env, await stale(), as.fetcher)).toBe("live");
-    const old = { ...(await stale()), validatedAt: Date.now() - 16 * 60_000 };
-    await expect(ensureLinkLive(ctx.env, old, as.fetcher)).rejects.toBeInstanceOf(LinkUnavailableError);
+    await expect(ensureLinkLive(ctx.env, await stale(16 * 60_000), as.fetcher)).rejects.toBeInstanceOf(LinkUnavailableError);
     expect(rows()).toHaveLength(1);
   });
 
   it("lets only one request spend the one-time refresh token", async () => {
     await linkAs("user-a");
     const now = Date.now();
-    expect(await claimRefresh(ctx.env.DB, "user-a", now, now + 15_000)).toBe(true);
-    expect(await claimRefresh(ctx.env.DB, "user-a", now, now + 15_000)).toBe(false);
-    // The second request keeps a recent validation instead of refreshing.
+    const { validatedAt } = (await linkOfUser(ctx.env.DB, "user-a"))!;
+    expect(await claimRefresh(ctx.env.DB, "user-a", validatedAt, now, now + 15_000)).toBe(true);
+    expect(await claimRefresh(ctx.env.DB, "user-a", validatedAt, now, now + 15_000)).toBe(false);
+    // The second request rides on the refresh in flight, even past the outage grace.
     const calls = as.state.tokenCalls;
-    expect(await ensureLinkLive(ctx.env, await stale(), as.fetcher, now)).toBe("live");
+    const old = { ...(await linkOfUser(ctx.env.DB, "user-a"))!, validatedAt: now - 16 * 60_000 };
+    expect(await ensureLinkLive(ctx.env, old, as.fetcher, now)).toBe("live");
     expect(as.state.tokenCalls).toBe(calls);
+  });
+
+  it("never replays a refresh token another request already rotated", async () => {
+    await linkAs("user-a");
+    const seenByB = await stale();
+    expect(await ensureLinkLive(ctx.env, seenByB, as.fetcher)).toBe("live"); // request A refreshes
+    const calls = as.state.tokenCalls;
+    expect(await ensureLinkLive(ctx.env, seenByB, as.fetcher)).toBe("live"); // B, with A's stale read
+    expect(as.state.tokenCalls).toBe(calls);
+    expect(rows()).toHaveLength(1);
+  });
+
+  it("keeps the rotated refresh token when the new access token cannot be verified", async () => {
+    await linkAs("user-a");
+    resetJwksCache();
+    as.state.jwksDown = true;
+    const before = rows()[0].refresh_token_enc;
+    expect(await ensureLinkLive(ctx.env, await stale(), as.fetcher)).toBe("live");
+    expect(rows()[0].refresh_token_enc).not.toBe(before);
+    as.state.jwksDown = false;
+    resetJwksCache();
+    // The stored token is the rotated one, so the next refresh still works.
+    const calls = as.state.tokenCalls;
+    expect(await ensureLinkLive(ctx.env, await stale(), as.fetcher)).toBe("live");
+    expect(as.state.tokenCalls).toBe(calls + 1);
+    expect(rows()).toHaveLength(1);
+  });
+
+  it("refuses a link the AS issued no refresh token for", async () => {
+    as.state.noRefreshToken = true;
+    expect((await linkAs("user-a")).outcome).toBe("failed");
+    expect(rows()).toEqual([]);
   });
 });
 

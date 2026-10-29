@@ -76,6 +76,8 @@ export async function completeLink(env: LinkFlowEnv, userId: string, query: URLS
     if (tokens.refreshToken !== null) await revokeRefreshToken(env, tokens.refreshToken, fetcher);
     return outcome;
   };
+  // Without a refresh token SkillX could never re-validate the link, which would vanish after a minute.
+  if (tokens.refreshToken === null) return "failed";
   if ((await linkOfUser(env.DB, userId)) !== null) return refuse("already_linked");
   if ((await linkOfSubject(env.DB, issuer, sub)) !== null) return refuse("taken");
 
@@ -85,7 +87,7 @@ export async function completeLink(env: LinkFlowEnv, userId: string, query: URLS
     issuer,
     sub,
     scopes: tokens.scope ?? SKILLX_RESOURCE_SCOPES.join(" "),
-    refreshTokenEnc: tokens.refreshToken === null ? null : await sealRefreshToken(env.BETTER_AUTH_SECRET, userId, tokens.refreshToken),
+    refreshTokenEnc: await sealRefreshToken(env.BETTER_AUTH_SECRET, userId, tokens.refreshToken),
     linkedAt: now,
     validatedAt: now,
   });

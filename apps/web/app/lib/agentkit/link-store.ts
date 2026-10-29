@@ -56,13 +56,22 @@ export async function deleteLink(db: D1Database, userId: string): Promise<void> 
   await db.prepare("DELETE FROM agentkit_links WHERE user_id = ?").bind(userId).run();
 }
 
-/** Claims the one refresh of this link until `until`; false when another request holds it. */
-export async function claimRefresh(db: D1Database, userId: string, now: number, until: number): Promise<boolean> {
+/**
+ * Claims the one refresh of this link until `until`. False when another
+ * request holds it, or already refreshed since `validatedAt` was read: the
+ * refresh token that read saw may be spent.
+ */
+export async function claimRefresh(db: D1Database, userId: string, validatedAt: number, now: number, until: number): Promise<boolean> {
   const result = await db
-    .prepare("UPDATE agentkit_links SET refreshing_until = ? WHERE user_id = ? AND (refreshing_until IS NULL OR refreshing_until < ?)")
-    .bind(until, userId, now)
+    .prepare("UPDATE agentkit_links SET refreshing_until = ? WHERE user_id = ? AND validated_at = ? AND (refreshing_until IS NULL OR refreshing_until < ?)")
+    .bind(until, userId, validatedAt, now)
     .run();
   return (result.meta?.changes ?? 0) === 1;
+}
+
+/** Stores a rotated refresh token as soon as the AS issues it, keeping the claim. */
+export async function storeRefreshToken(db: D1Database, userId: string, refreshTokenEnc: string): Promise<void> {
+  await db.prepare("UPDATE agentkit_links SET refresh_token_enc = ? WHERE user_id = ?").bind(refreshTokenEnc, userId).run();
 }
 
 export async function recordRefresh(db: D1Database, userId: string, refreshTokenEnc: string | null, scopes: string | null, now: number): Promise<void> {

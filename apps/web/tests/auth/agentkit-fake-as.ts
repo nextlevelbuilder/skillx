@@ -19,6 +19,9 @@ export async function createFakeAs() {
     scope: "skillx-kits:read skillx-kits:write",
     revoked: false,
     down: false,
+    /** Only the JWKS endpoint fails (the token endpoint still answers). */
+    jwksDown: false,
+    noRefreshToken: false,
     refreshTokens: new Set<string>(),
     revokedTokens: [] as string[],
     codes: new Map<string, string>(), // code → code_challenge
@@ -36,9 +39,11 @@ export async function createFakeAs() {
   }
 
   async function issue(): Promise<Response> {
+    const access = { access_token: await sign(), token_type: "Bearer", expires_in: 60, scope: state.scope };
+    if (state.noRefreshToken) return Response.json(access);
     const refresh = `rt-${++counter}`;
     state.refreshTokens.add(refresh);
-    return Response.json({ access_token: await sign(), token_type: "Bearer", expires_in: 60, refresh_token: refresh, scope: state.scope });
+    return Response.json({ ...access, refresh_token: refresh });
   }
 
   const fetcher = (async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -46,6 +51,7 @@ export async function createFakeAs() {
     if (state.down) throw new TypeError("network down");
     if (url === `${ISS}/.well-known/jwks.json`) {
       state.jwksCalls++;
+      if (state.jwksDown) return new Response("unavailable", { status: 503 });
       return Response.json({ keys: [{ ...jwk, kid: "k1", alg: "ES256", use: "sig" }] });
     }
     const form = new URLSearchParams(String(init?.body ?? ""));

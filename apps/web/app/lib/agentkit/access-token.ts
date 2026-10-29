@@ -48,12 +48,17 @@ interface JwksCache {
   issuer: string;
   keys: Map<string, CryptoKey>;
   fetchedAt: number;
+  /** Last fetch attempt, successful or not; throttles refetches. */
+  attemptedAt: number;
 }
 let cache: JwksCache | null = null;
+/** One JWKS fetch at a time per isolate. */
+let inflight: Promise<JwksCache> | null = null;
 
 /** Test hook: forget the cached JWKS. */
 export function resetJwksCache(): void {
   cache = null;
+  inflight = null;
 }
 
 async function loadJwks(issuer: string, fetcher: typeof fetch): Promise<JwksCache> {
@@ -68,17 +73,31 @@ async function loadJwks(issuer: string, fetcher: typeof fetch): Promise<JwksCach
     const { kty, crv, x, y } = k;
     keys.set(k.kid, await crypto.subtle.importKey("jwk", { kty, crv, x, y }, { name: "ECDSA", namedCurve: "P-256" }, false, ["verify"]));
   }
-  return { issuer, keys, fetchedAt: Date.now() };
+  const now = Date.now();
+  return { issuer, keys, fetchedAt: now, attemptedAt: now };
 }
 
+/**
+ * Keys of `issuer`, refetched when the cache is older than the TTL or lacks
+ * `kid`, at most every `JWKS_REFETCH_MS`. A failed refetch keeps serving the
+ * cached keys; it throws only when there is nothing cached for the issuer.
+ */
 async function keyFor(issuer: string, kid: string, fetcher: typeof fetch): Promise<CryptoKey | undefined> {
   const now = Date.now();
-  if (cache === null || cache.issuer !== issuer || now - cache.fetchedAt > JWKS_TTL_MS) {
-    cache = await loadJwks(issuer, fetcher);
-  } else if (!cache.keys.has(kid) && now - cache.fetchedAt > JWKS_REFETCH_MS) {
-    cache = await loadJwks(issuer, fetcher);
+  const current = cache !== null && cache.issuer === issuer ? cache : null;
+  const wanted = current === null || now - current.fetchedAt > JWKS_TTL_MS || !current.keys.has(kid);
+  if (wanted && (current === null || now - current.attemptedAt > JWKS_REFETCH_MS)) {
+    inflight ??= loadJwks(issuer, fetcher).finally(() => {
+      inflight = null;
+    });
+    try {
+      cache = await inflight;
+    } catch (error) {
+      if (current === null) throw error;
+      current.attemptedAt = now;
+    }
   }
-  return cache.keys.get(kid);
+  return cache !== null && cache.issuer === issuer ? cache.keys.get(kid) : undefined;
 }
 
 /**
@@ -98,8 +117,13 @@ export async function verifyAccessToken(env: AgentKitEnv, token: string, fetcher
   const key = await keyFor(issuer, header.kid, fetcher);
   if (key === undefined) throw new InvalidAccessTokenError("unknown signing key");
   const signed = new TextEncoder().encode(`${headerPart}.${payloadPart}`);
-  const valid = await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, base64UrlDecode(signaturePart), signed);
-  if (!valid) throw new InvalidAccessTokenError("bad signature");
+  let signature: Uint8Array<ArrayBuffer>;
+  try {
+    signature = base64UrlDecode(signaturePart);
+  } catch {
+    throw new InvalidAccessTokenError("malformed signature");
+  }
+  if (!(await crypto.subtle.verify({ name: "ECDSA", hash: "SHA-256" }, key, signature, signed))) throw new InvalidAccessTokenError("bad signature");
 
   const claims = decodeJson(payloadPart);
   const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
