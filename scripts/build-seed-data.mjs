@@ -9,6 +9,7 @@ const __dirname = dirname(__filename);
 
 const newSkills = [
   {
+    // GitHub stars for the four agent-qa entries: 2026-10-31 snapshot, not a live count.
     "name": "agent-qa-authoring",
     "slug": "vostride-agent-qa-authoring",
     "description": "Official agent-qa skill for authoring, validating, and running natural-language tests, suites, and hooks for web, Android, and iOS.",
@@ -22,7 +23,7 @@ const newSkills = [
     "install_count": 0,
     "avg_rating": 0,
     "rating_count": 0,
-    "github_stars": 893
+    "github_stars": 912
   },
   {
     "name": "agent-qa-debug-fix",
@@ -31,14 +32,14 @@ const newSkills = [
     "author": "vostride",
     "source_url": "https://github.com/vostride/agent-qa/tree/main/skills/agent-qa-debug-fix",
     "category": "testing",
-    "content": "# agent-qa-debug-fix\n\nInvestigate failed agent-qa runs using logs, screenshots, artifacts, and MCP evidence. Apply targeted fixes in the application under test and verify the outcome instead of relying on generated fix suggestions.\n\nagent-qa by vostride runs natural-language QA for web, Android, and iOS, with advanced memidex memory and self-improvement across runs.\n\nRequires a configured agent-qa installation, Node.js 24+, and an AI provider or supported runtime. The skill has no separate purchase price; provider and device/cloud costs may apply. Source license: FSL-1.1-ALv2.\n\nRead the linked official SKILL.md and its bundled references before use.",
+    "content": "# agent-qa-debug-fix\n\nInvestigate failed agent-qa runs using logs, screenshots, artifacts, and MCP evidence. Apply targeted fixes in the application under test and verify the outcome instead of relying on generated fix suggestions.\n\nRequires a configured agent-qa installation, Node.js 24+, and an AI provider or supported runtime. The skill has no separate purchase price; provider and device/cloud costs may apply. Source license: FSL-1.1-ALv2.\n\nRead the linked official SKILL.md and its bundled references before use.",
     "install_command": "npx skills add vostride/agent-qa --skill agent-qa-debug-fix",
     "is_paid": false,
     "price_cents": 0,
     "install_count": 0,
     "avg_rating": 0,
     "rating_count": 0,
-    "github_stars": 893
+    "github_stars": 912
   },
   {
     "name": "agent-qa-result-triage",
@@ -47,14 +48,14 @@ const newSkills = [
     "author": "vostride",
     "source_url": "https://github.com/vostride/agent-qa/tree/main/skills/agent-qa-result-triage",
     "category": "testing",
-    "content": "# agent-qa-result-triage\n\nInspect failed agent-qa runs and their artifacts, classify the cause, and compare relevant recent runs. Produce a concise triage report grounded in run evidence.\n\nagent-qa by vostride runs natural-language QA for web, Android, and iOS, with advanced memidex memory and self-improvement across runs.\n\nRequires a configured agent-qa installation, Node.js 24+, and an AI provider or supported runtime. The skill has no separate purchase price; provider and device/cloud costs may apply. Source license: FSL-1.1-ALv2.\n\nRead the linked official SKILL.md and its bundled references before use.",
+    "content": "# agent-qa-result-triage\n\nInspect failed agent-qa runs and their artifacts, classify the cause, and compare relevant recent runs. Produce a concise triage report grounded in run evidence.\n\nRequires a configured agent-qa installation, Node.js 24+, and an AI provider or supported runtime. The skill has no separate purchase price; provider and device/cloud costs may apply. Source license: FSL-1.1-ALv2.\n\nRead the linked official SKILL.md and its bundled references before use.",
     "install_command": "npx skills add vostride/agent-qa --skill agent-qa-result-triage",
     "is_paid": false,
     "price_cents": 0,
     "install_count": 0,
     "avg_rating": 0,
     "rating_count": 0,
-    "github_stars": 893
+    "github_stars": 912
   },
   {
     "name": "agent-qa-knowledge",
@@ -63,14 +64,14 @@ const newSkills = [
     "author": "vostride",
     "source_url": "https://github.com/vostride/agent-qa/tree/main/skills/agent-qa-knowledge",
     "category": "testing",
-    "content": "# agent-qa-knowledge\n\nExplain what an agent-qa run did and what it learned or recalled. Read screenshots, console/network evidence, knowledge provenance, and run history through MCP tools or the CLI with --json, rather than internal data files.\n\nagent-qa by vostride runs natural-language QA for web, Android, and iOS, with advanced memidex memory and self-improvement across runs.\n\nRequires a configured agent-qa installation, Node.js 24+, and an AI provider or supported runtime. The skill has no separate purchase price; provider and device/cloud costs may apply. Source license: FSL-1.1-ALv2.\n\nRead the linked official SKILL.md and its bundled references before use.",
+    "content": "# agent-qa-knowledge\n\nExplain what an agent-qa run did and what it learned or recalled. Read screenshots, console/network evidence, knowledge provenance, and run history through MCP tools or the CLI with --json, rather than internal data files.\n\nRequires a configured agent-qa installation, Node.js 24+, and an AI provider or supported runtime. The skill has no separate purchase price; provider and device/cloud costs may apply. Source license: FSL-1.1-ALv2.\n\nRead the linked official SKILL.md and its bundled references before use.",
     "install_command": "npx skills add vostride/agent-qa --skill agent-qa-knowledge",
     "is_paid": false,
     "price_cents": 0,
     "install_count": 0,
     "avg_rating": 0,
     "rating_count": 0,
-    "github_stars": 893
+    "github_stars": 912
   },
   {
     name: "ontoly-software-graph",
