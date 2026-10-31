@@ -8,10 +8,9 @@ import { eq, sql, and, gt } from "drizzle-orm";
 import type { Database } from "~/lib/db";
 import { skills, ratings, favorites, usageStats } from "~/lib/db/schema";
 import {
-  computeBayesianRating,
-  computeCompositeScore,
-  computeTrendingScore,
-} from "./leaderboard-scoring";
+  type SkillAggregates,
+  buildScoreUpdate,
+} from "./recompute-score-update";
 
 /** Recompute all precomputed score columns for a single skill */
 export async function recomputeSkillScores(
@@ -50,8 +49,6 @@ export async function recomputeSkillScores(
     .from(favorites)
     .where(eq(favorites.skill_id, skillId));
 
-  const favoriteCount = favResult?.count ?? 0;
-
   // 4. 7-day window for trending (ms timestamp for raw SQL, Date for typed gt())
   const sevenDaysAgoMs = Date.now() - 7 * 24 * 60 * 60 * 1000;
   const sevenDaysAgo = new Date(sevenDaysAgoMs);
@@ -82,9 +79,6 @@ export async function recomputeSkillScores(
     .from(usageStats)
     .where(eq(usageStats.skill_id, skillId));
 
-  const successRate =
-    successData.total > 0 ? successData.successes / successData.total : 0.5;
-
   // 6. Max trending raw across all skills (for normalization)
   const [maxTrendingResult] = await db
     .select({
@@ -100,41 +94,24 @@ export async function recomputeSkillScores(
       ) t`,
     );
 
-  // 7. Compute scores
-  const bayesianRating = computeBayesianRating(
-    skill.avgRating ?? 0,
-    skill.ratingCount ?? 0,
-    globalStats.globalAvgRating,
-  );
-
-  const compositeScore = computeCompositeScore({
-    bayesianRating,
-    installCount: skill.installCount ?? 0,
-    githubStars: skill.githubStars ?? 0,
-    netVotes: skill.netVotes ?? 0,
-    successRate,
-    updatedAt: skill.updatedAt,
-    favoriteCount,
-    maxInstalls: globalStats.maxInstalls,
-    maxStars: globalStats.maxStars,
-    maxNetVotes: Math.max(globalStats.maxNetVotes, 1),
-    maxFavorites: Math.max(globalStats.maxFavorites, 1),
-  });
-
-  const trendingScore = computeTrendingScore(
-    recentRatings?.count ?? 0,
-    recentUsage?.count ?? 0,
-    maxTrendingResult.maxRaw,
-  );
+  // 7. Fold the per-skill reads into the same aggregate shape the bulk path
+  //    builds, so both paths share one scoring implementation.
+  const aggregates: SkillAggregates = {
+    skill_id: skillId,
+    fav_count: favResult?.count ?? 0,
+    recent_ratings: recentRatings?.count ?? 0,
+    recent_usage: recentUsage?.count ?? 0,
+    total_usage: successData.total,
+    success_count: successData.successes,
+  };
 
   // 8. Single UPDATE
-  await db
-    .update(skills)
-    .set({
-      bayesian_rating: bayesianRating,
-      composite_score: compositeScore,
-      trending_score: trendingScore,
-      favorite_count: favoriteCount,
-    })
-    .where(eq(skills.id, skillId));
+  const update = buildScoreUpdate({
+    skill,
+    aggregates,
+    globalStats,
+    maxTrendingRaw: maxTrendingResult.maxRaw,
+  });
+
+  await db.update(skills).set(update).where(eq(skills.id, skillId));
 }
