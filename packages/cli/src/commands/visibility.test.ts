@@ -49,15 +49,23 @@ describe('skillx visibility set', () => {
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer sx_owner');
   });
 
-  it('uses --from without reading, and sends nothing when the visibility already matches', async () => {
+  it('uses --from without reading, and writes nothing when the stored visibility already matches', async () => {
     vi.stubEnv('SKILLX_API_KEY', 'sx_owner');
     const fetchMock = vi.fn(async () => json({ visibility: 'unlisted' }));
     vi.stubGlobal('fetch', fetchMock);
     await runVisibilitySet('@alpha/demo', 'unlisted', { ...REG, from: 'public' });
     expect(fetchMock.mock.calls.map((call) => (call as unknown as [string])[0])).toEqual([SET]);
+    // --from equal to the target is confirmed against the registry, never trusted.
     fetchMock.mockClear();
+    fetchMock.mockResolvedValueOnce(json({ visibility: 'private' }));
     expect(await runVisibilitySet('@alpha/demo', 'private', { ...REG, from: 'private' })).toMatchObject({ changed: false, visibility: 'private' });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.map((call) => (call as unknown as [string])[0])).toEqual([LIST]);
+    fetchMock.mockResolvedValueOnce(json({ visibility: 'public' }));
+    await expect(runVisibilitySet('@alpha/demo', 'private', { ...REG, from: 'private' })).rejects.toMatchObject({
+      code: 'api_error',
+      extra: { details: { code: 'visibility_conflict', stored: 'public' } },
+    });
+    expect(fetchMock.mock.calls.map((call) => (call as unknown as [string])[0])).toEqual([LIST, LIST]);
   });
 
   it('validates the visibility and --from before any request', async () => {

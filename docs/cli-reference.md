@@ -519,9 +519,10 @@ Shows or changes who can read a published package: `public`, `unlisted`
   compare-and-set `POST /api/v1/packages/@publisher/slug/visibility`
   (`{from, to}`, audited; see the
   [API reference](./api-reference.md#managing-packages-and-kits-owner)).
-  `from` is `--from` when given, else read first with `get`. Asking for the
-  current visibility changes nothing and sends no write (`data.changed:
-  false`).
+  `from` is `--from` when given, else read first with `get`. When the target equals
+  `from`, the CLI confirms the stored visibility (also when `--from` was
+  given) and sends no write (`data.changed: false`); a stored value that
+  differs is `api_error` with `error.details.code` `visibility_conflict`.
 
 It needs the owner's **unscoped** account API key (`SKILLX_API_KEY` or
 `skillx config set-key`); a publish key (`releases:publish:@handle`) or any

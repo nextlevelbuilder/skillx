@@ -18,8 +18,6 @@ export function visibilityHint(failure: { status?: number; code?: string | null 
       return `Making a package more visible needs a signed-in approval: open ${dashboardUrl(base)}.`;
     case 'visibility_conflict':
       return `The visibility changed meanwhile; check it with \`skillx visibility get ${name}\` and retry.`;
-    case 'package.deleted':
-      return `Restore the package first: ${dashboardUrl(base)}.`;
     default:
       return undefined;
   }

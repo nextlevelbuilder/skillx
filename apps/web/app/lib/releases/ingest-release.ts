@@ -47,10 +47,13 @@ type Kit = { bucket: R2Bucket; provenance: ReleaseProvenance | null };
  */
 function assertVisibility(identity: string, requested: PackageVisibility | null, stored: string): void {
   if (requested === null || requested === stored) return;
+  // Widening (out of private, or to public) needs a signed-in approval, so only the dashboard can do it.
+  const widening = stored === "private" || requested === "public";
+  const where = widening ? "in the dashboard (/dashboard)" : "with `skillx visibility set` or in the dashboard (/dashboard)";
   throw releaseError(
     409,
     "release.visibility_mismatch",
-    `${identity} is ${stored}; publishing a release does not change the visibility of an existing package (requested ${requested}). Change it first with \`skillx visibility set\` or in the dashboard (/dashboard), or publish without a visibility`,
+    `${identity} is ${stored}; publishing a release does not change the visibility of an existing package (requested ${requested}). Change it first ${where}, or publish without a visibility`,
   );
 }
 

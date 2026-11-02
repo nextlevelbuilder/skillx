@@ -77,7 +77,17 @@ export async function runVisibilitySet(target: string, to: string, options: SetO
     });
   }
   const from = expected ?? (await runVisibilityGet(target, options)).visibility;
-  if (from === next) return { identity: name.name, from, to: next, visibility: next, changed: false };
+  if (from === next) {
+    // `--from` is only a claim: confirm the stored value before reporting that nothing needs to change.
+    const stored = expected === undefined ? from : (await runVisibilityGet(target, options)).visibility;
+    if (stored !== next) {
+      throw new CliError('api_error', `${name.name} is ${stored}, not ${next} as --from expected`, {
+        details: { code: 'visibility_conflict', stored },
+        hint: visibilityHint({ code: 'visibility_conflict' }, base, name.name),
+      });
+    }
+    return { identity: name.name, from, to: next, visibility: next, changed: false };
+  }
   const body = await ownerFetch(
     `${base}/api/v1/packages/@${name.handle}/${name.slug}/visibility`,
     { method: 'POST', headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ from, to: next }) },
