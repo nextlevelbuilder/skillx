@@ -202,10 +202,10 @@ skillx/
 |------|-----|---------|
 | `index.ts` | - | Commander.js CLI entry + command registration |
 | `commands/search.ts` | 86 | `skillx search "..."` → API call → table output |
-| `commands/use.ts` | 78 | `skillx use skill1 skill2` → fetch SKILL.md + flags, POST install, echo to stdout |
-| `commands/publish.ts` | 182 | `skillx publish [owner/repo]` → register/publish skills from GitHub with auth |
+| `commands/use.ts` | - | `skillx use <identifier>` (slug, author/skill, org/repo/skill or keywords) → fetch SKILL.md + flags, POST install, echo to stdout |
+| `commands/import.ts`, `commands/publish.ts` | - | `skillx import owner/repo` registers GitHub skills; `skillx publish <dir>` publishes a release (`publish owner/repo` is a deprecated alias of import) |
 | `commands/report.ts` | 90 | `skillx report` → POST usage metrics to API |
-| `commands/config.ts` | 91 | `skillx config set/get KEY VALUE` → local store |
+| `commands/config.ts` | - | `skillx config set-key`, `set-url`, `show` → local `conf` store |
 | `lib/api-client.ts` | 35 | HTTP client with API key auth (Bearer token) |
 | `lib/use-display.ts` | - | Display formatter for skill content (references, scripts, content) |
 | `utils/config-store.ts` | - | conf package: ~/.skillx/config.json, includes getDeviceId() |
@@ -214,15 +214,15 @@ skillx/
 ```bash
 npm install -g skillx-sh
 skillx search "data processing"
-skillx use skillx-search skillx-email
-skillx use skillx-search --include-refs       # Include references section
-skillx use skillx-search --include-scripts    # Include scripts array
-skillx publish owner/repo                     # Register/publish from GitHub
-skillx publish owner/repo --path path/to/skill  # Single skill path
-skillx publish owner/repo --scan              # Scan entire repo
-skillx publish --dry-run                      # Validation only (requires auth)
+skillx use find-skills
+skillx use find-skills --include-refs         # Include references section
+skillx use find-skills --include-scripts      # Include scripts array
+skillx import owner/repo                      # Register skills from GitHub (`publish owner/repo` is a deprecated alias)
+skillx import owner/repo --path path/to/skill # Single skill path
+skillx import owner/repo --scan               # Scan entire repo
+skillx import owner/repo --dry-run            # Show what would be imported, no API call
 skillx config set-key                         # prompts; or pipe the key on stdin
-skillx report --outcome success --duration 1234
+skillx report find-skills success --duration 1234
 ```
 
 ## Data Flow Diagrams (ASCII)

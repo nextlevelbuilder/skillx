@@ -21,24 +21,33 @@ cd apps/web && pnpm dev
 
 ### CLI Tool
 
+The released CLI is `skillx-sh` 0.8.0 (Node >=22). Full reference:
+[docs/cli-reference.md](./docs/cli-reference.md).
+
 ```bash
 # Install globally
 npm install -g skillx-sh
 
-# Search for skills
+# Search the catalog, or browse results interactively
 skillx search "data processing"
+skillx find "data processing"
 
-# Use a skill
-skillx use skillx-search
-
-# Search and use in one command
+# Show a skill (slug, author/skill, org/repo/skill or "keywords")
+skillx use find-skills
 skillx use "data processing" --search
 
-# Report execution result
-skillx report --outcome success --duration 1234
+# Vet a skill before using it
+skillx inspect find-skills
+skillx check find-skills --target claude-code   # exit 0 only when declared or verified
 
-# Configure API key
-skillx config set SKILLX_API_KEY sk_prod_...
+# Install a verified registry release into a runtime and pin it in skillx.lock.json
+skillx install @publisher/package --runtime claude-code
+
+# Report an execution outcome (needs an API key)
+skillx report find-skills success --duration 1234
+
+# Configure your API key (prompts; or pipe it on stdin)
+skillx config set-key
 ```
 
 ## What is SkillX?
@@ -58,12 +67,12 @@ SkillX combines three components:
 - Search latency: <800ms p95
 
 ### 3. CLI Tool (skillx)
-```bash
-skillx search "email validation"
-skillx use skillx-email
-skillx report --outcome success
-skillx config set/get KEY VALUE
-```
+- Discover: `search`, `find`, `use`, `inspect`, `check`
+- Install verified releases: `install`, `update`, `uninstall`, `list`, `sync --locked`
+- Publish: `validate`, `pack`, `publish <dir>`, `promote`; `import owner/repo` registers a GitHub skill
+- Your account: `library list`, `kit` (personal kits), `report`, `config`
+- `skillx mcp` serves the local installer (inspect, plan, apply) as an MCP server
+- `skillx add <source>` (install straight from GitHub, a git URL or a local directory) is on `main` and ships after 0.8.0
 
 ### 4. Claude Code Plugin Marketplace
 Discover and install skills directly in Claude Code:
@@ -95,7 +104,7 @@ skillx/
 │   ├── routes/            # Pages (home, search, detail, settings) + APIs
 │   ├── components/        # UI components
 │   └── lib/               # DB, auth, search, vectorization
-├── packages/cli/          # skillx npm package (~400 LOC)
+├── packages/cli/          # skillx-sh npm package (bin: skillx)
 ├── .claude-plugin/        # Claude Code plugin marketplace
 │   └── marketplace.json   # Marketplace catalog + plugin manifests
 ├── plugins/skillx/        # Standalone SkillX plugin (v2.0.0): skill, MCP, evals
@@ -166,6 +175,9 @@ curl https://skillx.sh/api/admin/seed
 | [project-roadmap.md](./docs/project-roadmap.md) | Phases, milestones, timelines |
 | [deployment-guide.md](./docs/deployment-guide.md) | Setup, deployment, troubleshooting |
 | [design-guidelines.md](./docs/design-guidelines.md) | UI/UX design system (dark theme, mint) |
+| [cli-reference.md](./docs/cli-reference.md) | Every `skillx` command, flag, exit code and the installer |
+| [api-reference.md](./docs/api-reference.md) | Registry, release, collections and MCP API contracts |
+| [personal-kits-api.md](./docs/personal-kits-api.md) | Personal kits API (`SKILLX_PERSONAL_KITS_API`: off unless set; on at skillx.sh) |
 
 ## API Endpoints
 

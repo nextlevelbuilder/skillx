@@ -1,6 +1,6 @@
 # SkillX CLI Reference
 
-**Package:** `skillx-sh` | **Binary:** `skillx` | **Version:** 0.7.1 | **Node:** >=22
+**Package:** `skillx-sh` | **Binary:** `skillx` | **Version:** 0.8.0 (`skillx add` is on `main`, not yet released) | **Node:** >=22
 
 ---
 
