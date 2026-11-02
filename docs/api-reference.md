@@ -1302,7 +1302,7 @@ Read-only, behind the same flag: unless `SKILLX_RELEASES_API` is `"1"` or
 
 | Endpoint | Returns |
 |----------|---------|
-| `GET /api/v1/packages/@{publisher}/{slug}/releases` | JSON list, newest first (at most 500): `version`, `channel`, `state`, `releaseDigest`, `artifactDigest`, `artifactSize`, `createdAt`. Published and yanked releases; a release is hidden when its tree is quarantined anywhere (it would answer `403`), so the list never offers one |
+| `GET /api/v1/packages/@{publisher}/{slug}/releases` | `{identity, visibility, releases}`: the package visibility (`public`, `unlisted` or `private`, as stored) and the list, newest first (at most 500): `version`, `channel`, `state`, `releaseDigest`, `artifactDigest`, `artifactSize`, `createdAt`. Published and yanked releases; a release is hidden when its tree is quarantined anywhere (it would answer `403`), so the list never offers one |
 | `GET /api/v1/packages/@{publisher}/{slug}/releases/{version}` | The signed `skillx.release/v1` or `v2` manifest bytes (new resolution: only `published`) |
 | `GET /api/v1/packages/@{publisher}/{slug}/releases/{version}/status` | The signed `skillx.release-status/v1` document of that release, in every state (see [Signed release status](#signed-release-status)) |
 | `GET /api/v1/releases/{releaseDigest}/manifest[?version=&package=]` | The same manifest, by tree digest (locked clients) |
@@ -1751,7 +1751,8 @@ The publisher route answers `{"handle", "from", "to", "state", "changedAt"}`.
 ### Managing packages and kits (owner)
 
 The owner manages a package or personal kit from the web dashboard
-(`/dashboard`) or with these endpoints. All are `POST` with an
+(`/dashboard`), with these endpoints, or (package visibility) with
+`skillx visibility set` (see [cli-reference.md](./cli-reference.md)). All are `POST` with an
 `application/json` body, behind `SKILLX_RELEASES_API` (`404 not_found` while
 it is off; kits also need `SKILLX_PERSONAL_KITS_API`, else `404
 kit.api_disabled`), other methods `405`. Every answer is `Cache-Control:

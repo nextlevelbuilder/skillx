@@ -118,6 +118,11 @@ describe("publish visibility: never changed by a publish", () => {
     const writes = h.r2.putLog.length;
     const res = await publish("@alpha/notes", { visibility: requested, version: "1.1.0" }, " v2");
     expect(res).toMatchObject({ status: 409, body: { error: { code: "release.visibility_mismatch" } } });
+    // The refusal names the next step: change the visibility first.
+    // Only a narrowing can be done with the CLI's key; a widening is approved in the dashboard.
+    expect(res.body.error.message).toContain("/dashboard");
+    if (requested === "private") expect(res.body.error.message).toContain("skillx visibility set");
+    else expect(res.body.error.message).not.toContain("skillx visibility set");
     expect(h.r2.putLog.length).toBe(writes);
     expect(h.releaseRows()).toHaveLength(1);
     expect(storedVisibility("@alpha/notes")).toBe(stored);

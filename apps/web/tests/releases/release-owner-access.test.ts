@@ -203,7 +203,7 @@ describe("private package reads: the owner", () => {
       expect(res.headers.get("Vary")).toBe("Authorization, Cookie");
     }
     const list = await (await api.list(PRIVATE, { key: ownerKey })).json();
-    expect(list).toMatchObject({ identity: PRIVATE, releases: [expect.objectContaining({ version: "1.0.0", releaseDigest: digest })] });
+    expect(list).toMatchObject({ identity: PRIVATE, visibility: "private", releases: [expect.objectContaining({ version: "1.0.0", releaseDigest: digest })] });
     session.user = { id: "user-a" };
     for (const res of await everyRead(PRIVATE, digest)) expect(res.status).toBe(200);
   });
