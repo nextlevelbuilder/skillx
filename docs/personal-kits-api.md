@@ -12,7 +12,8 @@ without an explicit user approval.
   `apps/web/app/routes/api.v1.kits.ts` and `apps/web/app/lib/personal-kits/`.
 - Feature flag: `SKILLX_PERSONAL_KITS_API` (`"1"` or `"true"`, trimmed and in
   any case, enables it, as for `SKILLX_RELEASES_API`; any other value or no
-  value is off). While it is off,
+  value is off). The production deployment sets it to `"1"` in
+  `apps/web/wrangler.jsonc`, so it is on at skillx.sh. While it is off,
   every path returns the JSON 404 `kit.api_disabled`, before any
   authentication or lookup, so a client can say "this deployment does not offer
   personal kits" instead of "no such kit". Reading base releases also needs the
