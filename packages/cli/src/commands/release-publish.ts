@@ -5,6 +5,7 @@ import { KIT_ORIGINS } from '@skillx/skill-tree';
 import { PACKAGE_VISIBILITIES } from '@skillx/contracts';
 import type { PackageVisibility } from '@skillx/contracts';
 import { getBaseUrl } from '../utils/config-store.js';
+import { withVisibilityMismatchHint } from '../lib/visibility-hints.js';
 import { CliError, parsePackageName, publishCredential, registryFetch, runCommand, usageError } from '../lib/release-cli.js';
 import { createPackCommand, packOrFail } from './pack.js';
 import { packSummary } from './release-pack.js';
@@ -163,7 +164,9 @@ export async function runReleasePublish(input: string, options: ReleasePublishOp
     }),
   };
   if (options.idempotencyKey) headers['Idempotency-Key'] = options.idempotencyKey;
-  const body = await registryFetch(`${base}/api/v1/packages/@${name.handle}/${name.slug}/releases`, { method: 'POST', headers, body: packed.tar });
+  const body = await registryFetch(`${base}/api/v1/packages/@${name.handle}/${name.slug}/releases`, { method: 'POST', headers, body: packed.tar }).catch((error: unknown) => {
+    throw withVisibilityMismatchHint(error, base, name.name, visibility);
+  });
   try {
     assertRegistryDigests(packed, body);
   } catch (error) {

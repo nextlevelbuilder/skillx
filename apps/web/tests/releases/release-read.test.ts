@@ -112,6 +112,7 @@ describe("release read: happy path over real HTTP bodies", () => {
     expect(res.headers.get("Cache-Control")).toBe("public, max-age=60, no-transform");
     expect(await res.json()).toEqual({
       identity: "@alpha/demo",
+      visibility: "public",
       releases: [
         expect.objectContaining({ version: "1.0.0", channel: "stable", state: "published", releaseDigest: digest, createdAt: "2026-10-13T12:00:00.000Z" }),
       ],

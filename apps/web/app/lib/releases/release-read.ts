@@ -184,6 +184,7 @@ export async function readReleaseList(ctx: ReadContext, params: Params): Promise
   return Response.json(
     {
       identity: list.identity,
+      visibility: list.visibility,
       releases: list.releases.map((release) => ({
         version: release.version,
         channel: release.channel,

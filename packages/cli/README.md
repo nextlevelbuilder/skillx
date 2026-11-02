@@ -81,11 +81,16 @@ skillx import owner/repo --scan        # scan all SKILL.md files
 skillx import --dry-run                # preview without importing
 ```
 
-### Release commands: `validate`, `pack`, `publish <dir>`, `promote`
+### Release commands: `validate`, `pack`, `publish <dir>`, `promote`, `visibility`
 
 Build and upload immutable, digest-pinned releases. With `--json` each prints one
 envelope, `{"ok": true, "data": {...}}` or `{"ok": false, "error": {...}}`, and the
 exit code follows it. See the [CLI reference](https://github.com/nextlevelbuilder/skillx/blob/main/docs/cli-reference.md).
+
+Change a package's visibility with `skillx visibility set @acme/my-skill private`
+(`skillx visibility get` shows it). It needs your unscoped account API key, which may
+only make a package less visible; making it more visible is approved in the web
+dashboard (`/dashboard`).
 
 > **Breaking:** `skillx release publish --json` (now an alias of `skillx publish <dir>`)
 > used to print the bare release object, and failures only as text on stderr with exit

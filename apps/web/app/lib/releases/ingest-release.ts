@@ -50,7 +50,7 @@ function assertVisibility(identity: string, requested: PackageVisibility | null,
   throw releaseError(
     409,
     "release.visibility_mismatch",
-    `${identity} is ${stored}; publishing a release does not change the visibility of an existing package (requested ${requested})`,
+    `${identity} is ${stored}; publishing a release does not change the visibility of an existing package (requested ${requested}). Change it first with \`skillx visibility set\` or in the dashboard (/dashboard), or publish without a visibility`,
   );
 }
 

@@ -387,7 +387,7 @@ skillx uninstall add:pdf
 
 ---
 
-### Release commands: `validate`, `pack`, `publish`, `promote`
+### Release commands: `validate`, `pack`, `publish`, `promote`, `visibility`
 
 These commands work on immutable, digest-pinned releases. Like every other
 command they take `--json` and follow
@@ -458,7 +458,7 @@ not a local path (or no source at all) runs the deprecated import (see
 | `--kind <kind>` | `skill`, `hook-pack` or `bundle` | `skill` |
 | `--repo <https-url>` | Provenance repository URL | `origin` remote (https form) |
 | `--script <path>` | Declare a packaged script (repeatable) | — |
-| `--visibility <visibility>` | `public`, `unlisted` (readable by anyone who knows the name, never listed) or `private`. Omitted: a new package is `private` (a note goes to stderr, never stdout) and an existing package keeps its visibility. A different visibility for an existing package is refused: `api_error`, exit `1`, `error.details.code` `release.visibility_mismatch` (like `release.version_exists`); change it in the web dashboard (`/dashboard`) instead. Publishing to a deleted package is refused with `package.deleted` | — |
+| `--visibility <visibility>` | `public`, `unlisted` (readable by anyone who knows the name, never listed) or `private`. Omitted: a new package is `private` (a note goes to stderr, never stdout) and an existing package keeps its visibility. A different visibility for an existing package is refused: `api_error`, exit `1`, `error.details.code` `release.visibility_mismatch` (like `release.version_exists`); the error's `hint` names the next step: change it first with `skillx visibility set` (a key may only make a package less visible) or in the web dashboard (`/dashboard`), or publish without `--visibility`. Publishing to a deleted package is refused with `package.deleted` | — |
 | `--kit-origin <origin>` | Publish an `@agentkit/*` kit release (`remote-signed` or `local-dev`), signed as `skillx.release/v2`; needs a `releases:publish:@agentkit` key; the slug omits `ak-` (`@agentkit/plan`). Installing v2 releases needs skillx-sh 0.7.0 or later | — |
 | `--registry <url>` | Registry base URL; `https` only (`http` only for localhost) | configured base URL |
 | `--idempotency-key <key>` | Sends `Idempotency-Key`: a retry with the same key and bytes replays the first answer; other bytes are refused | — |
@@ -507,6 +507,45 @@ demote. Every attempt is audited.
 ```bash
 skillx promote @acme/my-skill@1.2.0 --from beta --to stable --reason "soak passed"
 ```
+### `skillx visibility get|set <@publisher/slug>`
+
+Shows or changes who can read a published package: `public`, `unlisted`
+(readable by anyone who knows the name, never listed) or `private`.
+
+- `skillx visibility get <@publisher/slug>` reads it from
+  `GET .../releases` (`visibility` member), with the API key when one is set,
+  so the owner can read a private package.
+- `skillx visibility set <@publisher/slug> <visibility>` posts the
+  compare-and-set `POST /api/v1/packages/@publisher/slug/visibility`
+  (`{from, to}`, audited; see the
+  [API reference](./api-reference.md#managing-packages-and-kits-owner)).
+  `from` is `--from` when given, else read first with `get`. Asking for the
+  current visibility changes nothing and sends no write (`data.changed:
+  false`).
+
+It needs the owner's **unscoped** account API key (`SKILLX_API_KEY` or
+`skillx config set-key`); a publish key (`releases:publish:@handle`) or any
+other scoped key is refused (`auth_error`, exit `5`). A key may only make a
+package less visible (`public` to `unlisted`, anything to `private`). Making it
+more visible (out of `private`, or to `public`) needs a signed-in approval in
+the web dashboard: the registry answers `403 visibility.approval_required`
+(`auth_error`, exit `5`) and the `hint` names `<registry>/dashboard`. A
+concurrent change is `409 visibility_conflict` (`api_error`, exit `1`; the hint
+says to re-read with `get`), and an unknown package, or one you do not own, is
+`not_found` (exit `3`).
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--from <visibility>` | `set` only: expected current visibility; the change fails with `visibility_conflict` if it differs | read with `get` |
+| `--registry <url>` | Registry base URL | configured base URL |
+| `--json` | Print the result envelope: `get` `{identity, visibility}`, `set` `{identity, from, to, visibility, changed, changedAt?}` | — |
+
+```bash
+skillx visibility get @acme/my-skill
+skillx visibility set @acme/my-skill private          # narrowing works with an account key
+skillx visibility set @acme/my-skill public --json    # widening: auth_error, hint names /dashboard
+```
+
 ---
 
 ### `skillx library list`

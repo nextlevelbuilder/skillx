@@ -151,7 +151,7 @@ Search algorithm: `./docs/search-algorithm.md`
 
 **CLI `skillx use` resolution**: `author/skill` (two-part → DB slug `author-skill`) | `org/repo/skill` (three-part → DB slug `org-skill`, fallback register from GitHub) | `slug` (direct lookup, fallback search) | `"keywords"` (search mode). Flags: `--include-refs`, `--include-scripts` for extended content. Display logic split into `use-display.ts` module.
 
-**Register & Publish APIs**: POST `/api/skills/register` with `{ owner, repo, skill_path?, scan? }`. GitHub ownership verified via collaborator check. Content scanned for security (risk_label: safe/caution/danger/unknown). CLI `skillx import owner/repo [--path X] [--scan] [--dry-run]` — requires API key auth (`skillx publish owner/repo` is a deprecated alias). Releases: `skillx validate|pack|publish <dir>|promote` (`skillx release pack|publish` are aliases), JSON envelope via `--json`.
+**Register & Publish APIs**: POST `/api/skills/register` with `{ owner, repo, skill_path?, scan? }`. GitHub ownership verified via collaborator check. Content scanned for security (risk_label: safe/caution/danger/unknown). CLI `skillx import owner/repo [--path X] [--scan] [--dry-run]` — requires API key auth (`skillx publish owner/repo` is a deprecated alias). Releases: `skillx validate|pack|publish <dir>|promote|visibility get|set` (`skillx release pack|publish` are aliases), JSON envelope via `--json`.
 
 **Styling**: Always dark theme. Use `bg-slate-900`, `text-white`, `text-mint`, `border-mint/20`. Geist Sans/Mono fonts. Lucide icons.
 
