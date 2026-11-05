@@ -56,9 +56,10 @@ export interface KitLockEntry {
   alias: string;
   mode: KitSkillEntry["mode"];
   exposure: string | null;
-  package: string;
-  version: string;
-  releaseDigest: string;
+  /** Null, with `version` and `releaseDigest`, for a `create` entry: it has no base. */
+  package: string | null;
+  version: string | null;
+  releaseDigest: string | null;
   overlayDigests: string[];
   compositionDigest: string;
   owner: string;
@@ -98,9 +99,9 @@ export async function buildKitLock(chain: readonly PersonalKitDocument[], revisi
       alias: entryAlias(entry),
       mode: entry.mode,
       exposure: entry.exposure ?? null,
-      package: entry.base.package,
-      version: entry.base.version,
-      releaseDigest: entry.base.releaseDigest,
+      package: entry.base?.package ?? null,
+      version: entry.base?.version ?? null,
+      releaseDigest: entry.base?.releaseDigest ?? null,
       overlayDigests: entry.overlay.ops.length === 0 ? [] : [await overlayDigest(entry)],
       compositionDigest: entry.compositionDigest,
       owner: `personal:${owner}`,
@@ -120,10 +121,10 @@ export async function buildKitLock(chain: readonly PersonalKitDocument[], revisi
   };
 }
 
-/** A public kit may only derive from public bases and a public parent. */
+/** A public kit may only derive from public bases and a public parent; a `create` entry has no base to check. */
 export function publicDerivativeViolation(doc: PersonalKitDocument, isPublicBase: (pkg: string) => boolean, parentPublic: boolean): string | null {
   if (doc.visibility !== "public") return null;
   if (doc.parent !== undefined && !parentPublic) return `parent ${doc.parent.kit} is private`;
-  const hidden = doc.skills.find((s) => !isPublicBase(s.base.package));
-  return hidden === undefined ? null : `base ${hidden.base.package} is private or paid`;
+  const hidden = doc.skills.find((s) => s.base !== null && !isPublicBase(s.base.package));
+  return hidden?.base == null ? null : `base ${hidden.base.package} is private or paid`;
 }

@@ -95,10 +95,28 @@ without an explicit user approval.
 - Lineage is resolved child first, up to depth 4. Cycles are refused with
   `kit.cycle`.
 - `skills` are sorted by identity, and each identity appears once.
-- `mode` takes one of three values:
+- `mode` takes one of four values:
   - `extend` allows add ops only.
   - `override` keeps the base identity and can change anything.
   - `fork` requires a new identity under the kit handle and its own `alias`.
+  - `create` is a brand-new skill with no base: `base` is `null`, the
+    identity is under the kit handle, and the overlay adds every file
+    (`SKILL.md` included) onto the empty tree, so `baseTreeDigest` is
+    `sha256:b1bc397a21f055678d40748596d8541925bbc1d566c4ab456f1af35630145e93`
+    and only `add` ops are allowed. The files are user content that no
+    release scan has seen, so the server scans every file in full on each
+    revision write, as it scans the lines a proposal adds: a secret, an
+    absolute local path, binary or byte-order-mark content is refused with
+    422 `kit.content_refused` and nothing is stored; any other `danger`
+    finding stores the revision `quarantined`. A created skill pins no paid
+    base, so it never makes a kit a refused public derivative, but new kits
+    still start private. Created content is checked only by that automatic
+    scan, not by the release pipeline and its signed manifest, so a public
+    kit that holds one serves content no release review has seen; readers
+    should trust it as they trust the kit owner. It is skipped by rebase, and the SkillX CLI does
+    not install a kit that holds one (AgentKit materializes it from the
+    document). The golden vector is
+    `packages/contracts/src/fixtures/personal-kit-create-golden.json`.
 - Shared skills, those owned by AgentKit `kits/core` or shipped by more than
   one official kit, can be forked but never overlaid; an in-place overlay is
   refused with 422 `overlay.shared_alias` (AgentKit code). The guard fails
@@ -126,7 +144,8 @@ without an explicit user approval.
   was authored `public` and activated by its owner. Drafts, proposals,
   rejected or quarantined revisions, and revisions authored while that kit
   was private are refused with `kit.base_unavailable`.
-- `compositionDigest` is the tree digest of the base with the overlay applied.
+- `compositionDigest` is the tree digest of the base (the empty tree for
+  `create`) with the overlay applied.
   The server recomputes it from the pinned release bytes and refuses a
   mismatch with 409 `kit.composition_digest_mismatch`.
 - `base` may pin any release of the package the owner can read, not only the
@@ -180,8 +199,9 @@ always yield equal lock bytes. It contains:
   `revisionDigest`;
 - `profile` and `runtimes`;
 - one entry per exposed skill: `identity`, `alias`, `mode`, `exposure`,
-  `package`, `version`, `releaseDigest`, `overlayDigests` (one per lineage
-  layer), `compositionDigest`, and `owner: "personal:@h/k"`.
+  `package`, `version`, `releaseDigest` (all three `null` for a `create`
+  entry), `overlayDigests` (one per lineage layer), `compositionDigest`, and
+  `owner: "personal:@h/k"`.
 
 The lock owner key stays `personal:@<handle>/<name>` on SkillX. AgentKit keys
 its local kits `personal:<name>` (`local/<name>`) and maps that to the SkillX

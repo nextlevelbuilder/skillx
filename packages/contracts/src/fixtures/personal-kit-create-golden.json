@@ -1,0 +1,108 @@
+{
+  "description": "Personal kit golden vector for a create entry (base: null): the skill files are added onto the empty tree. personal-kit-create-golden.test.ts re-derives every value.",
+  "files": [
+    {
+      "path": "SKILL.md",
+      "text": "---\nname: notes\ndescription: Keep notes\n---\n# Notes\nWrite things down.\n"
+    },
+    {
+      "path": "references/guide.md",
+      "text": "guide\n"
+    },
+    {
+      "path": "scripts/run.sh",
+      "text": "#!/bin/sh\necho notes\n",
+      "mode": "100755"
+    }
+  ],
+  "emptyTreeDigest": "sha256:b1bc397a21f055678d40748596d8541925bbc1d566c4ab456f1af35630145e93",
+  "document": {
+    "schema": "skillx.personal-kit/v1",
+    "kit": "@alpha/my-kit",
+    "localId": "local/my-kit",
+    "visibility": "private",
+    "skills": [
+      {
+        "identity": "@alpha/notes",
+        "mode": "create",
+        "base": null,
+        "overlay": {
+          "schema": "agentkit.skill-overlay/v1",
+          "baseTreeDigest": "sha256:b1bc397a21f055678d40748596d8541925bbc1d566c4ab456f1af35630145e93",
+          "ops": [
+            {
+              "op": "add",
+              "path": "SKILL.md",
+              "contentBase64": "LS0tCm5hbWU6IG5vdGVzCmRlc2NyaXB0aW9uOiBLZWVwIG5vdGVzCi0tLQojIE5vdGVzCldyaXRlIHRoaW5ncyBkb3duLgo="
+            },
+            {
+              "op": "add",
+              "path": "references/guide.md",
+              "contentBase64": "Z3VpZGUK"
+            },
+            {
+              "op": "add",
+              "path": "scripts/run.sh",
+              "contentBase64": "IyEvYmluL3NoCmVjaG8gbm90ZXMK",
+              "mode": "100755"
+            }
+          ]
+        },
+        "compositionDigest": "sha256:b9351f9fd0beefa37e26a7f7cb9a055f535e4c2fd7f3588782f032db5b7332fd"
+      }
+    ],
+    "exclude": [],
+    "runtimes": {}
+  },
+  "expected": {
+    "compositionDigest": "sha256:b9351f9fd0beefa37e26a7f7cb9a055f535e4c2fd7f3588782f032db5b7332fd",
+    "composedFiles": [
+      {
+        "path": "SKILL.md",
+        "mode": "100644",
+        "size": 71,
+        "sha256": "89c445a988d0ef2116a7a5145efdf4221521413a1f118bd90162749f0e681215"
+      },
+      {
+        "path": "references/guide.md",
+        "mode": "100644",
+        "size": 6,
+        "sha256": "90c390ec1de806bf945885cd0af51e90c3cd8cda0d0ff676051a56c20848c90f"
+      },
+      {
+        "path": "scripts/run.sh",
+        "mode": "100755",
+        "size": 21,
+        "sha256": "df87577789fc7d8698f4bd27c6575d70d82dac7c3f83291418c94f3f43353b6a"
+      }
+    ],
+    "revisionDigest": "sha256:00665191040b573fbe6b9bcec59b786b4f2d88b0340ed45eb3773bf270f7841a",
+    "lock": {
+      "schema": "skillx.personal-kit-lock/v1",
+      "resolver": "skillx.kit-resolver/1",
+      "kit": "@alpha/my-kit",
+      "localId": "local/my-kit",
+      "revisionId": "pkr_golden_create",
+      "revisionNumber": 1,
+      "revisionDigest": "sha256:00665191040b573fbe6b9bcec59b786b4f2d88b0340ed45eb3773bf270f7841a",
+      "profile": null,
+      "runtimes": {},
+      "entries": [
+        {
+          "identity": "@alpha/notes",
+          "alias": "notes",
+          "mode": "create",
+          "exposure": null,
+          "package": null,
+          "version": null,
+          "releaseDigest": null,
+          "overlayDigests": [
+            "sha256:1b939be06b2fb7fc15655667061536562d7d89c4d57380be203b914847cec8bc"
+          ],
+          "compositionDigest": "sha256:b9351f9fd0beefa37e26a7f7cb9a055f535e4c2fd7f3588782f032db5b7332fd",
+          "owner": "personal:@alpha/my-kit"
+        }
+      ]
+    }
+  }
+}

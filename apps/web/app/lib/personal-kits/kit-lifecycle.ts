@@ -47,6 +47,7 @@ export async function checkLock(caller: KitCaller, rev: RevisionRow): Promise<Lo
   const { chain } = loaded;
   const warnings: string[] = [];
   for (const { entry } of resolveLineage(chain)) {
+    if (entry.base === null) continue;
     try {
       const base = await loadPinnedBase(caller.env, caller.userId, entry.base, caller.bases);
       if (base.release.state === "yanked") warnings.push(`${entry.base.package}@${entry.base.version} is yanked`);

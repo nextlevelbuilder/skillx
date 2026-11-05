@@ -15,6 +15,7 @@ import {
   MAX_LINEAGE_DEPTH,
   PersonalKitError,
   applyOverlay,
+  emptyKitTree,
   kitError,
   publicDerivativeViolation,
   resolveLineage,
@@ -23,6 +24,7 @@ import {
 import type { PersonalKitDocument } from "@skillx/contracts";
 import { IDENTITY_PATTERN } from "@skillx/skill-tree/rules";
 import { baseFailure, loadPinnedBase } from "./base-loader";
+import { scanProposal } from "./proposal-scan";
 import type { LoadedBase } from "./base-loader";
 import { scopeReadsKit } from "./kit-http";
 import type { KitCaller } from "./kit-http";
@@ -33,6 +35,8 @@ export interface VerifiedDocument {
   chain: PersonalKitDocument[];
   bases: Map<string, LoadedBase>;
   warnings: string[];
+  /** `danger:` findings in created skills that store the revision quarantined. */
+  quarantine: string[];
 }
 
 const UNUSABLE_PARENT_STATES = new Set(["proposed", "rejected", "quarantined"]);
@@ -139,8 +143,13 @@ export async function verifyDocument(caller: KitCaller, kitName: string, doc: Pe
   if (sharedViolation !== null) throw sharedViolation;
   const bases = new Map<string, LoadedBase>();
   const warnings: string[] = [];
+  const quarantine: string[] = [];
   for (const [i, entry] of doc.skills.entries()) {
     const at = `skills[${i}]`;
+    if (entry.base === null) {
+      quarantine.push(...(await verifyCreated(entry, at)));
+      continue;
+    }
     let base: LoadedBase;
     try {
       base = await loadPinnedBase(env, userId, entry.base, caller.bases);
@@ -165,5 +174,27 @@ export async function verifyDocument(caller: KitCaller, kitName: string, doc: Pe
   const { chain, parentPublic } = await loadChain(caller, doc);
   const violation = publicDerivativeViolation(doc, (pkg) => [...bases.values()].some((b) => b.release.identity === pkg && b.release.visibility === "public"), parentPublic);
   if (violation !== null) throw kitError(KIT_CODES.publicDerivative, "visibility", violation);
-  return { chain, bases, warnings };
+  if (quarantine.length > 0) warnings.push(`created skill content is quarantined for review: ${quarantine.join(", ")}`);
+  return { chain, bases, warnings, quarantine };
+}
+
+/**
+ * A created skill is user content with no reviewed base: its composition is
+ * re-derived on the empty tree and every file is scanned in full, as the
+ * lines a proposal adds are. A secret, local path, binary or BOM content
+ * refuses the revision; any other `danger` finding is returned so the
+ * revision is stored quarantined.
+ */
+async function verifyCreated(entry: PersonalKitDocument["skills"][number], at: string): Promise<string[]> {
+  let digest: string;
+  try {
+    digest = (await applyOverlay(emptyKitTree(), entry.overlay)).digest;
+  } catch (error) {
+    if (error instanceof PersonalKitError) throw kitError(error.code, `${at}.overlay${error.path === "" ? "" : `:${error.path}`}`, error.detail);
+    throw error;
+  }
+  if (digest !== entry.compositionDigest) throw kitError(KIT_CODES.compositionMismatch, `${at}.compositionDigest`, `the overlay on the empty tree gives ${digest}`);
+  const scan = await scanProposal(emptyKitTree(), { ...entry.overlay, ops: [] }, entry.overlay, null);
+  if (scan.refusing.length > 0) throw kitError(KIT_CODES.contentRefused, at, `the created skill was refused: ${scan.refusing.join(", ")}`);
+  return scan.quarantining;
 }
