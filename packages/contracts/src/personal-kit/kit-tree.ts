@@ -52,6 +52,18 @@ export function checkComposedFiles(files: readonly KitTreeFile[]): void {
   if (failure !== null) throw kitError(failure.code, failure.path, failure.detail);
 }
 
+/** Digest of the tree with no files: the base of every `create` entry. */
+export const EMPTY_TREE_DIGEST = "sha256:b1bc397a21f055678d40748596d8541925bbc1d566c4ab456f1af35630145e93";
+
+/** The base tree of a `create` entry. */
+export const emptyKitTree = (): KitTree => ({
+  digest: EMPTY_TREE_DIGEST,
+  files: [],
+  read: async (path) => {
+    throw kitError("tree.read_failed", path, "no such file");
+  },
+});
+
 /** A tree held fully in memory (tests, fixtures, small compositions). */
 export async function memoryTree(entries: ReadonlyArray<{ path: string; text?: string; bytes?: Uint8Array; mode?: FileMode }>): Promise<KitTree> {
   const bytesByPath = new Map<string, Uint8Array>();

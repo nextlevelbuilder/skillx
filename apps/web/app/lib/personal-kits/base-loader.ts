@@ -9,7 +9,7 @@
  * the manifest SHA-256 before use; a mismatch is a storage failure.
  */
 import { kitTreeDigest } from "@skillx/contracts";
-import type { KitSkillEntry, KitTree } from "@skillx/contracts";
+import type { KitBasePin, KitTree } from "@skillx/contracts";
 import { blobKey } from "~/lib/releases/r2-create-only";
 import { resolveReleaseByDigest, resolveReleaseByVersion } from "~/lib/releases/release-access";
 import type { ReadableRelease } from "~/lib/releases/release-access";
@@ -98,7 +98,7 @@ function cached(cache: BaseCache, key: string, load: () => Promise<LoadedBase>):
 }
 
 /** The base an entry pins, checked against its package and version. */
-export function loadPinnedBase(env: Env, userId: string, base: KitSkillEntry["base"], cache: BaseCache): Promise<LoadedBase> {
+export function loadPinnedBase(env: Env, userId: string, base: KitBasePin, cache: BaseCache): Promise<LoadedBase> {
   return cached(cache, `pin|${userId}|${base.package}|${base.version}|${base.releaseDigest}`, async () => {
     const release = await resolveReleaseByDigest(env.DB, base.releaseDigest, userId, base.version, base.package);
     return { release, tree: await treeOf(env.R2, release, cache) };

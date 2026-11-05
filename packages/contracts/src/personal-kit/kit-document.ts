@@ -6,7 +6,10 @@
  *
  * Mode rules: `extend` adds files only and keeps the base identity;
  * `override` may change anything but keeps the base identity; `fork` takes
- * a new identity under the kit handle with its own directory alias. A
+ * a new identity under the kit handle with its own directory alias;
+ * `create` is a brand-new skill with no base (`base: null`): its overlay
+ * adds every file, including `SKILL.md`, onto the empty tree
+ * (`EMPTY_TREE_DIGEST`), and its identity is under the kit handle. A
  * shared skill (owned by AgentKit `kits/core` or shipped by more than one
  * official kit) may only be forked, never overlaid in place; the server
  * supplies that set to `sharedAliasViolation` (AgentKit `overlay.shared_alias`).
@@ -21,16 +24,24 @@ import { sha256Hex } from "./bytes";
 import { validateComposition } from "./kit-composition";
 import type { KitComposition } from "./kit-composition";
 import { DIGEST_PATTERN, validateOverlay } from "./overlay-envelope";
+import { EMPTY_TREE_DIGEST } from "./kit-tree";
 import type { SkillOverlay } from "./overlay-envelope";
 
-export const KIT_MODES = ["extend", "override", "fork"] as const;
+export const KIT_MODES = ["extend", "override", "fork", "create"] as const;
 export type KitMode = (typeof KIT_MODES)[number];
 export type KitVisibility = "private" | "public";
+
+export interface KitBasePin {
+  package: string;
+  version: string;
+  releaseDigest: string;
+}
 
 export interface KitSkillEntry {
   identity: string;
   mode: KitMode;
-  base: { package: string; version: string; releaseDigest: string };
+  /** Null exactly for a `create` entry. */
+  base: KitBasePin | null;
   alias?: string;
   overlay: SkillOverlay;
   compositionDigest: string;
@@ -84,24 +95,32 @@ function checkEntry(raw: unknown, at: string, kitHandle: string): KitSkillEntry 
   const id = identity(raw.identity, `${at}.identity`);
   if (typeof raw.mode !== "string" || !(KIT_MODES as readonly string[]).includes(raw.mode)) throw invalid(`${at}.mode`, `must be one of: ${KIT_MODES.join(", ")}`);
   const mode = raw.mode as KitMode;
-  if (!isRecord(raw.base)) throw invalid(`${at}.base`, "must be an object");
-  only(raw.base, `${at}.base`, ["package", "version", "releaseDigest"]);
-  const pkg = identity(raw.base.package, `${at}.base.package`);
-  if (typeof raw.base.version !== "string" || !RELEASE_VERSION_PATTERN.test(raw.base.version)) throw invalid(`${at}.base.version`, "must be a release version");
-  if (typeof raw.base.releaseDigest !== "string" || !DIGEST_PATTERN.test(raw.base.releaseDigest)) throw invalid(`${at}.base.releaseDigest`, "must be sha256:<hex>");
   if (typeof raw.compositionDigest !== "string" || !DIGEST_PATTERN.test(raw.compositionDigest)) throw invalid(`${at}.compositionDigest`, "must be sha256:<hex>");
   if (raw.exposure !== undefined && !EXPOSURES.includes(raw.exposure as string)) throw invalid(`${at}.exposure`, `must be one of: ${EXPOSURES.join(", ")}`);
   const overlay = validateOverlay(raw.overlay, `${at}.overlay`);
-  if (overlay.baseTreeDigest !== raw.base.releaseDigest) throw invalid(`${at}.overlay.baseTreeDigest`, "must equal base.releaseDigest (the base tree digest)");
   const entry: KitSkillEntry = { ...(raw as unknown as KitSkillEntry), overlay };
   const mv = (detail: string) => kitError(KIT_CODES.modeViolation, at, detail);
-  if (mode === "fork") {
-    if (id === pkg) throw mv("a fork needs a new identity");
-    if (handleOf(id) !== kitHandle) throw mv(`a fork identity must be published under @${kitHandle}`);
-    if (typeof raw.alias !== "string") throw mv("a fork needs a directory alias");
+  if (mode === "create") {
+    if (raw.base !== null) throw mv("a create entry has no base (base: null)");
+    if (handleOf(id) !== kitHandle) throw mv(`a created skill must be published under @${kitHandle}`);
+    if (overlay.baseTreeDigest !== EMPTY_TREE_DIGEST) throw invalid(`${at}.overlay.baseTreeDigest`, "must be the empty tree digest for a create entry");
+    if (overlay.ops.some((op) => op.op !== "add")) throw mv("create may only add files");
+    if (!overlay.ops.some((op) => op.path === "SKILL.md")) throw mv("create must add SKILL.md");
   } else {
-    if (id !== pkg) throw mv(`${mode} keeps the base identity`);
-    if (mode === "extend" && overlay.ops.some((op) => op.op !== "add")) throw mv("extend may only add files");
+    if (!isRecord(raw.base)) throw invalid(`${at}.base`, "must be an object");
+    only(raw.base, `${at}.base`, ["package", "version", "releaseDigest"]);
+    const pkg = identity(raw.base.package, `${at}.base.package`);
+    if (typeof raw.base.version !== "string" || !RELEASE_VERSION_PATTERN.test(raw.base.version)) throw invalid(`${at}.base.version`, "must be a release version");
+    if (typeof raw.base.releaseDigest !== "string" || !DIGEST_PATTERN.test(raw.base.releaseDigest)) throw invalid(`${at}.base.releaseDigest`, "must be sha256:<hex>");
+    if (overlay.baseTreeDigest !== raw.base.releaseDigest) throw invalid(`${at}.overlay.baseTreeDigest`, "must equal base.releaseDigest (the base tree digest)");
+    if (mode === "fork") {
+      if (id === pkg) throw mv("a fork needs a new identity");
+      if (handleOf(id) !== kitHandle) throw mv(`a fork identity must be published under @${kitHandle}`);
+      if (typeof raw.alias !== "string") throw mv("a fork needs a directory alias");
+    } else {
+      if (id !== pkg) throw mv(`${mode} keeps the base identity`);
+      if (mode === "extend" && overlay.ops.some((op) => op.op !== "add")) throw mv("extend may only add files");
+    }
   }
   if (raw.alias !== undefined) {
     if (typeof raw.alias !== "string") throw invalid(`${at}.alias`, "must be a string");
@@ -194,7 +213,7 @@ export async function revisionDigest(doc: PersonalKitDocument): Promise<string> 
  * the entry identity and its directory alias.
  */
 export function sharedAliasViolation(doc: PersonalKitDocument, isShared: (identity: string, alias: string) => boolean): PersonalKitError | null {
-  const i = doc.skills.findIndex((s) => s.mode !== "fork" && s.overlay.ops.length > 0 && isShared(s.identity, entryAlias(s)));
+  const i = doc.skills.findIndex((s) => s.mode !== "fork" && s.mode !== "create" && s.overlay.ops.length > 0 && isShared(s.identity, entryAlias(s)));
   if (i < 0) return null;
   return kitError(KIT_CODES.sharedAlias, `skills[${i}]`, "the overlaid alias has more than one foundation owner; fork it under a new alias");
 }

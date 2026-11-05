@@ -96,8 +96,11 @@ async function resolveKit(registry: Registry, ref: { kit: string; revisionId?: s
   const res = await registry.kitLock(ref.kit, ref.revisionId);
   const kl = res.lock as PersonalKitLock | null;
   if (kl === null) throw incompatibleError(`kit ${ref.kit} has no installable revision`, { warnings: res.warnings });
+  // A created skill has no signed release to fetch; AgentKit materializes it from the document.
+  const created = kl.entries.filter((e) => e.package === null || e.version === null || e.releaseDigest === null).map((e) => e.identity);
+  if (created.length > 0) throw incompatibleError(`kit ${ref.kit} has skills created in the kit (${created.join(', ')}); install it with AgentKit`, { identities: created });
   const packages = sortLockPackages(
-    kl.entries.map((e) => ({ alias: e.alias, package: e.package, version: e.version, releaseDigest: e.releaseDigest, compositionDigest: e.compositionDigest, overlayDigests: e.overlayDigests })),
+    kl.entries.map((e) => ({ alias: e.alias, package: e.package!, version: e.version!, releaseDigest: e.releaseDigest!, compositionDigest: e.compositionDigest, overlayDigests: e.overlayDigests })),
   );
   checkAliases(packages);
   const lock: InstallLock = {

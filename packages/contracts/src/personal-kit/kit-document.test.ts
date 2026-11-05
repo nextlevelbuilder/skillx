@@ -5,6 +5,7 @@ import { encodeBase64, utf8 } from "./bytes";
 import { revisionDigest, sharedAliasViolation, validateKitDocument } from "./kit-document";
 import type { PersonalKitDocument } from "./kit-document";
 import { buildKitLock, publicDerivativeViolation, resolveLineage } from "./kit-lock";
+import { EMPTY_TREE_DIGEST } from "./kit-tree";
 import { emptyOverlay } from "./overlay-envelope";
 
 const D = (c: string) => `sha256:${c.repeat(64)}`;
@@ -68,6 +69,32 @@ describe("validateKitDocument", () => {
     expect(code(doc({ skills: [entry("@beta/plan", fork)] }))).toBe("kit.mode_violation");
     expect(code(doc({ skills: [entry("@alpha/plan", { ...fork, alias: "ak-plan" })] }))).toBe("identity.reserved_alias");
     expect(code(doc({ skills: [entry("@alpha/plan", { ...fork, alias: undefined })] }))).toBe("kit.mode_violation");
+  });
+
+  it("enforces create rules: no base, only adds onto the empty tree, SKILL.md, the kit handle", async () => {
+    const skill = { op: "add", path: "SKILL.md", contentBase64: encodeBase64(utf8("---\nname: notes\n---\n")) };
+    const create = (extra: Record<string, unknown> = {}) => ({
+      identity: "@alpha/notes",
+      mode: "create",
+      base: null,
+      overlay: { ...emptyOverlay(EMPTY_TREE_DIGEST), ops: [skill, addOp] },
+      compositionDigest: D("3"),
+      ...extra,
+    });
+    expect(code(doc({ skills: [create()] }))).toBe("ok");
+    expect(code(doc({ skills: [create({ base: { package: "@alpha/notes", version: "1.0.0", releaseDigest: D("2") } })] }))).toBe("kit.mode_violation");
+    expect(code(doc({ skills: [create({ identity: "@beta/notes" })] }))).toBe("kit.mode_violation");
+    expect(code(doc({ skills: [create({ overlay: { ...emptyOverlay(D("2")), ops: [skill] } })] }))).toBe("kit.invalid");
+    expect(code(doc({ skills: [create({ overlay: { ...emptyOverlay(EMPTY_TREE_DIGEST), ops: [addOp] } })] }))).toBe("kit.mode_violation");
+    const del = { op: "delete", path: "x.md", expectSha256: "a".repeat(64) };
+    expect(code(doc({ skills: [create({ overlay: { ...emptyOverlay(EMPTY_TREE_DIGEST), ops: [skill, del] } })] }))).toBe("kit.mode_violation");
+    expect(code(doc({ skills: [entry("@alpha/one", { base: null })] }))).toBe("kit.invalid");
+    // A created skill has no base, so it never blocks a public kit and is never a shared overlay.
+    const pub = validateKitDocument(doc({ visibility: "public", skills: [create()] }));
+    expect(publicDerivativeViolation(pub, () => false, true)).toBeNull();
+    expect(sharedAliasViolation(pub, () => true)).toBeNull();
+    const lock = await buildKitLock([pub], { id: "rev_1", number: 1, digest: D("6") });
+    expect(lock.entries[0]).toMatchObject({ mode: "create", package: null, version: null, releaseDigest: null });
   });
 
   it("refuses overlays only on shared skills (AgentKit overlay.shared_alias)", () => {

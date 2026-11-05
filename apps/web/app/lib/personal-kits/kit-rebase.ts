@@ -64,7 +64,8 @@ export function parseUpdates(raw: unknown): Update[] {
 const stop = (category: RebaseFinding["category"], detail: string): RebaseFinding[] => [{ category, path: "", detail }];
 
 async function rebaseEntry(caller: KitCaller, entry: KitSkillEntry, update: Update, ambiguous: boolean): Promise<{ report: EntryReport; next: KitSkillEntry | null }> {
-  const from = { version: entry.base.version, releaseDigest: entry.base.releaseDigest };
+  const pin = entry.base!;
+  const from = { version: pin.version, releaseDigest: pin.releaseDigest };
   const review = (findings: RebaseFinding[], to: EntryReport["to"] = null) => ({ report: { identity: entry.identity, from, to, status: "needs-review" as const, findings }, next: null });
   if (ambiguous) return review(stop("conflict.ambiguous_provider", `${update.package} is named with more than one target version`));
   const load = async (fn: () => ReturnType<typeof loadPinnedBase>) => {
@@ -76,7 +77,7 @@ async function rebaseEntry(caller: KitCaller, entry: KitSkillEntry, update: Upda
       return failure;
     }
   };
-  const old = await load(() => loadPinnedBase(caller.env, caller.userId, entry.base, caller.bases));
+  const old = await load(() => loadPinnedBase(caller.env, caller.userId, pin, caller.bases));
   if (typeof old === "string") return review(stop(old === "entitlement" ? "conflict.entitlement" : "conflict.revoked_base", `the current base is ${old}`));
   const upstream = await load(() => loadUpstream(caller.env, caller.userId, update.package, update.version, caller.bases));
   if (typeof upstream === "string") return review(stop(upstream === "entitlement" ? "conflict.entitlement" : "conflict.revoked_base", `${update.package}@${update.version} is ${upstream}`));
@@ -96,6 +97,8 @@ export async function computeRebase(caller: KitCaller, from: RevisionRow, update
   const entries: EntryReport[] = [];
   const candidates: Record<string, KitSkillEntry> = {};
   for (const entry of doc.skills) {
+    // A created skill has no upstream to rebase onto.
+    if (entry.base === null) continue;
     const named = versions.get(entry.base.package);
     if (named === undefined) continue;
     if (entry.mode === "fork" && !includeForks) {

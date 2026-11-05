@@ -32,6 +32,7 @@ export const KIT_CODES = {
   compositionMismatch: "kit.composition_digest_mismatch",
   publicDerivative: "kit.public_derivative_forbidden",
   baseUnavailable: "kit.base_unavailable",
+  contentRefused: "kit.content_refused",
 } as const;
 
 export type KitCode = (typeof KIT_CODES)[keyof typeof KIT_CODES];
