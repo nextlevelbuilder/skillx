@@ -62,6 +62,17 @@ describe("personal kit create entries", () => {
     expect(k.count("personal_kit_revisions")).toBe(0);
   });
 
+  it("stores a created skill with a non-secret danger finding quarantined, never activatable", async () => {
+    const risky = { ...NOTES, "references/guide.md": "[x](javascript:alert(1))\n" };
+    const res = await store([await created("@alpha/notes", risky)]);
+    expect(res.status).toBe(201);
+    expect(res.body.revision.state).toBe("quarantined");
+    const act = await k.call("activate", { expectedGeneration: 1, revisionId: res.body.revision.id, approval: { revisionDigest: res.body.revision.digest } });
+    expect(act.status).toBe(409);
+    expect(act.body.error.code).toBe("kit.revision_unusable");
+    expect((await k.call("lock")).status).not.toBe(200);
+  });
+
   it("refuses a created skill outside the kit handle", async () => {
     const res = await store([await created("@beta/notes", NOTES)]);
     expect(res.status).toBe(422);

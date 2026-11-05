@@ -110,7 +110,10 @@ without an explicit user approval.
     422 `kit.content_refused` and nothing is stored; any other `danger`
     finding stores the revision `quarantined`. A created skill pins no paid
     base, so it never makes a kit a refused public derivative, but new kits
-    still start private. It is skipped by rebase, and the SkillX CLI does
+    still start private. Created content is checked only by that automatic
+    scan, not by the release pipeline and its signed manifest, so a public
+    kit that holds one serves content no release review has seen; readers
+    should trust it as they trust the kit owner. It is skipped by rebase, and the SkillX CLI does
     not install a kit that holds one (AgentKit materializes it from the
     document). The golden vector is
     `packages/contracts/src/fixtures/personal-kit-create-golden.json`.

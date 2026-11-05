@@ -112,7 +112,7 @@ export async function storeRevision(caller: KitCaller, req: StoreRequest): Promi
   const { warnings } = verified;
   if (existing !== null && (await revisionByDigest(db, existing.id, digest)) !== null) throw conflict("kit.revision_exists", "an identical revision already exists");
   const chosen = (await req.check?.(doc, existing, verified))?.state ?? req.state ?? "draft";
-  const state = verified.quarantine.length > 0 && chosen === "draft" ? "quarantined" : chosen;
+  const state = verified.quarantine.length > 0 ? "quarantined" : chosen;
 
   const kitId = existing?.id ?? newId("pk");
   const id = newId("pkr");

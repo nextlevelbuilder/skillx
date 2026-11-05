@@ -83,7 +83,9 @@ function parseDecisions(raw: unknown): Decision[] {
 }
 
 function applyDecision(entry: KitSkillEntry, d: Decision, to: { version: string; releaseDigest: string }): KitSkillEntry[] {
-  const upstream: KitSkillEntry = { ...entry, base: { package: entry.base!.package, ...to }, overlay: emptyOverlay(to.releaseDigest), compositionDigest: to.releaseDigest };
+  // A created skill has no upstream to rebase onto, so it stays as it is.
+  if (entry.base === null) return [entry];
+  const upstream: KitSkillEntry = { ...entry, base: { package: entry.base.package, ...to }, overlay: emptyOverlay(to.releaseDigest), compositionDigest: to.releaseDigest };
   if (d.choice === "keep-old") return [entry];
   if (d.choice === "use-upstream") {
     if (d.discardUserDelta !== true) throw releaseUnconfirmed(entry.identity);
@@ -128,7 +130,8 @@ export async function resolveConflict(caller: KitCaller, kitName: string, id: st
     if (d === undefined) return [candidates[entry.identity] ?? entry];
     const to = open.get(entry.identity)!.to;
     if (to === null && d.choice !== "keep-old") throw conflict("kit.base_unavailable", `${entry.identity}: the upstream release is not available; keep-old is the only choice`);
-    return applyDecision(entry, d, to ?? entry.base!);
+    if (entry.base === null) return [entry];
+    return applyDecision(entry, d, to ?? entry.base);
   });
   const doc: PersonalKitDocument = { ...withoutComposition(from), skills: skills.sort((a, b) => compareUtf8(a.identity, b.identity)) };
   const reeval = decisions.some((d) => d.choice !== "keep-old");
