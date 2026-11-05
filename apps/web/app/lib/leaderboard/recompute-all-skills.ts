@@ -7,10 +7,9 @@ import { sql, eq } from "drizzle-orm";
 import type { Database } from "~/lib/db";
 import { skills } from "~/lib/db/schema";
 import {
-  computeBayesianRating,
-  computeCompositeScore,
-  computeTrendingScore,
-} from "./leaderboard-scoring";
+  type SkillAggregates,
+  buildScoreUpdate,
+} from "./recompute-score-update";
 import {
   type RecomputeState,
   type RecomputeOptions,
@@ -102,15 +101,6 @@ export async function recomputeBatch(
   // Batch-fetch per-skill aggregates in one query (avoids N+1)
   const skillIds = batch.map((s) => s.id);
 
-  interface SkillAggregates {
-    skill_id: string;
-    fav_count: number;
-    recent_ratings: number;
-    recent_usage: number;
-    total_usage: number;
-    success_count: number;
-  }
-
   const perSkillStats: SkillAggregates[] = skillIds.length > 0
     ? (await db
         .select({
@@ -129,48 +119,14 @@ export async function recomputeBatch(
 
   // Compute and update each skill
   for (const skill of batch) {
-    const extra = statsMap.get(skill.id);
-    const favoriteCount = extra?.fav_count ?? 0;
-    const successRate =
-      (extra?.total_usage ?? 0) > 0
-        ? (extra?.success_count ?? 0) / extra!.total_usage
-        : 0.5;
-
-    const bayesianRating = computeBayesianRating(
-      skill.avgRating ?? 0,
-      skill.ratingCount ?? 0,
-      globalStats.globalAvgRating,
-    );
-
-    const compositeScore = computeCompositeScore({
-      bayesianRating,
-      installCount: skill.installCount ?? 0,
-      githubStars: skill.githubStars ?? 0,
-      netVotes: skill.netVotes ?? 0,
-      successRate,
-      updatedAt: skill.updatedAt,
-      favoriteCount,
-      maxInstalls: globalStats.maxInstalls,
-      maxStars: globalStats.maxStars,
-      maxNetVotes: Math.max(globalStats.maxNetVotes, 1),
-      maxFavorites: Math.max(globalStats.maxFavorites, 1),
+    const update = buildScoreUpdate({
+      skill,
+      aggregates: statsMap.get(skill.id),
+      globalStats,
+      maxTrendingRaw: maxTrendingResult.maxRaw,
     });
 
-    const trendingScore = computeTrendingScore(
-      extra?.recent_ratings ?? 0,
-      extra?.recent_usage ?? 0,
-      maxTrendingResult.maxRaw,
-    );
-
-    await db
-      .update(skills)
-      .set({
-        bayesian_rating: bayesianRating,
-        composite_score: compositeScore,
-        trending_score: trendingScore,
-        favorite_count: favoriteCount,
-      })
-      .where(eq(skills.id, skill.id));
+    await db.update(skills).set(update).where(eq(skills.id, skill.id));
   }
 
   const newOffset = offset + batch.length;
