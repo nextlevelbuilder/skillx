@@ -16,6 +16,7 @@ import {
   recomputeBatch,
   getRecomputeProgress,
 } from "~/lib/leaderboard/recompute-all-skills";
+import { parseBatchSize } from "~/lib/admin/batch-limit";
 
 /** Max batches per `all=true` request to avoid Worker CPU timeout */
 const MAX_BATCHES_PER_REQUEST = 50;
@@ -25,6 +26,7 @@ function verifyAdmin(request: Request, env: Record<string, string>): boolean {
   return !!secret && secret === env.ADMIN_SECRET;
 }
 
+/** Non-negative integer, for `offset` only. Batch size is bounded separately. */
 function parseIntSafe(value: string | null, fallback: number): number {
   if (value == null) return fallback;
   const n = parseInt(value, 10);
@@ -55,7 +57,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
   }
 
   const url = new URL(request.url);
-  const batchSize = parseIntSafe(url.searchParams.get("batch"), 100);
+  const batchSize = parseBatchSize(url.searchParams.get("batch"));
   const offsetParam = url.searchParams.get("offset");
   const resume = url.searchParams.get("resume") === "true";
   const runAll = url.searchParams.get("all") === "true";
