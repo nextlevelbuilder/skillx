@@ -12,6 +12,8 @@ export interface AccessTokenClaims {
   clientId: string | null;
   grantId: string | null;
   exp: number;
+  /** Paid AgentKit kits from the `agentkit_kits` claim, sorted and unique; `[]` when absent or invalid. */
+  kits: string[];
 }
 
 export class InvalidAccessTokenError extends Error {}
@@ -23,6 +25,17 @@ const JWKS_TTL_MS = 10 * 60_000;
 /** An unknown `kid` refetches the JWKS at most this often (key rotation without a fetch storm). */
 const JWKS_REFETCH_MS = 30_000;
 const JWKS_TIMEOUT_MS = 5_000;
+
+/** An AgentKit kit name, as in `kits/<kit>/kit.yaml`. */
+export const KIT_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+const MAX_KITS = 32;
+
+/** Fails closed: anything but an array of kit names grants no kit, and an invalid entry is dropped. */
+export function parseKitsClaim(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const kits = value.filter((kit): kit is string => typeof kit === "string" && KIT_NAME_PATTERN.test(kit));
+  return [...new Set(kits)].sort().slice(0, MAX_KITS);
+}
 
 export const looksLikeJwt = (token: string) => JWT_SHAPE.test(token);
 
@@ -138,5 +151,6 @@ export async function verifyAccessToken(env: AgentKitEnv, token: string, fetcher
     clientId: typeof claims.client_id === "string" ? claims.client_id : null,
     grantId: typeof claims.grant_id === "string" ? claims.grant_id : null,
     exp: claims.exp,
+    kits: parseKitsClaim(claims.agentkit_kits),
   };
 }

@@ -153,9 +153,9 @@ describe("link liveness", () => {
     expect(rows()[0].refresh_token_enc).not.toBe(before);
     as.state.jwksDown = false;
     resetJwksCache();
-    // The stored token is the rotated one, so the next refresh still works.
+    // The stored token is the rotated one, so the next refresh (after the failure's back-off) still works.
     const calls = as.state.tokenCalls;
-    expect(await ensureLinkLive(ctx.env, await stale(), as.fetcher)).toBe("live");
+    expect(await ensureLinkLive(ctx.env, await stale(), as.fetcher, Date.now() + 61_000)).toBe("live");
     expect(as.state.tokenCalls).toBe(calls + 1);
     expect(rows()).toHaveLength(1);
   });

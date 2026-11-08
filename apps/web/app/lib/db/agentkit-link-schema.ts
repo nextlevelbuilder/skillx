@@ -20,6 +20,10 @@ export const agentkitLinks = sqliteTable(
     validated_at: integer("validated_at", { mode: "timestamp_ms" }).notNull(),
     // A refresh in flight until this time; refresh tokens are one-time, so only one request refreshes.
     refreshing_until: integer("refreshing_until", { mode: "timestamp_ms" }),
+    // Paid AgentKit kits the account owns, a sorted JSON array of kit names, from the
+    // `agentkit_kits` claim of the last token SkillX's own grant received (link or refresh).
+    // Read by lib/releases/kit-entitlement-sql.ts; deleting the link drops them.
+    kits: text("kits").notNull().default("[]"),
   },
   (table) => [uniqueIndex("idx_agentkit_links_subject").on(table.issuer, table.agentkit_sub)]
 );

@@ -31,10 +31,15 @@ export const packages = sqliteTable(
     // Soft delete (owner or admin). Set: invisible to every read path; restorable for 30 days,
     // then a permanent tombstone that keeps the name reserved.
     deleted_at: integer("deleted_at", { mode: "timestamp_ms" }),
+    // AgentKit kit (`core`, `engineer`, ...) an `@agentkit/*` kit release comes from, taken from its
+    // signed source path `kits/<kit>/skills/<dir>`. A linked account that owns the kit reads the
+    // package's private releases (lib/releases/kit-entitlement-sql.ts).
+    kit: text("kit"),
   },
   (table) => [
     uniqueIndex("idx_packages_name").on(table.name),
     index("idx_packages_publisher").on(table.publisher_id),
+    index("idx_packages_kit").on(table.kit),
   ]
 );
 

@@ -162,6 +162,13 @@
       "when": 1793297813420,
       "tag": "0022_creator_dashboard",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "6",
+      "when": 1794107291436,
+      "tag": "0023_agentkit_kit_entitlements",
+      "breakpoints": true
     }
   ]
 }

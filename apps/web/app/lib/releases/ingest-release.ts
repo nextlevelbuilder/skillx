@@ -21,7 +21,7 @@ import { readTree, sha256Hex } from "./release-tree-read";
 import { assertPackageLive, findPackage, findRelease, insertRelease } from "./release-store";
 import type { ExistingRelease } from "./release-store";
 import { artifactKey, blobKey, forEachLimited, manifestKey, putCreateOnly } from "./r2-create-only";
-import { assertSameKitProvenance } from "./release-kit";
+import { assertSameKitProvenance, kitOfRelease } from "./release-kit";
 import { signRelease } from "./sign-manifest";
 import type { RegistrySigner } from "./sign-manifest";
 
@@ -55,6 +55,16 @@ function assertVisibility(identity: string, requested: PackageVisibility | null,
     "release.visibility_mismatch",
     `${identity} is ${stored}; publishing a release does not change the visibility of an existing package (requested ${requested}). Change it first ${where}, or publish without a visibility`,
   );
+}
+
+/**
+ * A package's kit decides who reads its private releases (kit-entitlement-sql.ts),
+ * so a release from another kit is refused (409) instead of moving every
+ * earlier release to that kit's owners.
+ */
+function assertSameKit(identity: string, stored: string | null, requested: string | null): void {
+  if (stored === null || requested === null || stored === requested) return;
+  throw releaseError(409, "release.kit_mismatch", `${identity} belongs to the AgentKit kit ${stored}; a release from kit ${requested} cannot be published under it`);
 }
 
 /** The replay answer for an existing version: same tree (and, for a kit release, same provenance) or 409. */
@@ -97,6 +107,7 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
   }
   assertPackageLive(name.identity, pkg);
   if (pkg !== null) assertVisibility(name.identity, metadata.visibility, pkg.visibility);
+  assertSameKit(name.identity, pkg?.kit ?? null, kitOfRelease(metadata));
   const visibility = publishVisibility(metadata, pkg?.visibility ?? null);
 
   const body = prepared?.body ?? (await readUploadBody(request, MAX_RELEASE_UPLOAD_BYTES));
@@ -175,6 +186,7 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
     manifestKey: manifestKey(manifestHex),
     sourceProvenance: metadata.sourceProvenance,
     execSummary: exec.summary,
+    kit: kitOfRelease(metadata),
     createdAt: now.getTime(),
   });
   if (outcome === "conflict") {

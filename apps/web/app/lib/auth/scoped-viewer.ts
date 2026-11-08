@@ -20,6 +20,7 @@ import { getDb } from "~/lib/db";
 import { looksLikeJwt } from "~/lib/agentkit/access-token";
 import { agentKitIdentityEnabled } from "~/lib/agentkit/agentkit-config";
 import { resolveAgentKitBearer } from "~/lib/agentkit/bearer-credential";
+import { refreshViewerLink } from "~/lib/agentkit/link-liveness";
 import { releaseError } from "~/lib/releases/release-http";
 import type { ReleaseHttpError } from "~/lib/releases/release-http";
 
@@ -68,13 +69,17 @@ export async function resolveRequestCredential(
   const header = request.headers.get("Authorization");
   if (header === null) {
     const viewer = await authenticateRequest(request, env);
+    if (viewer) await refreshViewerLink(env, viewer.userId);
     return { userId: viewer?.userId ?? null, keyId: null, scopes: null };
   }
   // The auth scheme is case-insensitive (RFC 9110 section 11.1).
   const key = /^bearer\s+(\S+)\s*$/i.exec(header)?.[1] ?? "";
   // authenticateApiKey matches unscoped keys only (scoped keys hash differently) and rejects "".
   const owner = await authenticateApiKey(getDb(env.DB), key);
-  if (owner !== null) return { userId: owner.userId, keyId: owner.keyId, scopes: null };
+  if (owner !== null) {
+    await refreshViewerLink(env, owner.userId);
+    return { userId: owner.userId, keyId: owner.keyId, scopes: null };
+  }
   const scoped = await authenticateScopedKey(env.DB, key);
   if (scoped === null && agentKitIdentityEnabled(env) && looksLikeJwt(key)) {
     // An agentkit.best access token runs as the linked account with translated scopes.
@@ -84,6 +89,7 @@ export async function resolveRequestCredential(
   }
   if (scoped === null || !accepts(scoped.scopes)) throw invalidApiKey();
   await recordKeyUse(env.DB, scoped.keyId);
+  await refreshViewerLink(env, scoped.userId);
   return scoped;
 }
 

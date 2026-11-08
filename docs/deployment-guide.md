@@ -371,6 +371,43 @@ Rollback: revoke trusted publishers (`POST .../trusted-publishers/{id}/revoke`),
 unset `SKILLX_TOKEN_SECRET` (all outstanding `sxo_` and download tokens stop
 verifying), then follow the rollback above.
 
+#### Mirroring AgentKit kits as `@agentkit/*` kit releases
+
+`.github/workflows/mirror-agentkit-kit.yml` (manual dispatch from `main`,
+environment `skillx-publish`) publishes every skill directory
+`kits/<kit>/skills/ak-<x>` of one kit (`core`, `engineer` or `marketing`) of
+`bestagentkits/agentkit` at a pinned commit as the kit release
+`@agentkit/<x>` (`--kit-origin remote-signed`, `skillx.release/v2`) at the
+`version` of `kits/<kit>/kit.yaml`. Personal kits that extend a missing
+foundation skill fail with `kit.base_unavailable` until it is mirrored.
+
+- **Visibility by tier.** `tier: free` publishes `public`, `tier: paid`
+  publishes `private`; any other tier fails the job before any upload. An
+  existing package keeps its visibility: a mismatch is reported for that skill
+  as `409 release.visibility_mismatch`.
+- **Inputs.** `agentkit-sha` (40 hex), `kit`, `channel` (default `beta`),
+  optional `skills` (space or comma separated `ak-<x>` names; default all) and
+  `dry-run` (validate and pack only; still waits for environment approval).
+- **Credentials.** OIDC first: register a trusted publisher of `@agentkit` as
+  in step 3 above with `"workflowPath":".github/workflows/mirror-agentkit-kit.yml"`
+  (`POST /api/v1/publishers/agentkit/trusted-publishers`). Fallback secret of
+  the `skillx-publish` environment: `SKILLX_AGENTKIT_KIT_PUBLISH_KEY`, a key
+  scoped `releases:publish:@agentkit` owned by the `@agentkit` publisher's
+  user; once OIDC is refused the remaining skills use the key. An
+  authentication failure under the key stops the run. `AGENTKIT_READ_TOKEN`
+  as above while the repository is private. Every run needs the
+  environment's required reviewers to approve it.
+- **Re-runs.** Each skill sends `Idempotency-Key:
+  agentkit-kit-mirror:<sha>:@agentkit/<x>@<version>`. An identical version
+  answers `created: false` (replayed); a version that exists with another
+  tree is `409 release.version_exists`, reported for that skill while the
+  others continue. Every registry `releaseDigest` must equal the packed one.
+  The step summary lists each skill as published, replayed, failed or
+  skipped, and the job fails when any skill failed. Within 24 hours the same
+  key replays the first answer verbatim (a first-run publish shows as
+  published again), and a different `channel` for the same commit and version
+  is `422 idempotency.key_reused`.
+
 #### Release API activation runbook
 
 Run this supervised, by a maintainer, in order. Stop at the first failure.
@@ -568,6 +605,20 @@ header SQL of `0022_creator_dashboard.sql`. Code before 0022 ignores
 `deleted_at`, so a rollback un-deletes content: first run the two `UPDATE ...
 SET visibility = 'private' WHERE deleted_at IS NOT NULL` statements in that
 header. It treats `unlisted` as private, which fails closed.
+
+**Migration 0023 and paid AgentKit kits.** `0023_agentkit_kit_entitlements`
+adds the nullable `packages.kit` with `idx_packages_kit`, and
+`agentkit_links.kits` (`'[]'` by default, so every existing link grants no
+kit until its next refresh). It backfills `packages.kit` of existing
+`@agentkit/*` packages from the source path of their newest
+`skillx.release/v2` release. The new code reads both columns on every release
+and library query, so apply it with `pnpm run db:migrate:remote` after a
+backup and before deploying the code. Kits are granted only once
+agentkit.best sends the `agentkit_kits` claim (bestagentkits/ak-web#819);
+before that every link stores `[]` and paid `@agentkit/*` packages stay
+readable only by their owner. Rollback: deploy the previous code (it ignores
+both columns and grants no kit), then run the header SQL of
+`0023_agentkit_kit_entitlements.sql`.
 
 The CLI installer (`skillx install`, `sync --locked`, `mcp`) needs no server
 change beyond the release read API, but it verifies manifest signatures

@@ -23,6 +23,7 @@
  */
 import { newestVersion } from "@skillx/contracts";
 import type { LibraryItem, LibraryKind } from "@skillx/contracts";
+import { kitEntitled, kitEntitledPackageIds } from "~/lib/releases/kit-entitlement-sql";
 
 export interface LibraryQuery {
   userId: string;
@@ -73,7 +74,9 @@ const SKILLS = `
            SELECT p2.id FROM publishers o JOIN packages p2 ON p2.publisher_id = o.id
             WHERE o.owner_user_id = me.uid AND o.owner_user_id <> ''
            UNION
-           SELECT e.package_id FROM entitlements e WHERE e.subject_id = me.uid AND e.revoked_at IS NULL)
+           SELECT e.package_id FROM entitlements e WHERE e.subject_id = me.uid AND e.revoked_at IS NULL
+           UNION
+           ${kitEntitledPackageIds("me.uid")})
      AND p.deleted_at IS NULL`;
 
 const KITS = `
@@ -105,7 +108,8 @@ const READABLE_RELEASES = `
      AND (p.visibility IN ('public', 'unlisted') OR ${OWNED}
           OR EXISTS (SELECT 1 FROM entitlements e
                       WHERE e.subject_id = me.uid AND e.package_id = p.id AND e.revoked_at IS NULL
-                        AND (e.release_id IS NULL OR e.release_id = x.id)))`;
+                        AND (e.release_id IS NULL OR e.release_id = x.id))
+          OR ${kitEntitled("me.uid")})`;
 
 /** The listing statement; exported so a test can check its query plan. */
 export function librarySql(includeKits: boolean): string {

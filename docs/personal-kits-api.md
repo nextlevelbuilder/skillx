@@ -286,9 +286,11 @@ category strings:
 - `conflict.script_changed`, `conflict.mode_changed`
 - `conflict.capability_escalation`, `conflict.capability_downgrade`
 - `conflict.exposure_changed`, `conflict.license_changed`
-- `conflict.entitlement`, `conflict.ambiguous_provider`, `conflict.revoked_base`
+- `conflict.entitlement`, `conflict.ambiguous_provider`, `conflict.revoked_base`,
+  `conflict.missing_base`
 
-The server adds the last three itself. Deleting a path that upstream changed
+The server adds the last four itself (`conflict.missing_base`: an `@agentkit/*`
+base or target version that is not published on SkillX yet). Deleting a path that upstream changed
 is `conflict.renamed_or_deleted`. The line diff is bounded at 1,000 edits
 (AgentKit `MaxEditDistance`); a larger diff is recorded as
 `conflict.same_hunk` with detail `diff_limit`. An entry with no overlay still

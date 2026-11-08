@@ -11,7 +11,8 @@
  * - A private package is readable by the owner of its publisher
  *   (`publishers.owner_user_id`, read at request time, so a change of owner
  *   takes effect at once) and by a viewer holding an unrevoked entitlement
- *   (whole stream, or the release itself), decided by the shared
+ *   (whole stream, or the release itself; or a private `@agentkit/*`
+ *   package of a paid AgentKit kit the linked account owns, `kitEntitled`), decided by the shared
  *   payload-access gate. Anyone else answers exactly like an unknown
  *   package: `404 not_found`, same body, same queries (the owner and
  *   entitlement tests are part of the one lookup query, so existence does
@@ -26,6 +27,7 @@
  */
 import { PACKAGE_NAME_PATTERN, RELEASE_DIGEST_PATTERN, RELEASE_VERSION_PATTERN, decidePayloadAccess, isOpenPackageVisibility } from "@skillx/contracts";
 import { ERROR_CODES } from "@skillx/skill-tree";
+import { kitEntitled } from "./kit-entitlement-sql";
 import { releaseError } from "./release-http";
 
 export type ServedReleaseState = "published" | "yanked" | "quarantined";
@@ -94,13 +96,13 @@ export function parseReleaseVersion(raw: string | undefined): string {
  */
 const OWNED = `(pub.owner_user_id IS NOT NULL AND pub.owner_user_id <> '' AND pub.owner_user_id = ?)`;
 
-// `?` 1 and 2 are always the viewer subject ('' for anonymous, which matches no entitlement and no owner).
+// `?` 1 to 3 are always the viewer subject ('' for anonymous, which matches no entitlement and no owner).
 const RELEASE_SELECT = `
   SELECT r.id, p.name, r.version, r.channel, r.release_state, r.release_digest, r.artifact_key, r.artifact_digest,
          r.artifact_size, r.signed_manifest_key, r.created_at, p.visibility, pub.state AS publisher_state,
-         EXISTS (SELECT 1 FROM entitlements e
+         (EXISTS (SELECT 1 FROM entitlements e
                   WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL
-                    AND (e.release_id IS NULL OR e.release_id = r.id)) AS entitled,
+                    AND (e.release_id IS NULL OR e.release_id = r.id)) OR ${kitEntitled("?")}) AS entitled,
          ${OWNED} AS owned,
          EXISTS (SELECT 1 FROM package_releases q
                   WHERE q.release_digest = r.release_digest AND q.release_state = 'quarantined') AS tree_quarantined
@@ -153,7 +155,7 @@ function toRelease(row: ReleaseRowRaw): ReleaseRowAccess {
 async function queryReleases(db: D1Database, where: string, userId: string | null, ...binds: unknown[]): Promise<ReleaseRowAccess[]> {
   const { results } = await db
     .prepare(`${RELEASE_SELECT} AND ${where}`)
-    .bind(userId ?? "", userId ?? "", ...binds)
+    .bind(userId ?? "", userId ?? "", userId ?? "", ...binds)
     .all<ReleaseRowRaw>();
   return results.map(toRelease);
 }
@@ -295,13 +297,13 @@ export async function readablePackageNames(db: D1Database, names: readonly strin
       db
         .prepare(
           `SELECT p.name, p.visibility,
-                  EXISTS (SELECT 1 FROM entitlements e
-                           WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL) AS entitled,
+                  (EXISTS (SELECT 1 FROM entitlements e
+                           WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL) OR ${kitEntitled("?")}) AS entitled,
                   ${OWNED} AS owned
              FROM packages p JOIN publishers pub ON pub.id = p.publisher_id
             WHERE p.name IN (${chunk.map(() => "?").join(", ")}) AND p.deleted_at IS NULL`,
         )
-        .bind(userId ?? "", userId ?? "", ...chunk),
+        .bind(userId ?? "", userId ?? "", userId ?? "", ...chunk),
     );
   }
   const batches = await db.batch<{ name: string; visibility: string; entitled: number; owned: number }>(statements);
@@ -319,13 +321,13 @@ export async function listPackageReleases(db: D1Database, identity: string, user
   const pkg = await db
     .prepare(
       `SELECT p.id, p.visibility, pub.state AS publisher_state,
-              EXISTS (SELECT 1 FROM entitlements e
-                       WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL) AS entitled,
+              (EXISTS (SELECT 1 FROM entitlements e
+                       WHERE e.subject_id = ? AND e.package_id = p.id AND e.revoked_at IS NULL) OR ${kitEntitled("?")}) AS entitled,
               ${OWNED} AS owned
          FROM packages p JOIN publishers pub ON pub.id = p.publisher_id
         WHERE p.name = ? AND p.deleted_at IS NULL`,
     )
-    .bind(userId ?? "", userId ?? "", identity)
+    .bind(userId ?? "", userId ?? "", userId ?? "", identity)
     .first<{ id: string; visibility: string; publisher_state: string; entitled: number; owned: number }>();
   if (pkg === null) throw notFound();
   const target = { identity, visibility: pkg.visibility, entitled: Number(pkg.entitled) === 1, owned: Number(pkg.owned) === 1 };

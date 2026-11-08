@@ -14,6 +14,8 @@ export interface ExistingPackage {
   visibility: string;
   /** Set when the package is soft-deleted: no new release may land in it. */
   deletedAt: number | null;
+  /** AgentKit kit of its kit releases (`kitOfRelease`); a package never moves to another kit. */
+  kit: string | null;
 }
 
 export interface ExistingRelease {
@@ -45,17 +47,19 @@ export interface NewRelease {
   sourceProvenance: ReleaseSourceProvenance | null;
   /** Capability summary of a valid agentkit-exec.json, or null when the tree has none. */
   execSummary: ExecSummary | null;
+  /** AgentKit kit of a kit release (`kitOfRelease`); set on a package without one, never changed (ingest refuses another kit). */
+  kit?: string | null;
   createdAt: number;
 }
 
 export async function findPackage(db: D1Database, identity: string): Promise<ExistingPackage | null> {
   const row = await db
-    .prepare("SELECT id, publisher_id, kind, visibility, deleted_at FROM packages WHERE name = ?")
+    .prepare("SELECT id, publisher_id, kind, visibility, deleted_at, kit FROM packages WHERE name = ?")
     .bind(identity)
-    .first<{ id: string; publisher_id: string; kind: string; visibility: string; deleted_at: number | null }>();
+    .first<{ id: string; publisher_id: string; kind: string; visibility: string; deleted_at: number | null; kit: string | null }>();
   if (row === null) return null;
   const deletedAt = row.deleted_at === null ? null : Number(row.deleted_at);
-  return { id: row.id, publisherId: row.publisher_id, kind: row.kind, visibility: row.visibility, deletedAt };
+  return { id: row.id, publisherId: row.publisher_id, kind: row.kind, visibility: row.visibility, deletedAt, kit: row.kit };
 }
 
 /**
@@ -143,6 +147,14 @@ export async function insertRelease(db: D1Database, release: NewRelease): Promis
         release.visibility,
       ),
   ];
+  if (release.kit) {
+    // Runs only after the release row was added: a refused insert leaves the package as it was.
+    statements.push(
+      db
+        .prepare("UPDATE packages SET kit = ? WHERE name = ? AND publisher_id = ? AND kit IS NULL AND EXISTS (SELECT 1 FROM package_releases r WHERE r.id = ?)")
+        .bind(release.kit, release.identity, release.publisherId, releaseId),
+    );
+  }
   try {
     const results = await db.batch(statements);
     return (results[1]?.meta.changes ?? 0) === 1 ? "inserted" : "conflict";

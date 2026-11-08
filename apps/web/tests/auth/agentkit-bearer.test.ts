@@ -21,7 +21,7 @@ afterEach(() => vi.unstubAllGlobals());
 const bearer = (token: string) => new Request("https://skillx.sh/api/v1/library", { headers: { Authorization: `Bearer ${token}` } });
 const env = () => ctx.env as unknown as Env;
 const link = (userId: string, sub = "ak-user-1", validatedAt = Date.now()) =>
-  insertLink(ctx.env.DB, { userId, issuer: ISS, sub, scopes: "skillx-kits:read skillx-kits:write", refreshTokenEnc: null, linkedAt: validatedAt, validatedAt });
+  insertLink(ctx.env.DB, { userId, issuer: ISS, sub, scopes: "skillx-kits:read skillx-kits:write", refreshTokenEnc: null, linkedAt: validatedAt, validatedAt, kits: [] });
 
 async function refusal(promise: Promise<unknown>): Promise<{ status: number; code: string }> {
   const error = await promise.then(() => null, (e: unknown) => e);

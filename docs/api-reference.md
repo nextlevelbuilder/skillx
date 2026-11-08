@@ -60,6 +60,14 @@ Discovery and linking (all `404` while the flag is off, except unlink):
 
 One AgentKit account links to at most one SkillX account. Data: table `agentkit_links` (migration `0021_agentkit_links`), refresh token stored AES-GCM encrypted.
 
+#### Paid AgentKit kits (`agentkit_kits`)
+
+agentkit.best adds the claim `agentkit_kits` to every token it issues for `https://skillx.sh/api`: a sorted list of the paid kits the account owns (`engineer`, `marketing`; `[]` for none; free kits are never listed). SkillX keeps the claim of its own grant's newest token on the link: it is stored when the account links and replaced at every liveness refresh. Any credential of the account (AgentKit token, SkillX key, or web session) on these routes refreshes a link last checked over 60 s ago, so a refunded or revoked kit stops granting at the account's next request. A link no refresh confirmed within the 15-minute outage grace grants no kit at all, so stored kits never outlive an AS outage or the flag being turned off. A missing claim, or any value that is not a list of kit names (`^[a-z0-9][a-z0-9-]{0,63}$`), stores no kit. Bearer tokens presented by clients never change the stored kits.
+
+The paid foundation skills are mirrored as private kit releases `@agentkit/<x>`, and each such package records the kit of its source path (`kits/<kit>/skills/ak-<x>`, taken from the signed `sourceProvenance.path` of its newest kit release; column `packages.kit`, migration `0023_agentkit_kit_entitlements`). A linked account whose stored kits contain that kit reads every release of the package, exactly like an entitlement: release reads, manifests, files, artifacts, download URLs, `/api/v1/library`, and personal kits built on it. Kit names match exactly, never by prefix, and the grant applies only under `@agentkit`. Unlinking removes it at once. Free kit skills (`core`) are public and need no link.
+
+A personal kit whose base is an `@agentkit/*` skill reports why the base cannot be loaded in its `kit.base_unavailable` message: `(missing)` when no such release is published yet, `(entitlement)` when it is published but the account may not read it (link AgentKit, or buy the kit). Any other package keeps the single not-found answer, so a private package's existence never shows.
+
 ---
 
 ## Endpoints
@@ -1212,7 +1220,7 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 | 401 | `auth.invalid_key` (also an expired, forged or revoked `sxo_` OIDC publish token) |
 | 403 | `identity.reserved_publisher` (`@agentkit` without kit provenance), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
 | 404 | `not_found` (API disabled) |
-| 409 | `release.version_exists`, `release.kind_conflict`, `release.visibility_mismatch`, `package.deleted`, `idempotency.in_progress` |
+| 409 | `release.version_exists`, `release.kind_conflict`, `release.visibility_mismatch`, `release.kit_mismatch` (an `@agentkit/*` package keeps the kit of its first kit release), `package.deleted`, `idempotency.in_progress` |
 | 413 | `tree.limit_exceeded` |
 | 415 | `release.unsupported_media_type` |
 | 422 | other `tree.*` codes from the skill-tree reader, `exec.manifest_invalid`, `exec.entrypoint_undeclared`, `idempotency.key_reused` |
