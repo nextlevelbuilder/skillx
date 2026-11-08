@@ -2,7 +2,7 @@
  * Foundation rebase of a kit revision onto newer base releases. The engine
  * (`rebaseOverlay`) is deterministic and never picks a side; the server adds
  * the categories only it can see (`conflict.entitlement`,
- * `conflict.revoked_base`, `conflict.ambiguous_provider`). `preview-update`
+ * `conflict.revoked_base`, `conflict.missing_base`, `conflict.ambiguous_provider`). `preview-update`
  * is read-only. `rebase` stores a clean result as a draft `rebase` revision
  * (never activated automatically) and anything else as an open conflict
  * whose report holds categories, paths and digests, never file content.
@@ -11,7 +11,7 @@
  */
 import { canonicalJson, compareUtf8, rebaseOverlay } from "@skillx/contracts";
 import type { KitSkillEntry, PersonalKitDocument, RebaseFinding } from "@skillx/contracts";
-import { baseFailure, loadPinnedBase, loadUpstream } from "./base-loader";
+import { baseFailure, conflictOf, loadPinnedBase, loadUpstream } from "./base-loader";
 import { badRequest, conflict, json } from "./kit-http";
 import type { KitCaller } from "./kit-http";
 import {
@@ -78,9 +78,9 @@ async function rebaseEntry(caller: KitCaller, entry: KitSkillEntry, update: Upda
     }
   };
   const old = await load(() => loadPinnedBase(caller.env, caller.userId, pin, caller.bases));
-  if (typeof old === "string") return review(stop(old === "entitlement" ? "conflict.entitlement" : "conflict.revoked_base", `the current base is ${old}`));
+  if (typeof old === "string") return review(stop(conflictOf(old), `the current base is ${old}`));
   const upstream = await load(() => loadUpstream(caller.env, caller.userId, update.package, update.version, caller.bases));
-  if (typeof upstream === "string") return review(stop(upstream === "entitlement" ? "conflict.entitlement" : "conflict.revoked_base", `${update.package}@${update.version} is ${upstream}`));
+  if (typeof upstream === "string") return review(stop(conflictOf(upstream), `${update.package}@${update.version} is ${upstream}`));
   const to = { version: upstream.release.version, releaseDigest: upstream.release.releaseDigest };
   if (to.releaseDigest === from.releaseDigest) return { report: { identity: entry.identity, from, to, status: "unchanged", findings: [] }, next: null };
   const result = await rebaseOverlay(old.tree, upstream.tree, entry.overlay);

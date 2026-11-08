@@ -57,6 +57,16 @@ function assertVisibility(identity: string, requested: PackageVisibility | null,
   );
 }
 
+/**
+ * A package's kit decides who reads its private releases (kit-entitlement-sql.ts),
+ * so a release from another kit is refused (409) instead of moving every
+ * earlier release to that kit's owners.
+ */
+function assertSameKit(identity: string, stored: string | null, requested: string | null): void {
+  if (stored === null || requested === null || stored === requested) return;
+  throw releaseError(409, "release.kit_mismatch", `${identity} belongs to the AgentKit kit ${stored}; a release from kit ${requested} cannot be published under it`);
+}
+
 /** The replay answer for an existing version: same tree (and, for a kit release, same provenance) or 409. */
 async function existingOutcome(
   identity: string,
@@ -97,6 +107,7 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
   }
   assertPackageLive(name.identity, pkg);
   if (pkg !== null) assertVisibility(name.identity, metadata.visibility, pkg.visibility);
+  assertSameKit(name.identity, pkg?.kit ?? null, kitOfRelease(metadata));
   const visibility = publishVisibility(metadata, pkg?.visibility ?? null);
 
   const body = prepared?.body ?? (await readUploadBody(request, MAX_RELEASE_UPLOAD_BYTES));

@@ -1220,7 +1220,7 @@ index: one row wins and the loser gets the same idempotent `200` or `409`.
 | 401 | `auth.invalid_key` (also an expired, forged or revoked `sxo_` OIDC publish token) |
 | 403 | `identity.reserved_publisher` (`@agentkit` without kit provenance), `identity.reserved_alias` (`ak-`/`ak:` slugs), `auth.scope_missing`, `publisher.not_owner`, `publisher.inactive` |
 | 404 | `not_found` (API disabled) |
-| 409 | `release.version_exists`, `release.kind_conflict`, `release.visibility_mismatch`, `package.deleted`, `idempotency.in_progress` |
+| 409 | `release.version_exists`, `release.kind_conflict`, `release.visibility_mismatch`, `release.kit_mismatch` (an `@agentkit/*` package keeps the kit of its first kit release), `package.deleted`, `idempotency.in_progress` |
 | 413 | `tree.limit_exceeded` |
 | 415 | `release.unsupported_media_type` |
 | 422 | other `tree.*` codes from the skill-tree reader, `exec.manifest_invalid`, `exec.entrypoint_undeclared`, `idempotency.key_reused` |

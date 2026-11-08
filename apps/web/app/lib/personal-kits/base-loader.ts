@@ -42,6 +42,10 @@ function spend(cache: BaseCache, n: number): void {
 
 export type BaseFailure = "missing" | "entitlement" | "revoked_base" | "unavailable";
 
+/** The rebase conflict a base that cannot be loaded stops with. */
+export const conflictOf = (failure: BaseFailure) =>
+  failure === "entitlement" ? "conflict.entitlement" : failure === "missing" ? "conflict.missing_base" : "conflict.revoked_base";
+
 const RELEASE_MISSING = "release_missing";
 
 /** Classifies an access failure of a base release. */
@@ -68,8 +72,8 @@ async function explainNotFound(db: D1Database, error: unknown, pkg: string, vers
     const found = await db
       .prepare(
         `SELECT 1 AS found FROM package_releases r JOIN packages p ON p.id = r.package_id
-          WHERE p.name = ? AND r.version = ? AND (? IS NULL OR r.release_digest = ?) AND p.deleted_at IS NULL
-            AND r.release_state IN ('published', 'yanked', 'quarantined') AND r.signed_manifest_key IS NOT NULL`,
+          WHERE p.name = ? AND p.kit IS NOT NULL AND r.version = ? AND (? IS NULL OR r.release_digest = ?) AND p.deleted_at IS NULL
+            AND r.release_state IN ('published', 'yanked') AND r.signed_manifest_key IS NOT NULL`,
       )
       .bind(pkg, version, digest, digest)
       .first();

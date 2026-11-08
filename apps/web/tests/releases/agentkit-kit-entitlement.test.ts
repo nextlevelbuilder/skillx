@@ -64,11 +64,13 @@ function listReleases(slug: string, key: string | null = buyerKey) {
 }
 
 describe("kit of an @agentkit kit release", () => {
-  it("is read from the kit source path, and follows the most recent kit release", async () => {
+  it("is read from the kit source path, and never moves to another kit", async () => {
     expect((await publishKit("advise", "engineer", "private")).status).toBe(200);
     expect(kitOf("@agentkit/advise")).toBe("engineer");
-    expect((await publishKit("advise", "marketing", "private", "0.3.0")).status).toBe(200);
-    expect(kitOf("@agentkit/advise")).toBe("marketing");
+    const moved = await publishKit("advise", "marketing", "private", "0.3.0");
+    expect(moved).toMatchObject({ status: 409, body: { error: { code: "release.kit_mismatch" } } });
+    expect(kitOf("@agentkit/advise")).toBe("engineer");
+    expect((await publishKit("advise", "engineer", "private", "0.3.0")).status).toBe(200);
   });
 
   it("is not set for another source layout", async () => {

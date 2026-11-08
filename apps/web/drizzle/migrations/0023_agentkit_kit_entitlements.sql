@@ -12,8 +12,10 @@
 -- Code that predates this migration never reads them; the new code does, so apply this migration
 -- before deploying it.
 --
--- Rollback (take a D1 time-travel bookmark first; kit owners lose read access to private
--- `@agentkit/*` releases until it is reapplied). SQLite >= 3.35 drops columns in place:
+-- Rollback: first deploy code that predates this migration (the new code reads both columns on
+-- every release and library query and fails without them), take a D1 time-travel bookmark, then
+-- run the statements below; kit owners lose read access to private `@agentkit/*` releases until
+-- it is reapplied. SQLite >= 3.35 drops columns in place:
 --   DROP INDEX IF EXISTS idx_packages_kit;
 --   ALTER TABLE `agentkit_links` DROP COLUMN `kits`;
 --   ALTER TABLE `packages` DROP COLUMN `kit`;

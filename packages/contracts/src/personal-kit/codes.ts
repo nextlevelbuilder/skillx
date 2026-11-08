@@ -59,6 +59,7 @@ export const REBASE_CATEGORIES = [
   "conflict.entitlement",
   "conflict.ambiguous_provider",
   "conflict.revoked_base",
+  "conflict.missing_base",
 ] as const;
 
 export type RebaseCategory = (typeof REBASE_CATEGORIES)[number];

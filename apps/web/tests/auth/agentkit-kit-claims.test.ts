@@ -123,6 +123,24 @@ describe("kits of a viewer that is not an AgentKit bearer", () => {
     expect((await linkOfUser(ctx.env.DB, "user-a"))!.validatedAt).toBe(before);
   });
 
+  it("backs off after a failed refresh, so an AS outage costs one request a minute, not every request", async () => {
+    as.state.kits = ["engineer"];
+    await linkAs("user-a");
+    await stale();
+    as.state.down = true;
+    const calls = as.state.tokenCalls;
+    const counting = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).endsWith("/oauth/token")) as.state.tokenCalls++;
+      return as.fetcher(input, init);
+    }) as typeof fetch;
+    await refreshViewerLink(ctx.env, "user-a", counting);
+    await refreshViewerLink(ctx.env, "user-a", counting);
+    expect(as.state.tokenCalls - calls).toBe(1);
+    as.state.down = false;
+    await refreshViewerLink(ctx.env, "user-a", as.fetcher, Date.now() + 61_000);
+    expect((await linkOfUser(ctx.env.DB, "user-a"))!.validatedAt).toBeGreaterThan(Date.now() - 1000);
+  });
+
   it("does nothing while the feature is off", async () => {
     as.state.kits = ["engineer"];
     await linkAs("user-a");

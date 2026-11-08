@@ -26,6 +26,8 @@ export interface LinkEnv extends AgentKitEnv {
 
 export const LINK_FRESH_MS = 60_000;
 const CLAIM_MS = 15_000;
+/** After a failed refresh, how long other requests skip the AS instead of each waiting on it again. */
+const RETRY_AFTER_MS = 60_000;
 /** How long an unconfirmed link keeps working; paid kit grants follow it too (lib/releases/kit-entitlement-sql.ts). */
 export const OUTAGE_GRACE_MS = 15 * 60_000;
 
@@ -46,8 +48,9 @@ async function revoked(env: LinkEnv, link: AgentKitLink): Promise<Liveness> {
 export async function ensureLinkLive(env: LinkEnv, link: AgentKitLink, fetcher: typeof fetch = fetch, now = Date.now()): Promise<Liveness> {
   if (now - link.validatedAt <= LINK_FRESH_MS) return "live";
   if (!(await claimRefresh(env.DB, link.userId, link.validatedAt, now, now + CLAIM_MS))) {
-    // Another request is refreshing (for at most CLAIM_MS) or just did; only a deleted row means revoked.
-    return (await linkOfUser(env.DB, link.userId)) === null ? "revoked" : "live";
+    // Another request is refreshing, just did, or just failed (backing off); only a deleted row means revoked.
+    const current = await linkOfUser(env.DB, link.userId);
+    return current === null ? "revoked" : withinGrace(current, now);
   }
 
   const refreshToken = link.refreshTokenEnc === null ? null : await openRefreshToken(env.BETTER_AUTH_SECRET, link.userId, link.refreshTokenEnc);
@@ -66,7 +69,7 @@ export async function ensureLinkLive(env: LinkEnv, link: AgentKitLink, fetcher: 
     return "live";
   } catch (error) {
     if (error instanceof GrantRevokedError) return revoked(env, link);
-    await releaseRefresh(env.DB, link.userId);
+    await releaseRefresh(env.DB, link.userId, now + RETRY_AFTER_MS);
     if (error instanceof AuthServerUnavailableError) return withinGrace(link, now);
     // A token the AS just issued that SkillX cannot verify (JWKS unreachable, wrong audience): no deletion.
     console.warn("agentkit link: refresh not verifiable:", error instanceof Error ? error.message : String(error));

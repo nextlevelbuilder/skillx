@@ -98,6 +98,6 @@ export async function recordRefresh(db: D1Database, userId: string, refreshToken
     .run();
 }
 
-export async function releaseRefresh(db: D1Database, userId: string): Promise<void> {
-  await db.prepare("UPDATE agentkit_links SET refreshing_until = NULL WHERE user_id = ?").bind(userId).run();
+export async function releaseRefresh(db: D1Database, userId: string, until: number | null = null): Promise<void> {
+  await db.prepare("UPDATE agentkit_links SET refreshing_until = ? WHERE user_id = ?").bind(until, userId).run();
 }
