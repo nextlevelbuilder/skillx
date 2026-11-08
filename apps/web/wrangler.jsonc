@@ -78,6 +78,6 @@
     // /oauth/client.json and /.well-known/oauth-protected-resource. On only for "1" or "true"; off,
     // those paths answer 404 and SkillX works exactly as before. Needs migration 0021 and the
     // agentkit.best AS serving the https://skillx.sh/api resource. Rollback = set "0" and redeploy.
-    "SKILLX_AGENTKIT_IDENTITY": "0"
+    "SKILLX_AGENTKIT_IDENTITY": "1"
   }
 }
