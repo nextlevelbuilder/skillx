@@ -15,6 +15,7 @@ import { verifyAccessToken } from "./access-token";
 import { AuthServerUnavailableError, GrantRevokedError, refreshGrant, revokeRefreshToken } from "./as-client";
 import type { AgentKitEnv } from "./agentkit-config";
 import { openRefreshToken, sealRefreshToken } from "./link-crypto";
+import { agentKitIdentityEnabled } from "./agentkit-config";
 import { claimRefresh, deleteLink, linkOfUser, recordRefresh, releaseRefresh, storeRefreshToken } from "./link-store";
 import type { AgentKitLink } from "./link-store";
 
@@ -25,7 +26,8 @@ export interface LinkEnv extends AgentKitEnv {
 
 export const LINK_FRESH_MS = 60_000;
 const CLAIM_MS = 15_000;
-const OUTAGE_GRACE_MS = 15 * 60_000;
+/** How long an unconfirmed link keeps working; paid kit grants follow it too (lib/releases/kit-entitlement-sql.ts). */
+export const OUTAGE_GRACE_MS = 15 * 60_000;
 
 export class LinkUnavailableError extends Error {}
 
@@ -60,7 +62,7 @@ export async function ensureLinkLive(env: LinkEnv, link: AgentKitLink, fetcher: 
       if (tokens.refreshToken !== null) await revokeRefreshToken(env, tokens.refreshToken, fetcher);
       return revoked(env, link);
     }
-    await recordRefresh(env.DB, link.userId, null, tokens.scope, now);
+    await recordRefresh(env.DB, link.userId, null, tokens.scope, claims.kits, now);
     return "live";
   } catch (error) {
     if (error instanceof GrantRevokedError) return revoked(env, link);
@@ -69,5 +71,22 @@ export async function ensureLinkLive(env: LinkEnv, link: AgentKitLink, fetcher: 
     // A token the AS just issued that SkillX cannot verify (JWKS unreachable, wrong audience): no deletion.
     console.warn("agentkit link: refresh not verifiable:", error instanceof Error ? error.message : String(error));
     return withinGrace(link, now);
+  }
+}
+
+/**
+ * Keeps the paid kits of a signed-in or key-authenticated viewer current: a
+ * stale link is refreshed like a bearer's, so the stored `agentkit_kits` follow
+ * the AS for every credential, not only AgentKit tokens. Never fails the
+ * request: on an outage or any error the kit grant itself lapses once the link
+ * leaves the grace window.
+ */
+export async function refreshViewerLink(env: LinkEnv, userId: string, fetcher: typeof fetch = fetch, now = Date.now()): Promise<void> {
+  if (!agentKitIdentityEnabled(env)) return;
+  try {
+    const link = await linkOfUser(env.DB, userId);
+    if (link !== null) await ensureLinkLive(env, link, fetcher, now);
+  } catch (error) {
+    if (!(error instanceof LinkUnavailableError)) console.warn("agentkit link: viewer refresh failed:", error instanceof Error ? error.message : String(error));
   }
 }

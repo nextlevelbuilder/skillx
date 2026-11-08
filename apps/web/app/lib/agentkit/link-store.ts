@@ -8,6 +8,8 @@ export interface AgentKitLink {
   refreshTokenEnc: string | null;
   linkedAt: number;
   validatedAt: number;
+  /** Paid kits the account owned at the last link or refresh (sorted). */
+  kits: string[];
 }
 
 interface LinkRow {
@@ -18,9 +20,22 @@ interface LinkRow {
   refresh_token_enc: string | null;
   linked_at: number;
   validated_at: number;
+  kits: string;
 }
 
-const COLUMNS = "user_id, issuer, agentkit_sub, scopes, refresh_token_enc, linked_at, validated_at";
+const COLUMNS = "user_id, issuer, agentkit_sub, scopes, refresh_token_enc, linked_at, validated_at, kits";
+
+/** Stored as the sorted JSON array `kitEntitled` reads (lib/releases/kit-entitlement-sql.ts). */
+const storedKits = (kits: readonly string[]) => JSON.stringify([...new Set(kits)].sort());
+
+function parseStoredKits(raw: string): string[] {
+  try {
+    const value: unknown = JSON.parse(raw);
+    return Array.isArray(value) ? value.filter((kit): kit is string => typeof kit === "string") : [];
+  } catch {
+    return [];
+  }
+}
 
 const toLink = (row: LinkRow | null): AgentKitLink | null =>
   row === null
@@ -33,6 +48,7 @@ const toLink = (row: LinkRow | null): AgentKitLink | null =>
         refreshTokenEnc: row.refresh_token_enc,
         linkedAt: row.linked_at,
         validatedAt: row.validated_at,
+        kits: parseStoredKits(row.kits),
       };
 
 export async function linkOfUser(db: D1Database, userId: string): Promise<AgentKitLink | null> {
@@ -46,8 +62,8 @@ export async function linkOfSubject(db: D1Database, issuer: string, sub: string)
 /** Inserts a link; false when either side is already linked (the unique keys decide, so races are safe). */
 export async function insertLink(db: D1Database, link: AgentKitLink): Promise<boolean> {
   const result = await db
-    .prepare(`INSERT INTO agentkit_links (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`)
-    .bind(link.userId, link.issuer, link.sub, link.scopes, link.refreshTokenEnc, link.linkedAt, link.validatedAt)
+    .prepare(`INSERT INTO agentkit_links (${COLUMNS}) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING`)
+    .bind(link.userId, link.issuer, link.sub, link.scopes, link.refreshTokenEnc, link.linkedAt, link.validatedAt, storedKits(link.kits))
     .run();
   return (result.meta?.changes ?? 0) === 1;
 }
@@ -74,10 +90,11 @@ export async function storeRefreshToken(db: D1Database, userId: string, refreshT
   await db.prepare("UPDATE agentkit_links SET refresh_token_enc = ? WHERE user_id = ?").bind(refreshTokenEnc, userId).run();
 }
 
-export async function recordRefresh(db: D1Database, userId: string, refreshTokenEnc: string | null, scopes: string | null, now: number): Promise<void> {
+/** Records a verified refresh; `kits` replaces the stored kits (the claim is the whole current set). */
+export async function recordRefresh(db: D1Database, userId: string, refreshTokenEnc: string | null, scopes: string | null, kits: readonly string[], now: number): Promise<void> {
   await db
-    .prepare("UPDATE agentkit_links SET refresh_token_enc = COALESCE(?, refresh_token_enc), scopes = COALESCE(?, scopes), validated_at = ?, refreshing_until = NULL WHERE user_id = ?")
-    .bind(refreshTokenEnc, scopes, now, userId)
+    .prepare("UPDATE agentkit_links SET refresh_token_enc = COALESCE(?, refresh_token_enc), scopes = COALESCE(?, scopes), kits = ?, validated_at = ?, refreshing_until = NULL WHERE user_id = ?")
+    .bind(refreshTokenEnc, scopes, storedKits(kits), now, userId)
     .run();
 }
 

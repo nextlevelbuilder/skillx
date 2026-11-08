@@ -26,6 +26,8 @@ export async function createFakeAs() {
     revokedTokens: [] as string[],
     codes: new Map<string, string>(), // code → code_challenge
     tokenCalls: 0,
+    /** `agentkit_kits` of every issued token; undefined leaves the claim out (an AS without it). */
+    kits: undefined as unknown,
     jwksCalls: 0,
   };
   let counter = 0;
@@ -33,7 +35,7 @@ export async function createFakeAs() {
   async function sign(claims: Record<string, unknown> = {}, header: Record<string, unknown> = {}): Promise<string> {
     const now = Math.floor(Date.now() / 1000);
     const head = enc({ alg: "ES256", typ: "at+jwt", kid: "k1", ...header });
-    const body = enc({ iss: ISS, aud: RESOURCE, sub: state.sub, client_id: "ak-cli", grant_id: "g1", scope: state.scope, jti: `j${++counter}`, iat: now, exp: now + 60, ...claims });
+    const body = enc({ iss: ISS, aud: RESOURCE, sub: state.sub, client_id: "ak-cli", grant_id: "g1", scope: state.scope, jti: `j${++counter}`, iat: now, exp: now + 60, ...(state.kits === undefined ? {} : { agentkit_kits: state.kits }), ...claims });
     const sig = await crypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, pair.privateKey, new TextEncoder().encode(`${head}.${body}`));
     return `${head}.${body}.${base64UrlEncode(new Uint8Array(sig))}`;
   }

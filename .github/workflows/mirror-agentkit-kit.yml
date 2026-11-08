@@ -1,0 +1,320 @@
+# Mirrors every foundation skill of one AgentKit kit into SkillX as
+# @agentkit/<x> kit releases (skillx.release/v2, `--kit-origin remote-signed`),
+# from bestagentkits/agentkit at a pinned commit, with the skillx CLI built
+# from this repository at the dispatching commit.
+#
+# Run it by hand only (workflow_dispatch from main). For each directory
+# kits/<kit>/skills/ak-<x> (git tree entries only; files and symlinks are
+# ignored) it validates, packs and publishes @agentkit/<x> at the version of
+# kits/<kit>/kit.yaml. Visibility follows the kit's `tier`: free -> public,
+# paid -> private; any other tier fails the job before any upload. `dry-run`
+# stops after validate and pack.
+#
+# Re-runs are safe: a version already published with the same tree answers
+# `created: false` (reported as replayed); a version that exists with another
+# tree is `409 release.version_exists`, reported for that skill while the
+# others continue. The job fails at the end when any skill failed. Within 24 h
+# of a run the Idempotency-Key replays the stored answer verbatim, so a skill
+# first published by that run is reported as published again.
+#
+# Authentication, in order:
+#   1. GitHub OIDC trusted publishing (`skillx publish --oidc`): the registry
+#      must hold a trusted publisher of @agentkit for repository
+#      nextlevelbuilder/skillx (with its numeric repository id), workflow
+#      .github/workflows/mirror-agentkit-kit.yml, ref refs/heads/main and
+#      environment skillx-publish (see docs/deployment-guide.md).
+#   2. Fallback: SKILLX_AGENTKIT_KIT_PUBLISH_KEY, an API key scoped to
+#      releases:publish:@agentkit, stored as a skillx-publish environment
+#      secret. Used only when the OIDC exchange is refused (exit code 5) or the
+#      registry answers oidc.unavailable; once that happens the remaining
+#      skills of the run use the key directly.
+#
+# The CLI is built in a separate job without id-token or the environment and
+# installed here from its packed tarball with lifecycle scripts disabled.
+# Protect the skillx-publish environment: deployment branch main only and
+# required reviewers (docs/deployment-guide.md).
+#
+# AGENTKIT_READ_TOKEN (optional, read-only contents access to
+# bestagentkits/agentkit) is needed only while that repository is private.
+name: Mirror AgentKit kit skills
+
+on:
+  workflow_dispatch:
+    inputs:
+      agentkit-sha:
+        description: "Full 40-character commit SHA of bestagentkits/agentkit to mirror"
+        required: true
+        type: string
+      kit:
+        description: "Kit whose skills/ak-* directories are mirrored as @agentkit/<x>"
+        required: true
+        type: choice
+        options: [core, engineer, marketing]
+      channel:
+        description: "Release channel"
+        required: false
+        default: beta
+        type: choice
+        options: [stable, beta, alpha]
+      skills:
+        description: "Optional subset of ak-<x> directory names, space or comma separated; default every skill of the kit"
+        required: false
+        type: string
+      dry-run:
+        description: "Validate and pack only; upload nothing"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: skillx-agentkit-kit-mirror-${{ inputs.kit }}
+  cancel-in-progress: false
+
+jobs:
+  # Installs and builds without id-token or the skillx-publish environment, so
+  # no dependency lifecycle script ever runs next to a publish credential.
+  build-cli:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4.3.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Build and pack the skillx CLI
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile
+          pnpm --filter skillx-sh build
+          mkdir -p "$RUNNER_TEMP/cli"
+          pnpm --filter skillx-sh pack --pack-destination "$RUNNER_TEMP/cli"
+          mv "$RUNNER_TEMP"/cli/skillx-sh-*.tgz "$RUNNER_TEMP/cli/skillx-sh.tgz"
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: skillx-cli
+          path: ${{ runner.temp }}/cli/skillx-sh.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  mirror:
+    needs: build-cli
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    environment: skillx-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Validate inputs
+        env:
+          SHA: ${{ inputs.agentkit-sha }}
+          KIT: ${{ inputs.kit }}
+          CHANNEL: ${{ inputs.channel }}
+          DRY_RUN: ${{ inputs.dry-run }}
+        run: |
+          set -euo pipefail
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::agentkit-sha must be a full lowercase commit SHA"; exit 1; }
+          [[ "$KIT" =~ ^(core|engineer|marketing)$ ]] || { echo "::error::invalid kit"; exit 1; }
+          [[ "$CHANNEL" =~ ^(stable|beta|alpha)$ ]] || { echo "::error::invalid channel"; exit 1; }
+          [[ "$DRY_RUN" =~ ^(true|false)$ ]] || { echo "::error::invalid dry-run"; exit 1; }
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: bestagentkits/agentkit
+          ref: ${{ inputs.agentkit-sha }}
+          path: agentkit
+          fetch-depth: 1
+          persist-credentials: false
+          token: ${{ secrets.AGENTKIT_READ_TOKEN || github.token }}
+
+      # Resolves version, visibility and the skill list before anything is
+      # packed or uploaded; every structural problem fails here.
+      - name: Plan the mirror
+        id: plan
+        working-directory: agentkit
+        env:
+          SHA: ${{ inputs.agentkit-sha }}
+          KIT: ${{ inputs.kit }}
+          SKILLS: ${{ inputs.skills }}
+        run: |
+          set -euo pipefail
+          [[ "$(git rev-parse HEAD)" == "$SHA" ]] || { echo "::error::checked out $(git rev-parse HEAD), expected $SHA"; exit 1; }
+          manifest="kits/$KIT/kit.yaml"
+          [[ -f "$manifest" ]] || { echo "::error::$manifest does not exist at $SHA"; exit 1; }
+          # Top-level scalar of kit.yaml, optionally quoted, without a trailing comment.
+          kit_field() { sed -n "s/^$1:[[:space:]]*[\"']\{0,1\}\([^\"' #]*\).*\$/\1/p" "$manifest" | head -n 1; }
+          version="$(kit_field version)"
+          tier="$(kit_field tier)"
+          [[ "$version" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*)?$ ]] || { echo "::error::$manifest version '${version}' is not SemVer"; exit 1; }
+          case "$tier" in
+            free) visibility=public ;;
+            paid) visibility=private ;;
+            *) echo "::error::$manifest tier '${tier}' is neither free nor paid; nothing was uploaded"; exit 1 ;;
+          esac
+          # Tree entries only: files (.env.example) and symlinks are not skills.
+          mapfile -t available < <(git ls-tree -d --name-only HEAD "kits/$KIT/skills/" | sed 's#.*/##' | grep '^ak-' | LC_ALL=C sort)
+          [[ ${#available[@]} -gt 0 ]] || { echo "::error::kits/$KIT/skills has no ak-* skill directory"; exit 1; }
+          for dir in "${available[@]}"; do
+            [[ "$dir" =~ ^ak-[a-z0-9][a-z0-9._-]*$ ]] || { echo "::error::kits/$KIT/skills/$dir does not map to a valid @agentkit/<slug>"; exit 1; }
+          done
+          if [[ -n "${SKILLS//[[:space:],]/}" ]]; then
+            mapfile -t selected < <(tr ', \t' '\n\n\n' <<< "$SKILLS" | sed '/^$/d' | LC_ALL=C sort -u)
+            for dir in "${selected[@]}"; do
+              [[ "$dir" =~ ^ak-[a-z0-9][a-z0-9._-]*$ ]] || { echo "::error::skills entries must be ak-<x> directory names"; exit 1; }
+              printf '%s\n' "${available[@]}" | grep -qxF -- "$dir" || { echo "::error::$dir is not a skill directory of kits/$KIT/skills"; exit 1; }
+            done
+          else
+            selected=("${available[@]}")
+          fi
+          printf '%s\n' "${selected[@]}" > "$RUNNER_TEMP/skills.txt"
+          echo "Mirroring ${#selected[@]} skill(s) of kits/$KIT at $version ($visibility): ${selected[*]}"
+          {
+            echo "version=$version"
+            echo "visibility=$visibility"
+          } >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: skillx-cli
+          path: ${{ runner.temp }}/cli
+
+      - name: Install the skillx CLI (lifecycle scripts disabled)
+        run: |
+          set -euo pipefail
+          npm install --prefix "$RUNNER_TEMP/cli" --no-save --ignore-scripts --omit=dev --no-audit --no-fund "$RUNNER_TEMP/cli/skillx-sh.tgz"
+          node "$RUNNER_TEMP/cli/node_modules/skillx-sh/bin/skillx.js" --version
+
+      - name: Validate, pack and publish each skill
+        working-directory: agentkit
+        env:
+          SKILLX_AGENTKIT_KIT_PUBLISH_KEY: ${{ secrets.SKILLX_AGENTKIT_KIT_PUBLISH_KEY }}
+          SHA: ${{ inputs.agentkit-sha }}
+          KIT: ${{ inputs.kit }}
+          CHANNEL: ${{ inputs.channel }}
+          DRY_RUN: ${{ inputs.dry-run }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          VISIBILITY: ${{ steps.plan.outputs.visibility }}
+        run: |
+          set -euo pipefail
+          cli="$RUNNER_TEMP/cli/node_modules/skillx-sh/bin/skillx.js"
+          out="$RUNNER_TEMP/out.json"
+          # Reads a field of a CLI JSON envelope; server text must not open or end a
+          # workflow command or break the summary table, so '::', '|' and line breaks go.
+          field() {
+            node -e 'let v; try { v = process.argv[2].split(".").reduce((o, k) => o?.[k], require(process.argv[1])) } catch {} process.stdout.write(String(v ?? "").replace(/[\r\n]+/g, " ").replace(/:{2,}/g, ":").replace(/\|/g, "/"))' "$out" "$1"
+          }
+          error_text() {
+            local code
+            code="$(field error.details.code)"
+            [[ -n "$code" ]] || code="$(field error.code)"
+            echo "${code:-unknown_error}: $(field error.message)"
+          }
+          publish() {
+            node "$cli" publish HEAD --path "$dir_path" --name "$name" --release-version "$VERSION" \
+              --channel "$CHANNEL" --kit-origin remote-signed --visibility "$VISIBILITY" \
+              --repo https://github.com/bestagentkits/agentkit --registry https://skillx.sh \
+              --idempotency-key "agentkit-kit-mirror:$SHA:$name@$VERSION" --json "$@"
+          }
+          auth=oidc
+          abort=""
+          published=() replayed=() packed=() failed=() skipped=()
+          rows=()
+          while IFS= read -r dir; do
+            name="@agentkit/${dir#ak-}"
+            dir_path="kits/$KIT/skills/$dir"
+            if [[ -n "$abort" ]]; then
+              skipped+=("$dir"); rows+=("| \`$dir\` | \`$name\` | skipped | | $abort |"); continue
+            fi
+            status=0
+            node "$cli" validate HEAD --path "$dir_path" --name "$name" --release-version "$VERSION" --channel "$CHANNEL" --json > "$out" || status=$?
+            if [[ $status -eq 0 ]]; then
+              node "$cli" pack HEAD --path "$dir_path" --out "$RUNNER_TEMP/release.tar" --json > "$out" || status=$?
+            fi
+            if [[ $status -ne 0 ]]; then
+              detail="$(error_text)"
+              echo "::error::$name: validate/pack failed: $detail"
+              failed+=("$dir"); rows+=("| \`$dir\` | \`$name\` | failed | | $detail |"); continue
+            fi
+            pack_digest="$(field data.releaseDigest)"
+            if [[ ! "$pack_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "::error::$name: pack returned no releaseDigest"
+              failed+=("$dir"); rows+=("| \`$dir\` | \`$name\` | failed | | pack returned no releaseDigest |"); continue
+            fi
+            if [[ "$DRY_RUN" == "true" ]]; then
+              echo "Packed $name@$VERSION: $pack_digest"
+              packed+=("$dir"); rows+=("| \`$dir\` | \`$name\` | packed (dry run) | \`$pack_digest\` | |"); continue
+            fi
+
+            status=0
+            if [[ "$auth" == "oidc" ]]; then
+              SKILLX_API_KEY= publish --oidc > "$out" || status=$?
+              # Exit 5 is a refused exchange; a 503 oidc.unavailable (in error.details.code) is a registry without OIDC configured.
+              if [[ $status -ne 0 && -n "$SKILLX_AGENTKIT_KIT_PUBLISH_KEY" ]] && [[ $status -eq 5 || "$(field error.details.code)" == "oidc.unavailable" ]]; then
+                echo "::warning::OIDC trusted publishing was unavailable or refused; falling back to SKILLX_AGENTKIT_KIT_PUBLISH_KEY for the remaining skills"
+                auth=key
+              fi
+            fi
+            if [[ "$auth" == "key" ]]; then
+              status=0
+              SKILLX_API_KEY="$SKILLX_AGENTKIT_KIT_PUBLISH_KEY" publish > "$out" || status=$?
+            fi
+            if [[ $status -ne 0 ]]; then
+              detail="$(error_text)"
+              echo "::error::$name@$VERSION: $detail"
+              failed+=("$dir"); rows+=("| \`$dir\` | \`$name\` | failed | \`$pack_digest\` | $detail |")
+              # A rejected credential fails every remaining skill the same way.
+              [[ $status -eq 5 ]] && abort="not attempted after an authentication failure"
+              continue
+            fi
+            digest="$(field data.releaseDigest)"
+            state="$(field data.state)"
+            if [[ "$digest" != "$pack_digest" ]]; then
+              echo "::error::$name@$VERSION: registry releaseDigest $digest differs from the pack $pack_digest"
+              failed+=("$dir"); rows+=("| \`$dir\` | \`$name\` | failed | \`$pack_digest\` | registry answered $digest |"); continue
+            fi
+            if [[ "$(field data.created)" == "true" ]]; then
+              result=published; published+=("$dir")
+            else
+              result=replayed; replayed+=("$dir")
+            fi
+            echo "$result $name@$VERSION releaseDigest $digest (state $state)"
+            rows+=("| \`$dir\` | \`$name\` | $result | \`$digest\` | state $state |")
+          done < "$RUNNER_TEMP/skills.txt"
+
+          {
+            echo "### @agentkit mirror of kits/$KIT@$VERSION"
+            echo "- agentkit commit: \`$SHA\`"
+            echo "- channel: $CHANNEL, visibility: $VISIBILITY, dry run: $DRY_RUN"
+            echo "- published ${#published[@]}, replayed ${#replayed[@]}, packed ${#packed[@]}, failed ${#failed[@]}, skipped ${#skipped[@]}"
+            echo
+            echo "| Directory | Package | Result | releaseDigest | Detail |"
+            echo "| --- | --- | --- | --- | --- |"
+            printf '%s\n' "${rows[@]}"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "published: ${published[*]:-none}"
+          echo "replayed: ${replayed[*]:-none}"
+          [[ "$DRY_RUN" != "true" ]] || echo "packed (dry run): ${packed[*]:-none}"
+          echo "failed: ${failed[*]:-none}"
+          echo "skipped: ${skipped[*]:-none}"
+          if [[ ${#failed[@]} -gt 0 || ${#skipped[@]} -gt 0 ]]; then
+            echo "::error::${#failed[@]} skill(s) failed and ${#skipped[@]} were skipped: ${failed[*]} ${skipped[*]}"
+            exit 1
+          fi

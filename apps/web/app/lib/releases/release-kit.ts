@@ -5,7 +5,7 @@
  * scoped key and active `agentkit` publisher are checked by release-auth.
  */
 import { KIT_ORIGINS, PACKAGE_NAME_PATTERN, RELEASE_PROVIDERS, releaseProvenanceOf } from "@skillx/contracts";
-import type { KitOrigin, ReleaseProvenance } from "@skillx/contracts";
+import type { KitOrigin, ReleaseProvenance, ReleaseSourceProvenance } from "@skillx/contracts";
 import { ERROR_CODES, SkillTreeError, checkDirectoryAlias, checkPublisher } from "@skillx/skill-tree";
 import { releaseError } from "./release-http";
 import { readManifest, storageError } from "./release-read";
@@ -41,6 +41,19 @@ export function parseKitReleaseName(scope: string, slug: string): { identity: st
     throw error;
   }
   return { identity, handle: scope.slice(1), slug };
+}
+
+/** `kits/<kit>/skills/<dir>`: the kit directory layout of the AgentKit repository. */
+const KIT_SOURCE_PATH = /^kits\/([a-z0-9][a-z0-9-]{0,63})\/skills\/[^/]+$/;
+
+/**
+ * The AgentKit kit a kit release comes from, read from its signed source
+ * path; null for a non-kit release or another layout. Only an `@agentkit`
+ * publish credential can publish a kit release, so the path is trusted.
+ */
+export function kitOfRelease(metadata: { provenance: ReleaseProvenance | null; sourceProvenance: ReleaseSourceProvenance | null }): string | null {
+  if (metadata.provenance?.provider !== "kit" || metadata.sourceProvenance === null) return null;
+  return KIT_SOURCE_PATH.exec(metadata.sourceProvenance.path)?.[1] ?? null;
 }
 
 /** The `provenance` metadata member; null (absent or provider `skillx`) means a v1 release. */

@@ -18,7 +18,8 @@ function recordingDb() {
   return { db, prepared, batches };
 }
 
-const lookedUp = (batches: Array<Array<{ args: unknown[] }>>) => batches.flatMap((b) => b.flatMap((s) => s.args.slice(2) as string[]));
+// The first three binds are the viewer (entitlement, kit entitlement, owner); the names follow.
+const lookedUp = (batches: Array<Array<{ args: unknown[] }>>) => batches.flatMap((b) => b.flatMap((s) => s.args.slice(3) as string[]));
 
 describe("readablePackageNames", () => {
   it("looks every distinct name up once, in one batch", async () => {

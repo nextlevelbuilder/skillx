@@ -63,9 +63,10 @@ export async function completeLink(env: LinkFlowEnv, userId: string, query: URLS
 
   let tokens;
   let sub: string;
+  let kits: string[];
   try {
     tokens = await exchangeCode(env, code, stored.verifier, fetcher);
-    sub = (await verifyAccessToken(env, tokens.accessToken, fetcher)).sub;
+    ({ sub, kits } = await verifyAccessToken(env, tokens.accessToken, fetcher));
   } catch (error) {
     console.warn("agentkit link: code exchange failed:", error instanceof Error ? error.message : String(error));
     return "failed";
@@ -90,6 +91,7 @@ export async function completeLink(env: LinkFlowEnv, userId: string, query: URLS
     refreshTokenEnc: await sealRefreshToken(env.BETTER_AUTH_SECRET, userId, tokens.refreshToken),
     linkedAt: now,
     validatedAt: now,
+    kits,
   });
   return inserted ? "linked" : refuse("taken");
 }

@@ -45,6 +45,8 @@ export interface NewRelease {
   sourceProvenance: ReleaseSourceProvenance | null;
   /** Capability summary of a valid agentkit-exec.json, or null when the tree has none. */
   execSummary: ExecSummary | null;
+  /** AgentKit kit of a kit release (`kitOfRelease`); stored on the package, which follows its most recently published kit release. */
+  kit?: string | null;
   createdAt: number;
 }
 
@@ -143,6 +145,14 @@ export async function insertRelease(db: D1Database, release: NewRelease): Promis
         release.visibility,
       ),
   ];
+  if (release.kit) {
+    // Runs only after the release row was added: a refused insert leaves the package as it was.
+    statements.push(
+      db
+        .prepare("UPDATE packages SET kit = ? WHERE name = ? AND publisher_id = ? AND EXISTS (SELECT 1 FROM package_releases r WHERE r.id = ?)")
+        .bind(release.kit, release.identity, release.publisherId, releaseId),
+    );
+  }
   try {
     const results = await db.batch(statements);
     return (results[1]?.meta.changes ?? 0) === 1 ? "inserted" : "conflict";

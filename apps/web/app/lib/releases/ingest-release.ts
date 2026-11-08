@@ -21,7 +21,7 @@ import { readTree, sha256Hex } from "./release-tree-read";
 import { assertPackageLive, findPackage, findRelease, insertRelease } from "./release-store";
 import type { ExistingRelease } from "./release-store";
 import { artifactKey, blobKey, forEachLimited, manifestKey, putCreateOnly } from "./r2-create-only";
-import { assertSameKitProvenance } from "./release-kit";
+import { assertSameKitProvenance, kitOfRelease } from "./release-kit";
 import { signRelease } from "./sign-manifest";
 import type { RegistrySigner } from "./sign-manifest";
 
@@ -175,6 +175,7 @@ async function ingest(request: Request, params: Params, deps: IngestDeps, prepar
     manifestKey: manifestKey(manifestHex),
     sourceProvenance: metadata.sourceProvenance,
     execSummary: exec.summary,
+    kit: kitOfRelease(metadata),
     createdAt: now.getTime(),
   });
   if (outcome === "conflict") {

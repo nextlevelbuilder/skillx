@@ -40,15 +40,42 @@ function spend(cache: BaseCache, n: number): void {
   }
 }
 
-export type BaseFailure = "entitlement" | "revoked_base" | "unavailable";
+export type BaseFailure = "missing" | "entitlement" | "revoked_base" | "unavailable";
+
+const RELEASE_MISSING = "release_missing";
 
 /** Classifies an access failure of a base release. */
 export function baseFailure(error: unknown): BaseFailure | null {
   if (!(error instanceof ReleaseHttpError)) return null;
-  if (error.status === 404) return "entitlement";
+  if (error.status === 404) return error.code === RELEASE_MISSING ? "missing" : "entitlement";
   if (error.code === "release_quarantined" || error.code === "publisher_revoked") return "revoked_base";
   if (error.status === 410) return "unavailable";
   return null;
+}
+
+/** AgentKit kit content: its roster is public (the kit manifests), so whether a release exists is no secret. */
+const KIT_SCOPE = "@agentkit/";
+
+/**
+ * A 404 for an `@agentkit/*` base whose release does not exist at all (not
+ * mirrored yet, or another digest) becomes `release_missing`, so it is not
+ * reported as a missing entitlement. Every other package keeps the one
+ * not-found answer, which never says whether a private package exists.
+ */
+async function explainNotFound(db: D1Database, error: unknown, pkg: string, version: string, digest: string | null, cache: BaseCache): Promise<never> {
+  if (error instanceof ReleaseHttpError && error.status === 404 && pkg.startsWith(KIT_SCOPE)) {
+    spend(cache, 1);
+    const found = await db
+      .prepare(
+        `SELECT 1 AS found FROM package_releases r JOIN packages p ON p.id = r.package_id
+          WHERE p.name = ? AND r.version = ? AND (? IS NULL OR r.release_digest = ?) AND p.deleted_at IS NULL
+            AND r.release_state IN ('published', 'yanked', 'quarantined') AND r.signed_manifest_key IS NOT NULL`,
+      )
+      .bind(pkg, version, digest, digest)
+      .first();
+    if (found === null) throw releaseError(404, RELEASE_MISSING, `${pkg}@${version} is not published on SkillX`);
+  }
+  throw error;
 }
 
 const hex = (buffer: ArrayBuffer) => Array.from(new Uint8Array(buffer), (b) => b.toString(16).padStart(2, "0")).join("");
@@ -100,7 +127,9 @@ function cached(cache: BaseCache, key: string, load: () => Promise<LoadedBase>):
 /** The base an entry pins, checked against its package and version. */
 export function loadPinnedBase(env: Env, userId: string, base: KitBasePin, cache: BaseCache): Promise<LoadedBase> {
   return cached(cache, `pin|${userId}|${base.package}|${base.version}|${base.releaseDigest}`, async () => {
-    const release = await resolveReleaseByDigest(env.DB, base.releaseDigest, userId, base.version, base.package);
+    const release = await resolveReleaseByDigest(env.DB, base.releaseDigest, userId, base.version, base.package).catch((error: unknown) =>
+      explainNotFound(env.DB, error, base.package, base.version, base.releaseDigest, cache),
+    );
     return { release, tree: await treeOf(env.R2, release, cache) };
   });
 }
@@ -108,7 +137,7 @@ export function loadPinnedBase(env: Env, userId: string, base: KitBasePin, cache
 /** A new upstream release by version (published only: a yanked version is never a rebase target). */
 export function loadUpstream(env: Env, userId: string, pkg: string, version: string, cache: BaseCache): Promise<LoadedBase> {
   return cached(cache, `up|${userId}|${pkg}|${version}`, async () => {
-    const release = await resolveReleaseByVersion(env.DB, pkg, version, userId);
+    const release = await resolveReleaseByVersion(env.DB, pkg, version, userId).catch((error: unknown) => explainNotFound(env.DB, error, pkg, version, null, cache));
     return { release, tree: await treeOf(env.R2, release, cache) };
   });
 }

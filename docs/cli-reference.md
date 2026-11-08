@@ -483,7 +483,10 @@ pinned commit with OIDC (fallback `SKILLX_AGENTKIT_PUBLISH_KEY`) and
 `--visibility public`: the kit
 directory `kits/<kit>/skills/ak-<x>` becomes `@bestagentkits/<x>` at the
 kit's `kit.yaml` version (see the deployment guide for why `@agentkit/*` stays
-reserved). Deploy the web app before running either workflow with
+reserved). `.github/workflows/mirror-agentkit-kit.yml` mirrors every
+`kits/<kit>/skills/ak-<x>` of one kit as the kit release `@agentkit/<x>`
+(`--kit-origin remote-signed`; `public` for a free kit, `private` for a paid
+one). Deploy the web app before running any of these workflows with
 `--visibility`: a registry without visibility support refuses the member with
 `400 release.invalid_metadata` and stores nothing (see the deployment guide).
 
