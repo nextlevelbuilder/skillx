@@ -367,6 +367,33 @@ soon as the worker deploys**; no other flag holds them back.
    `@bestagentkits/*` package would then be created private and anonymous
    AgentKit reads of it would answer `404`.
 
+8. **Mirroring a whole AgentKit kit as `@agentkit/*` releases.** A personal kit
+   that extends an official kit (`ak skills kit init --extends engineer@0.2.0`)
+   pins every foundation skill as an `@agentkit/<x>` release, and SkillX refuses
+   the revision with `kit.base_unavailable` until each one is served.
+   `.github/workflows/publish-agentkit-kit-mirror.yml` (manual dispatch from
+   `main`: `agentkit-sha`, `kit`, `channel`, optional `only`, `dry-run`) builds
+   `ak` at that commit, plans the kit with `ak skills kit inspect --json` and
+   `scripts/agentkit-kit-mirror-plan.mjs`, and publishes every skill with
+   `--kit-origin remote-signed`. A skill of a kit whose `kit.yaml` declares
+   `tier: free` (`kits/core`) is published `public`; a skill of any other kit
+   (paid `engineer`, `marketing`) is published `private`, so proprietary content
+   never becomes public. Each pack must reproduce the base tree digest AgentKit
+   pins before anything is uploaded; a release already served at the same
+   digest is skipped and a different digest fails the entry. Setup, once:
+   - register a trusted publisher for the `agentkit` handle with
+     `"workflowPath":".github/workflows/publish-agentkit-kit-mirror.yml"` (same
+     call as step 3, `/api/v1/publishers/agentkit/trusted-publishers`), or add
+     the `skillx-publish` environment secret `SKILLX_AGENTKIT_KIT_PUBLISH_KEY`
+     (a key scoped to `releases:publish:@agentkit`);
+   - keep `AGENTKIT_READ_TOKEN` set while `bestagentkits/agentkit` is private.
+
+   Dispatch with `dry-run: true` first; its summary lists every planned
+   identity, owner kit and visibility, and the `kit-mirror-plan` artifact holds
+   the plan. Private paid-kit releases are readable only by their owner until
+   SkillX entitles AgentKit license holders to them, so a public personal kit
+   over `engineer` stays refused by AgentKit itself (`tier paid`).
+
 Rollback: revoke trusted publishers (`POST .../trusted-publishers/{id}/revoke`),
 unset `SKILLX_TOKEN_SECRET` (all outstanding `sxo_` and download tokens stop
 verifying), then follow the rollback above.
